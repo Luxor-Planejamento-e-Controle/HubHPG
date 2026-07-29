@@ -1,0 +1,42 @@
+# ============================================================
+# Só CÓDIGO neste repo. Dado do haras não é versionado.
+# ============================================================
+
+# saídas e bases geradas pelo pipeline (dado real do plantel)
+bases/
+dashboards/
+_cache/
+_docs/
+
+# planilhas / documentos em qualquer lugar
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.docx
+*.doc
+*.pptx
+*.pdf
+*.parquet
+*.csv
+*.pbix
+
+# temporários do Office
+~$*
+
+# segredos
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ambiente
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Windows / Google Drive
+desktop.ini
+Thumbs.db

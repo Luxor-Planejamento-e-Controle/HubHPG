@@ -1,7 +1,20 @@
-# Projeto Automações HPG
+# HubHPG — Automações do Haras Pao Grande
 
 Automação dos relatórios do Haras Pao Grande. Lê as planilhas de controle do Drive
 e gera as saídas (dashboard semanal, base do comitê mensal).
+
+> **Só código aqui.** `bases/`, `dashboards/`, `_cache/` e `_docs/` estão no
+> `.gitignore` — dado do plantel não é versionado. As fontes continuam no Drive
+> (`G:\.shortcut-targets-by-id\...`, resolvido em `scripts/_pg_common.py`) e as
+> pastas de saída são criadas pelo próprio pipeline no primeiro run.
+>
+> Produção roda em `Luxor Controladoria\Ambiente de testes\Projeto automações HPG`
+> (git corrompe dentro do Google Drive): o repo é a fonte da verdade do código,
+> a pasta do Drive é onde executa.
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Estrutura
 
