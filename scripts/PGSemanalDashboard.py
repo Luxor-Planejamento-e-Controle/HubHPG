@@ -96,9 +96,7 @@ TEMPLATE = r"""<!doctype html>
   <div class="toolbar">
     <select id="semana"></select>
     <button id="btnEdit">Editar</button>
-    <button id="btnExport">Exportar</button>
-    <button id="btnImport">Importar</button>
-    <input type="file" id="fileImport" accept="application/json" style="display:none">
+    <button id="btnImg">Exportar imagem</button>
   </div>
 </header>
 <div class="wrap"><div class="sections" id="sections"></div></div>
@@ -140,7 +138,7 @@ function deltaTxt(s){
 const SECTIONS = [
  {n:"1", t:"PRODUÇÃO", wide:true, kpis:[
     {p:"prod.conf", l:"Embriões confirmados na semana", get:s=>s.confirmados_semana},
-    {p:"prod.acum", l:"Acumulado na estação", manual:true, get:s=>s.acumulado_estacao},
+    {p:"prod.acum", l:"Acumulado na estação", get:s=>s.acumulado_estacao},
     {p:"prod.aberto", l:"Aberto (PG / sócio / vend.)", get:s=>{const sp=s.acumulado_estacao_split; return sp?`${sp.pg||0} · ${sp.socio||0} · ${sp.vendido||0}`:null;}},
     {p:"prod.mes", l:"Acumulado no mês", get:s=>s.acumulado_mes},
     {p:"prod.nasc", l:"Nascimentos na semana", get:s=>s.nascimentos},
@@ -150,7 +148,7 @@ const SECTIONS = [
     {p:"rec.tot", l:"Total receptoras", get:s=>s.receptoras?.total},
     {p:"rec.pre", l:"Prenhas", get:s=>s.receptoras?.prenhas},
     {p:"rec.vaz", l:"Vazias", get:s=>s.receptoras?.vazias},
-    {p:"rec.doa", l:"Doadoras (estação)", manual:true, get:s=>s.receptoras?.doadoras},
+    {p:"rec.doa", l:"Doadoras (estação)", get:s=>s.receptoras?.doadoras},
     {p:"rec.idx", l:"Índice eficiência (vazias/doadoras)"},  // derivado: vazias ÷ doadoras
  ]},
  {n:"3", t:"HEADCOUNT", kpis:[
@@ -165,7 +163,8 @@ const SECTIONS = [
     {p:"ter.tot", l:"Total terceiros (vendidos pendentes)", get:s=>s.terceiros?.terceiros_propriedade},
     {p:"ter.doa", l:"Doadoras terceiros", get:s=>s.terceiros?.doadoras_terceiros},
     {p:"ter.out", l:"Outros terceiros (cavalgada / treino)", get:s=>s.terceiros?.outros_terceiros},
- ], det:[["Terceiros na propriedade (vendidos pendentes)","terceiros_vendidos"]]},
+ ], det:[["Terceiros na propriedade (vendidos pendentes)","terceiros_vendidos"],
+         ["Animais em sociedade pendentes de saída","terceiros_sociedade"]]},
  {n:"5", t:"SAÍDAS", wide:true, kpis:[
     {p:"sai.sa", l:"Saídas na semana", manual:true, get:s=>s.movimento?.saidas},
     {p:"sai.vp", l:"Vendidos pendentes de saída", get:s=>s.terceiros?.vendidos_pendentes},
@@ -264,17 +263,81 @@ document.getElementById("btnEdit").addEventListener("click",e=>{
   editMode=!editMode; e.target.classList.toggle("on",editMode);
   e.target.textContent=editMode?"Concluir edição":"Editar"; render();
 });
-document.getElementById("btnExport").onclick=()=>{
-  const m=JSON.parse(JSON.stringify(DATA)); m._overrides=overrides;
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([JSON.stringify(m,null,2)],{type:"application/json"}));
-  a.download=`atualizacao_semanal_${semana||"export"}.json`; a.click();
-};
-document.getElementById("btnImport").onclick=()=>document.getElementById("fileImport").click();
-document.getElementById("fileImport").onchange=e=>{
-  const f=e.target.files[0]; if(!f)return; const r=new FileReader();
-  r.onload=()=>{ try{const j=JSON.parse(r.result); if(j._overrides){overrides=j._overrides; saveState(KEY_OV,overrides); render();}}catch(err){alert("JSON inválido");} };
-  r.readAsText(f);
+/* Exportar imagem: PNG do dashboard inteiro, pra mandar no grupo.
+   Feito com SVG <foreignObject> + canvas — nada de biblioteca externa, o HTML
+   tem que continuar self-contained e funcionando offline. Requisito que isso
+   impõe: toda imagem embutida precisa ser data URI (o logo é), senão o canvas
+   fica "tainted" e o toBlob falha. */
+document.getElementById("btnImg").onclick=async(ev)=>{
+  const btn=ev.target, rotulo=btn.textContent;
+  btn.textContent="Gerando..."; btn.disabled=true;
+  try{
+    /* Dentro do foreignObject o conteúdo é um <div>, não um <body>: as regras de
+       body{} (fonte e cor do texto) não casam e o SVG cai no default do navegador
+       — serif e texto preto. Por isso replicamos as declarações do body no
+       wrapper da captura. As variáveis de cor não precisam disso: estão no :root,
+       que no SVG é o próprio <svg>, e custom property herda pra dentro. */
+    const cssCaptura=`#capa{background:var(--bg);color:var(--txt);
+      font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:15px}
+      #capa header{padding-bottom:16px}
+      #capa .cap-per{font-size:17px;font-weight:600;color:var(--teal);white-space:nowrap}
+      #capa .cap-per .rot{display:block;font-size:10px;font-weight:600;color:var(--mut);
+        text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}`;
+    const css=[...document.querySelectorAll("style")].map(s=>s.textContent).join("\n")+cssCaptura;
+    const clone=document.createElement("div");
+    clone.id="capa";
+    clone.appendChild(document.querySelector("header").cloneNode(true));
+    clone.appendChild(document.querySelector(".wrap").cloneNode(true));
+    // a toolbar sai da imagem, mas o período tem que ficar: sem ele a imagem
+    // solta no grupo não diz de que semana é.
+    const w=CAL.find(x=>x.id===semana);
+    const per=document.createElement("div");
+    per.className="cap-per";
+    per.innerHTML=`<span class="rot">Semana de referência</span>`+
+      (w? `${br(w.ini)} a ${br(w.fim)}` : (semana||""));
+    clone.querySelector(".toolbar")?.replaceWith(per);
+    clone.querySelectorAll(".det-b").forEach(d=>{           // tabela inteira, sem scroll
+      d.style.maxHeight="none"; d.style.overflow="visible";
+    });
+    clone.querySelectorAll(".rst").forEach(r=>r.remove());
+    const largura=document.querySelector(".wrap").scrollWidth;
+    // mede a altura real renderizando fora da tela
+    const medidor=document.createElement("div");
+    medidor.style.cssText=`position:fixed;left:-99999px;top:0;width:${largura}px`;
+    medidor.appendChild(clone.cloneNode(true));
+    document.body.appendChild(medidor);
+    const altura=medidor.firstChild.scrollHeight+40;
+    document.body.removeChild(medidor);
+
+    // o XMLSerializer já emite xmlns="http://www.w3.org/1999/xhtml" na raiz;
+    // acrescentar de novo dá "Attribute xmlns redefined" e o SVG não renderiza.
+    const xhtml=new XMLSerializer().serializeToString(clone);
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${largura}" height="${altura}">`
+      +`<rect width="100%" height="100%" fill="#04223B"/>`
+      +`<foreignObject width="100%" height="100%">`
+      +`<style xmlns="http://www.w3.org/1999/xhtml">${css}</style>${xhtml}</foreignObject></svg>`;
+
+    const escala=2;                                          // 2x = legível no celular
+    const img=new Image();
+    await new Promise((ok,erro)=>{
+      img.onload=ok; img.onerror=()=>erro(new Error("falha ao renderizar o SVG"));
+      img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+    });
+    const cv=document.createElement("canvas");
+    cv.width=largura*escala; cv.height=altura*escala;
+    const ctx=cv.getContext("2d");
+    ctx.fillStyle="#04223B"; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.scale(escala,escala); ctx.drawImage(img,0,0);
+    const blob=await new Promise(r=>cv.toBlob(r,"image/png"));
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=`atualizacao_semanal_${semana||"export"}.png`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  }catch(e){
+    alert("Não consegui gerar a imagem: "+e.message+
+          "\nAlternativa: Ctrl+P e salvar como PDF.");
+  }finally{ btn.textContent=rotulo; btn.disabled=false; }
 };
 
 render();

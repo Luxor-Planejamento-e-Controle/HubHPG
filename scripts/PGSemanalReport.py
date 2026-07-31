@@ -46,10 +46,12 @@ SAIDA_ENTRADA = (
     DRIVE_ROOT / "PLANILHAS SEMANAIS"
     / "SAIDA E ENTRADA DE ANIMAIS - MODELO ENVIAR NO GRUPO.xlsx"
 )
-EMB_MATRIZES_GRUPO = (
-    DRIVE_ROOT / "PLANILHAS SEMANAIS"
-    / "EMBRIÕES E MATRIZES - MODELO ENVIAR NO GRUPO 3.xlsx"
-)
+# "EMBRIÕES E MATRIZES - MODELO ENVIAR NO GRUPO 3 <DD-MM>.xlsx" — a planilha que o
+# haras manda no grupo e que É a fonte do acumulado na estação. O sufixo de data
+# muda, então resolvemos por glob (mais recente por mtime). Mora em ATUALIZACAO
+# SEMANAL desde a reorganização do Drive (antes era PLANILHAS SEMANAIS).
+EMB_MATRIZES_DIR = DRIVE_ROOT / "ATUALIZACAO SEMANAL"
+EMB_MATRIZES_GLOB = "EMBRI*E MATRIZES*.xlsx"
 EMB_COMERCIAIS = DRIVE_ROOT / "REPRODUÇÃO" / "EMBRIOES A ENTREGAR - A RECEBER.xlsx"
 ESTACAO_MASTER_DIR = (
     DRIVE_ROOT / "REPRODUÇÃO" / "ESTAÇÃO DE MONTA" / "Estação 2025-2026"
@@ -165,9 +167,58 @@ class Report:
 # ------------------------------------------------------------------
 # Seção 1 — PRODUÇÃO (master da estação de monta)
 # ------------------------------------------------------------------
+# Abas da planilha do grupo que compõem o acumulado, e onde ficam as colunas nelas.
+# As duas têm layout parecido, mas a de sócios tem uma coluna a menos antes de
+# ESTAÇÃO (não tem PREV PARTO), por isso os índices diferem.
+#   (aba, idx ESTAÇÃO, idx STATUS, fatia fixa ou None = deduzir do STATUS)
+ABAS_ACUMULADO = (
+    ("EMBRIÕES PAO GRANDE", 8, 6, "pg"),
+    ("EMBRIOES SOCIOS - VENDIDOS", 7, 5, None),
+)
+
+
+def _latest_emb_matrizes() -> Path:
+    cands = [f for f in EMB_MATRIZES_DIR.glob(EMB_MATRIZES_GLOB)
+             if not f.name.startswith("~$")]
+    if not cands:
+        raise FileNotFoundError(f"Nenhuma planilha {EMB_MATRIZES_GLOB} em {EMB_MATRIZES_DIR}")
+    return max(cands, key=lambda f: f.stat().st_mtime)
+
+
+def _acumulado_grupo() -> dict:
+    """Embriões vivos da safra na planilha 'EMBRIÕES E MATRIZES' — a que o haras
+    manda no grupo e usa como fonte oficial do acumulado.
+
+    Ela é um retrato do que está EM PÉ: a linha é apagada quando o embrião sai da
+    conta, seja por parição (vira potro) ou por aborto. Por isso o acumulado da
+    estação = linhas vivas + parições da safra. Aborto NÃO volta — é baixa
+    definitiva, confirmado com o haras em 2026-07-31 (os 3 abortos da safra também
+    sumiram da planilha e não entram no número oficial).
+
+    A aba ICSI fica de fora: hoje só tem safra 2023/2024."""
+    src = _latest_emb_matrizes()
+    wb = _load(src)
+    out = {"pg": 0, "socio": 0, "vendido": 0, "fonte": src.name}
+    for aba, iest, ist, fatia_fixa in ABAS_ACUMULADO:
+        if aba not in wb.sheetnames:
+            continue
+        for i, r in enumerate(wb[aba].iter_rows(values_only=True), start=1):
+            if i < 4 or r[1] is None or not str(r[1]).strip():
+                continue
+            if _s(r[iest]) != SAFRA_ATUAL:
+                continue
+            fatia = fatia_fixa or ("vendido" if _norm(r[ist]) == "VENDIDO" else "socio")
+            out[fatia] += 1
+    wb.close()
+    out["total"] = out["pg"] + out["socio"] + out["vendido"]
+    return out
+
+
 def _acumulado_planejamento(wb) -> int:
-    """Acumulado na estação = soma da coluna 'TOTAL EMBRIÕES' (REAL, idx8) da aba PLANEJAMENTO,
-    linhas de doadora (col0 numérica). Regra oficial confirmada pelo usuário."""
+    """Total da estação de monta = soma de 'TOTAL EMBRIÕES' (REAL, idx8) da aba
+    PLANEJAMENTO, linhas de doadora (col0 numérica). NÃO é mais o acumulado
+    publicado — é referência de conferência: a estação só registra o que passou
+    pela FPG, então fica abaixo do oficial."""
     if "PLANEJAMENTO" not in wb.sheetnames:
         return 0
     ws = wb["PLANEJAMENTO"]
@@ -234,8 +285,14 @@ def build_producao(rep: Report, ini: date, fim: date):
     def _split(items):
         return {f: sum(1 for e in items if e["fatia"] == f) for f in ("pg", "socio", "vendido")}
 
-    # ACUMULADO NA ESTAÇÃO = SUM(PLANEJAMENTO 'TOTAL EMBRIÕES' REAL) — regra confirmada pelo
-    # usuário (2026-07-21). É o número oficial do relatório; bate quando o arquivo está fresco.
+    # ACUMULADO NA ESTAÇÃO (2026-07-31, reunião com o haras):
+    #   linhas vivas da planilha "EMBRIÕES E MATRIZES" (PG + sócios) + parições da safra.
+    # A planilha do grupo é o retrato do que está em pé — some a linha quando pare ou
+    # aborta —, então as parições voltam pra conta e os abortos não. A estação de monta
+    # sozinha não serve: só enxerga o que passou pela FPG (56 vs 61 hoje). Fica como
+    # conferência em `acumulado_estacao_monta`.
+    grupo = _acumulado_grupo()
+    rep.fontes["embrioes_matrizes"] = grupo["fonte"]
     acumulado_planejamento = _acumulado_planejamento(wb)
 
     confirmados = [e for e in embrioes if e["confirmado"]]
@@ -249,9 +306,24 @@ def build_producao(rep: Report, ini: date, fim: date):
     abortos = [e for e in embrioes if e["confirmado"] and _in_week(e["data_aborto"])]
     obitos = [e for e in embrioes if _in_week(e["data_obito"])]
 
+    # parições da safra inteira (não só da semana) — voltam pro acumulado
+    paridos_safra = [e for e in embrioes if e["data_paricao"]]
+    acumulado = grupo["total"] + len(paridos_safra)
+    split = {"pg": grupo["pg"], "socio": grupo["socio"], "vendido": grupo["vendido"]}
+    for e in paridos_safra:
+        split[e["fatia"]] = split.get(e["fatia"], 0) + 1
+    if acumulado != acumulado_planejamento:
+        print(f"  [produção] acumulado {acumulado} "
+              f"(planilha do grupo {grupo['total']} + {len(paridos_safra)} parições) "
+              f"vs {acumulado_planejamento} na estação de monta")
+
     rep.producao = {
-        "acumulado_estacao": acumulado_planejamento,
-        "acumulado_estacao_split": _split(confirmados),
+        "acumulado_estacao": acumulado,
+        "acumulado_estacao_split": split,
+        "acumulado_estacao_monta": acumulado_planejamento,   # conferência
+        "acumulado_grupo_vivos": grupo["total"],
+        "acumulado_paricoes_safra": len(paridos_safra),
+        "acumulado_estacao_split_confirmados": _split(confirmados),  # split antigo (estação)
         "confirmados_semana": None,   # _compute_confirmados_diff
         "acumulado_mes": None,        # _compute_confirmados_diff
         "nascimentos": len(nascimentos),
@@ -303,52 +375,187 @@ def build_receptoras(rep: Report):
         elif st.startswith("VAZIA"):
             vaz += 1
     wb.close()
-    doadoras = _count_doadoras()   # denominador do índice
+    doadoras = DOADORAS_INDICE                       # parâmetro fixo (ver constante)
+    doadoras_plantel = _count_doadoras()             # 12 hoje — só referência
+    doadoras_fpg = _count_doadoras("FAZENDA PAO GRANDE")   # 7 hoje — só referência
     rep.receptoras = {
         "total": pren + vaz,
         "prenhas": pren,
         "vazias": vaz,
         "doadoras": doadoras,
+        "doadoras_fonte": "fixo",
+        "doadoras_plantel": doadoras_plantel,
+        "doadoras_plantel_fpg": doadoras_fpg,
         "indice_eficiencia": round(vaz / doadoras, 1) if doadoras else None,
     }
+    if doadoras_fpg != doadoras:
+        print(f"  [receptoras] índice usa {doadoras} doadoras (fixo); "
+              f"no plantel há {doadoras_fpg} na FPG e {doadoras_plantel} no total")
 
 
-def _count_doadoras() -> int:
-    """Doadoras do plantel = CATEGORIA 'DOADORA' na aba PLANTEL do CONTROLE PLANTEL semanal.
-    (denominador do índice de eficiência vazias/doadoras)."""
+# Denominador do índice de eficiência. FIXO por decisão da reunião com o haras
+# (2026-07-31): considerar 10 doadoras. O plantel não produz esse número por
+# nenhuma leitura — CATEGORIA='DOADORA' dá 12 no total e 7 filtrando LOCAL='FAZENDA
+# PAO GRANDE' (6 se excluir a vendida) —, então o valor é parâmetro, não cálculo.
+# O contado continua sendo apurado e vai no JSON ao lado, pra divergência aparecer.
+DOADORAS_INDICE = 10
+
+
+def _count_doadoras(local: str | None = None) -> int:
+    """Doadoras no plantel = CATEGORIA 'DOADORA' na aba PLANTEL do CONTROLE PLANTEL
+    semanal. Com `local`, conta só as daquele LOCAL. Referência/conferência —
+    o índice usa DOADORAS_INDICE."""
     wb = _load(CONTROLE_PLANTEL_SEMANAL)
     ws = wb["PLANTEL"]
     n = 0
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 2 or r[0] is None:
             continue
-        if _norm(r[2]) == "DOADORA":
-            n += 1
+        if _norm(r[2]) != "DOADORA":
+            continue
+        if local is not None and _norm(r[4]) != local:
+            continue
+        n += 1
     wb.close()
     return n
 
 
 # ------------------------------------------------------------------
-# Seção 3 — HEADCOUNT (aba CONTAGEM, pré-agregada — bate exato)
+# Seção 3 — HEADCOUNT (calculado do roster, espelhando a aba CONTAGEM)
 # ------------------------------------------------------------------
-def build_headcount(rep: Report):
+# A CONTAGEM é COUNTIF puro sobre o LOCAL do roster:
+#     C3 =COUNTIF(PLANTEL!E:E;"FAZENDA PAO GRANDE")      D3 = 25   (digitado)
+#     C4 =COUNTIF(PLANTEL!E:E;"ARRENDAMENTO CESAR FURTADO")  D4 = 37   (digitado)
+#     C5 =COUNTIF(PLANTEL!E:E;"OUTROS")                  D5 = 0     (rótulo "CTE")
+#     C6 =COUNTIF(PLANTEL!E:E;"SOCIO")                   D6 = 0
+#     E7 =SUM(E3:E6)
+# Reproduzimos a MESMA regra (conta linha por LOCAL, sem filtrar STATUS — por isso
+# os vendidos pendentes de saída entram) e o MESMO conjunto de buckets. Só muda de
+# onde vem o número das receptoras: contado da fonte de receptoras (a mesma da
+# seção 2) em vez de digitado na mão. Confere — PAO GRANDE 25 e ARRENDAMENTO CESAR
+# FURTADO 37, idênticos ao que estava fixo em D3/D4.
+#
+# MATO GROSSO fica FORA do headcount por decisão de negócio (confirmado em
+# 2026-07-31): os animais de lá não entram na contagem do plantel, e é por isso
+# que a CONTAGEM nunca teve linha para eles.
+#
+# LOCAL vazio não entra (o COUNTIF também ignora), o que descarta de graça a
+# pseudo-linha "RECEPTORAS 67" que mora no meio do roster.
+
+# LOCAL no roster -> chave no relatório (rótulo que a CONTAGEM usa)
+HEADCOUNT_BUCKETS = {
+    "FAZENDA PAO GRANDE": ("FAZENDA", "fazenda_pg"),
+    "ARRENDAMENTO CESAR FURTADO": ("ARRENDAMENTO", "arrendamento"),
+    "OUTROS": ("CTE", "cte"),
+    "SOCIO": ("SOCIO", "socio"),
+}
+# LOCAL que existe no roster mas não conta no headcount.
+HEADCOUNT_LOCAIS_FORA = ("MATO GROSSO",)
+# LOCAL da fonte de receptoras -> LOCAL do roster
+RECEPTORAS_PARA_BUCKET = {
+    "PAO GRANDE": "FAZENDA PAO GRANDE",
+    "ARRENDAMENTO CESAR FURTADO": "ARRENDAMENTO CESAR FURTADO",
+}
+
+
+def _slug_local(local: str) -> str:
+    return local.lower().replace(" ", "_")
+
+
+def _contagem_declarada() -> dict:
+    """Valores da aba CONTAGEM — só para conferência, não é fonte."""
     wb = _load(CONTROLE_PLANTEL_SEMANAL)
     ws = wb["CONTAGEM"]
-    m = {}
+    out = {}
     for r in ws.iter_rows(values_only=True):
         label = _norm(r[1])
         if label in ("FAZENDA", "ARRENDAMENTO", "CTE", "SOCIO", "TOTAL GERAL"):
-            animais = r[2]; recept = r[3]; total = r[4]
-            m[label] = {"animais": animais, "receptoras": recept, "total": total}
-    rep.headcount = {
-        "total": m.get("TOTAL GERAL", {}).get("total"),
-        "fazenda_pg": m.get("FAZENDA", {}).get("total"),
-        "arrendamento": m.get("ARRENDAMENTO", {}).get("total"),
-        "cte": m.get("CTE", {}).get("total"),
-        "socio": m.get("SOCIO", {}).get("total"),
-        "detalhe": m,
-    }
+            out[label] = {"animais": r[2], "receptoras": r[3], "total": r[4]}
     wb.close()
+    return out
+
+
+def _receptoras_por_local() -> dict:
+    """{LOCAL do roster: nº de receptoras}. Mesma regra da seção 2 (prenha/vazia)."""
+    src = _latest_by_yymmdd(RECEPTORAS_DIR, "*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
+    wb = _load(src)
+    ws = wb["ANIMAIS"]
+    out = {}
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i < 4 or r[1] is None:
+            continue
+        loc = _norm(r[3])
+        if loc not in RECEPTORAS_LOCAIS_ATIVOS:
+            continue
+        st = _norm(r[2])
+        if st.startswith("PRENHA") or st.startswith("VAZIA"):
+            out[RECEPTORAS_PARA_BUCKET[loc]] = out.get(RECEPTORAS_PARA_BUCKET[loc], 0) + 1
+    wb.close()
+    return out
+
+
+def build_headcount(rep: Report):
+    # 1) animais: COUNTIF por LOCAL no roster
+    wb = _load(CONTROLE_PLANTEL_SEMANAL)
+    ws = wb["PLANTEL"]
+    animais: dict[str, int] = {}
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i < 2 or r[0] is None or not str(r[0]).strip():
+            continue
+        local = _norm(r[4])
+        if not local:
+            continue
+        animais[local] = animais.get(local, 0) + 1
+    wb.close()
+
+    # 2) receptoras: contadas da fonte de receptoras
+    receptoras = _receptoras_por_local()
+
+    # 3) monta os buckets. LOCAL fora da contagem é ignorado; LOCAL desconhecido
+    #    também não entra (a CONTAGEM não o teria), mas vira aviso — assim um
+    #    local novo no roster aparece pra alguém decidir, em vez de sumir calado.
+    detalhe, chaves, fora = {}, {}, {}
+    for local in sorted(set(animais) | set(receptoras)):
+        a = animais.get(local, 0)
+        rc = receptoras.get(local, 0)
+        if local in HEADCOUNT_LOCAIS_FORA or local not in HEADCOUNT_BUCKETS:
+            fora[local] = a + rc
+            continue
+        rotulo, chave = HEADCOUNT_BUCKETS[local]
+        detalhe[rotulo] = {"animais": a, "receptoras": rc, "total": a + rc}
+        chaves[chave] = a + rc
+
+    total = sum(v["total"] for v in detalhe.values())
+    detalhe["TOTAL GERAL"] = {
+        "animais": sum(v["animais"] for k, v in detalhe.items() if k != "TOTAL GERAL"),
+        "receptoras": sum(v["receptoras"] for k, v in detalhe.items() if k != "TOTAL GERAL"),
+        "total": total,
+    }
+
+    rep.headcount = {"total": total, **chaves, "detalhe": detalhe, "fora_da_contagem": fora}
+
+    # 4) conferência contra a aba manual — divergência vira aviso, não erro
+    decl = _contagem_declarada()
+    dif = []
+    for rotulo, v in detalhe.items():
+        d = decl.get(rotulo)
+        if d is None:
+            dif.append(f"{rotulo}: {v['total']} calculado, sem linha na CONTAGEM")
+        elif d.get("total") != v["total"]:
+            dif.append(f"{rotulo}: {v['total']} calculado vs {d.get('total')} na CONTAGEM")
+    declarado_total = (decl.get("TOTAL GERAL") or {}).get("total")
+    if declarado_total is not None and declarado_total != total:
+        dif.append(f"TOTAL GERAL: {total} calculado vs {declarado_total} na CONTAGEM")
+    rep.headcount["conferencia_contagem"] = dif
+    if dif:
+        print("  [headcount] divergência vs aba CONTAGEM (usando o calculado):")
+        for d in dif:
+            print(f"    - {d}")
+    desconhecidos = [l for l in fora if l not in HEADCOUNT_LOCAIS_FORA]
+    if desconhecidos:
+        print("  [headcount] LOCAL novo no roster, FORA da contagem — conferir:")
+        for l in desconhecidos:
+            print(f"    - {l}: {fora[l]}")
 
 
 # ------------------------------------------------------------------
@@ -442,6 +649,7 @@ def build_pendentes(rep: Report):
         "outros_terceiros": None,
     })
     rep.detalhe["terceiros_vendidos"] = vendidos          # só os 2 vendidos (bate KPI seção 4)
+    rep.detalhe["terceiros_sociedade"] = sociedade        # sociedade pendente de saída, listada igual
     rep.detalhe["pendentes_saida"] = pend                 # lista completa (seção 5)
 
 
@@ -657,6 +865,7 @@ def _snap_from_rep(rep: Report) -> dict:
             "entradas": rep.detalhe.get("entradas_diff"),
             "pendentes_saida": rep.detalhe.get("pendentes_saida"),
             "terceiros_vendidos": rep.detalhe.get("terceiros_vendidos"),
+            "terceiros_sociedade": rep.detalhe.get("terceiros_sociedade"),
         },
         "roster": rep.roster,
         "confirmed_keys": [e["key"] for e in rep.confirmed],
