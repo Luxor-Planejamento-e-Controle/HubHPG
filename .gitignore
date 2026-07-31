@@ -1,11 +1,26 @@
 # ============================================================
-# Só CÓDIGO neste repo. Dado do haras não é versionado.
+# Repo PRIVADO. Versiona o código + o estado do pipeline e as
+# saídas leves em JSON. Fica de fora o que é pesado ou refazível
+# a partir das planilhas do Drive.
 # ============================================================
 
-# saídas e bases geradas pelo pipeline (dado real do plantel)
-bases/
+# cache das planilhas do Drive: 221 MB de parquet/xlsx, tudo refazível
+# rodando o pipeline de novo. Exceção: os dois JSON abaixo NÃO são cache,
+# são a memória do pipeline (histórico semanal congelado) e não têm como
+# ser reconstruídos, porque as planilhas-fonte são sobrescritas a cada semana.
+_cache/*
+!_cache/semanal_snapshots.json
+!_cache/headcount_history.json
+
+# saídas do pipeline: os JSON entram (leves e úteis pra diff), o resto não
+bases/*
+!bases/semanal_data.json
+!bases/semanal_docx.json
+
+# HTML gerado (~250 KB por versão, refeito a cada run)
 dashboards/
-_cache/
+
+# planilhas modelo e amostras de fonte (7 MB, cópia do que já está no Drive)
 _docs/
 
 # planilhas / documentos em qualquer lugar

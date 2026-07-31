@@ -12,6 +12,20 @@ e gera as saídas (dashboard semanal, base do comitê mensal).
 > (git corrompe dentro do Google Drive): o repo é a fonte da verdade do código,
 > a pasta do Drive é onde executa.
 
+> **`_cache/` não é só cache — guarda o estado do pipeline.** Dois arquivos ali
+> são memória, não arquivo descartável:
+>
+> - `_cache/semanal_snapshots.json` — a foto congelada de cada semana. É o que
+>   alimenta o seletor de semanas do dashboard e a base de comparação.
+> - `_cache/headcount_history.json` — o total por semana, de onde sai o Δ.
+>
+> Eles ficam fora do Git junto com o resto do `_cache/` (é dado do plantel, e a
+> regra é dado só no Drive). Consequência prática: **rodar de um clone limpo
+> começa o histórico do zero** — sem Δ de headcount, sem saídas/entradas por
+> diferença de roster e com uma única semana no dashboard, até acumular a
+> segunda captura. Por isso o fechamento roda da pasta do Drive, onde esse
+> estado vive e é preservado pelo backup do próprio Drive.
+
 ```bash
 pip install -r requirements.txt
 ```
