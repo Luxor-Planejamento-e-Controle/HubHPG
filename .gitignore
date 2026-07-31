@@ -17,8 +17,9 @@ bases/*
 !bases/semanal_data.json
 !bases/semanal_docx.json
 
-# HTML gerado (~250 KB por versão, refeito a cada run)
-dashboards/
+# dashboard gerado: entra, é o entregável que se manda no grupo
+dashboards/*
+!dashboards/dashboard_semanal.html
 
 # planilhas modelo e amostras de fonte (7 MB, cópia do que já está no Drive)
 _docs/
