@@ -160,6 +160,7 @@ class Report:
     semana_atual: str = ""  # id (segunda) da semana selecionada por padrão
     snapshots: dict = field(default_factory=dict)  # snapshot por semana (histórico local)
     roster: list = field(default_factory=list)  # nomes do plantel (p/ diff saídas/entradas)
+    saidas_planilha: dict | None = None  # aba SAIDAS-ENTRADAS, quando o haras preencher
     confirmed: list = field(default_factory=list)  # embriões confirmados (+/-=OK) p/ diff semanal
     docx_ref: dict = field(default_factory=dict)  # números dos relatórios oficiais (SÓ p/ validar)
 
@@ -212,6 +213,40 @@ def _acumulado_grupo() -> dict:
     wb.close()
     out["total"] = out["pg"] + out["socio"] + out["vendido"]
     return out
+
+
+def _mortes_do_plantel(ini: date, fim: date) -> list:
+    """Óbitos registrados na aba 'CONFIRMAÇÕES, ABORTOS, MORTES' do controle mensal.
+
+    Reunião 2026-07-31: a estação de monta só registra aborto/absorção, morte de
+    receptora prenha e potro que nasce e morre em seguida. Óbito de animal já no
+    plantel só aparece aqui. Colunas: B produto, C data, D observação (texto livre,
+    por isso a classificação é por palavra-chave).
+    """
+    try:
+        src = _latest_by_yymmdd(CONTROLE_MENSAL_DIR, "*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx")
+    except FileNotFoundError:
+        return []
+    wb = _load(src)
+    aba = "CONFIRMAÇÕES, ABORTOS, MORTES"
+    if aba not in wb.sheetnames:
+        wb.close()
+        return []
+    achados = []
+    for i, r in enumerate(wb[aba].iter_rows(values_only=True), start=1):
+        if i < 3 or r[1] is None:
+            continue
+        d = _dt(r[2])
+        if not d or not (ini <= d <= fim):
+            continue
+        obs = _norm(r[3])
+        if "ABORT" in obs:            # aborto já vem da estação; aqui só morte
+            continue
+        if any(p in obs for p in ("MORREU", "MORTE", "OBITO", "MORTO")):
+            achados.append({"animal": _s(r[1]), "data": d.isoformat(),
+                            "ocorrencia": _s(r[3]), "origem": "plantel"})
+    wb.close()
+    return achados
 
 
 def _acumulado_planejamento(wb) -> int:
@@ -305,6 +340,11 @@ def build_producao(rep: Report, ini: date, fim: date):
     # óbito = nasceu e morreu (data óbito na semana). (absorção = perda pré-60d, não confirmada)
     abortos = [e for e in embrioes if e["confirmado"] and _in_week(e["data_aborto"])]
     obitos = [e for e in embrioes if _in_week(e["data_obito"])]
+    # óbito de animal já no plantel não passa pela estação — vem do controle mensal
+    mortes_plantel = _mortes_do_plantel(ini, fim)
+    if mortes_plantel:
+        print(f"  [produção] +{len(mortes_plantel)} óbito(s) da aba "
+              f"'CONFIRMAÇÕES, ABORTOS, MORTES' do controle mensal")
 
     # parições da safra inteira (não só da semana) — voltam pro acumulado
     paridos_safra = [e for e in embrioes if e["data_paricao"]]
@@ -327,7 +367,7 @@ def build_producao(rep: Report, ini: date, fim: date):
         "confirmados_semana": None,   # _compute_confirmados_diff
         "acumulado_mes": None,        # _compute_confirmados_diff
         "nascimentos": len(nascimentos),
-        "abortos_obitos": len(abortos) + len(obitos),
+        "abortos_obitos": len(abortos) + len(obitos) + len(mortes_plantel),
     }
     def _produto(e):   # nome do animal nascido (ou descrição sexo — doadora × garanhão)
         base = f"{e.get('doadora') or ''} × {e.get('garanhao') or ''}".strip(" ×")
@@ -335,7 +375,7 @@ def build_producao(rep: Report, ini: date, fim: date):
         return e.get("nome_potro") or (f"{sx} — {base}" if base else sx) or "--"
     rep.detalhe["confirmados_semana"] = na_semana
     rep.detalhe["nascimentos_semana"] = [dict(e, produto=_produto(e)) for e in nascimentos]
-    rep.detalhe["abortos_obitos_semana"] = abortos + obitos
+    rep.detalhe["abortos_obitos_semana"] = abortos + obitos + mortes_plantel
     rep.detalhe["embrioes_confirmados"] = confirmados
     # listas COMPLETAS datadas (o dashboard filtra por semana no cliente)
     rep.eventos["confirmados"] = [dict(e, data=e["data_confirmacao"]) for e in confirmados if e["data_confirmacao"]]
@@ -571,10 +611,43 @@ def _categorize_mov(obs: str):
     return None
 
 
+# Aba SAIDAS-ENTRADAS do controle mensal (reunião 2026-07-31): fonte oficial de
+# saída/entrada quando o haras começar a preencher. Hoje só tem o cabeçalho.
+# Colunas: B animal, C local saída, D local entrada, E data, F classificação.
+# Δ combinado: entrada = nascimento + compra; saída = venda + morte.
+CLASSIF_ENTRADA = ("NASCIMENTO", "COMPRA")
+CLASSIF_SAIDA = ("VENDA", "MORTE")
+
+
+def _saidas_entradas_planilha(wb, ini: date, fim: date):
+    """Lê a aba SAIDAS-ENTRADAS. Devolve None se ela não existir ou estiver vazia,
+    pra que o cálculo caia na diferença de roster (comportamento atual)."""
+    if "SAIDAS-ENTRADAS" not in wb.sheetnames:
+        return None
+    evs = {"SAIDA": [], "ENTRADA": []}
+    achou = False
+    for i, r in enumerate(wb["SAIDAS-ENTRADAS"].iter_rows(values_only=True), start=1):
+        if i < 3 or r[1] is None or not str(r[1]).strip():
+            continue
+        achou = True
+        d = _dt(r[4])
+        if not d or not (ini <= d <= fim):
+            continue
+        classif = _norm(r[5])
+        alvo = ("ENTRADA" if any(c in classif for c in CLASSIF_ENTRADA)
+                else "SAIDA" if any(c in classif for c in CLASSIF_SAIDA) else None)
+        if alvo:
+            evs[alvo].append({"animal": _s(r[1]), "data": d.isoformat(),
+                              "classificacao": _s(r[5]),
+                              "local_saida": _s(r[2]), "local_entrada": _s(r[3])})
+    return evs if achou else None
+
+
 def build_movimentacao(rep: Report, ini: date, fim: date):
     src = _latest_by_yymmdd(CONTROLE_MENSAL_DIR, "*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx")
     rep.fontes["controle_plantel_mensal"] = src.name
     wb = _load(src)
+    rep.saidas_planilha = _saidas_entradas_planilha(wb, ini, fim)
     ws = wb["MOVIMENTAÇÕES"]
     evs = {"SAIDA": [], "ENTRADA": [], "TRANSFERENCIA": []}
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
@@ -603,19 +676,46 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
 # ------------------------------------------------------------------
 # Seção 4b — PENDENTES DE SAÍDA / TERCEIROS  (CONTROLE PLANTEL aba PLANTEL)
 # ------------------------------------------------------------------
-def build_pendentes(rep: Report):
-    # roster do plantel (p/ diff de saídas/entradas) — do CONTROLE PLANTEL
+# Reunião com o haras (2026-07-31): vendidos pendentes e doadoras de terceiros
+# passam a sair do roster, pela coluna STATUS PLANTEL. Os valores abaixo ainda NÃO
+# existem na planilha — o haras vai preencher. Enquanto não houver nenhuma linha
+# marcada, cada indicador cai na fonte antiga (vendidos) ou fica em branco
+# (doadoras de terceiros), e o run avisa qual fonte usou.
+STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"
+STATUS_TERCEIRO = "TERCEIRO"
+
+
+def _plantel_por_status() -> dict:
+    """Lê o roster uma vez e devolve o que depende de STATUS PLANTEL / CATEGORIA.
+    Colunas: A nome, C categoria, D status plantel, E local, F status."""
     wb = _load(CONTROLE_PLANTEL_SEMANAL)
     ws = wb["PLANTEL"]
-    roster = []
+    roster, vendidos_pend, doadoras_terc = [], [], []
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 2 or r[0] is None:
             continue
         nome = _s(r[0])
-        if nome:
-            roster.append(nome)
+        if not nome:
+            continue
+        roster.append(nome)
+        status_plantel = _norm(r[3])
+        categoria, local = _norm(r[2]), _norm(r[4])
+        if STATUS_VENDIDO_PENDENTE in status_plantel:
+            vendidos_pend.append({"nome": nome, "local": _s(r[4]), "cota": None,
+                                  "comprador": None, "tipo": "VENDA", "obs": _s(r[5]),
+                                  "reposicao": False})
+        if (categoria == "DOADORA" and STATUS_TERCEIRO in status_plantel
+                and local == "FAZENDA PAO GRANDE"):
+            doadoras_terc.append({"nome": nome, "local": _s(r[4]), "categoria": categoria})
     wb.close()
-    rep.roster = sorted(set(roster))
+    return {"roster": sorted(set(roster)),
+            "vendidos_pendentes": vendidos_pend,
+            "doadoras_terceiros": doadoras_terc}
+
+
+def build_pendentes(rep: Report):
+    plantel = _plantel_por_status()
+    rep.roster = plantel["roster"]
 
     # VENDIDOS / SOCIEDADE pendentes = aba ANIMAIS VENDIDOS do "Animais para sair"
     # (validado vs docx 17/07: VENDA≠REPOSIÇÃO=2 vendidos; SOCIEDADE=2). col5=tipo, col6=obs.
@@ -639,15 +739,37 @@ def build_pendentes(rep: Report):
     except FileNotFoundError:
         pass
 
-    vendidos = [p for p in pend if p["tipo"] == "VENDA" and not p["reposicao"]]
+    # VENDIDOS PENDENTES: fonte nova é o roster (STATUS PLANTEL). Enquanto o haras
+    # não marcar ninguém lá, segue valendo o "Animais para sair".
+    vendidos_plantel = plantel["vendidos_pendentes"]
+    if vendidos_plantel:
+        vendidos = vendidos_plantel
+        fonte_vendidos = "plantel"
+    else:
+        vendidos = [p for p in pend if p["tipo"] == "VENDA" and not p["reposicao"]]
+        fonte_vendidos = "animais_para_sair"
+        print(f"  [terceiros] nenhum '{STATUS_VENDIDO_PENDENTE}' no STATUS PLANTEL; "
+              f"vendidos pendentes ainda saindo do Animais para sair")
+
     sociedade = [p for p in pend if p["tipo"] == "SOCIEDADE"]
+
+    # DOADORAS DE TERCEIROS: roster com CATEGORIA=DOADORA, STATUS PLANTEL de terceiro
+    # e LOCAL=FAZENDA PAO GRANDE. Sem marcação na planilha, fica em branco (não zero:
+    # zero afirmaria que não há nenhuma, e o que temos é ausência de informação).
+    doadoras_terc = plantel["doadoras_terceiros"]
+    if not doadoras_terc:
+        print(f"  [terceiros] nenhuma doadora com STATUS PLANTEL de {STATUS_TERCEIRO} "
+              f"na FPG; card fica em branco")
+
     rep.terceiros.update({
         "vendidos_pendentes": len(vendidos),
+        "vendidos_pendentes_fonte": fonte_vendidos,
         "sociedade_pendentes": len(sociedade),
         "terceiros_propriedade": len(vendidos),   # terceiros na propriedade = vendidos (docx)
-        "doadoras_terceiros": None,
+        "doadoras_terceiros": len(doadoras_terc) if doadoras_terc else None,
         "outros_terceiros": None,
     })
+    rep.detalhe["doadoras_terceiros"] = doadoras_terc
     rep.detalhe["terceiros_vendidos"] = vendidos          # só os 2 vendidos (bate KPI seção 4)
     rep.detalhe["terceiros_sociedade"] = sociedade        # sociedade pendente de saída, listada igual
     rep.detalhe["pendentes_saida"] = pend                 # lista completa (seção 5)
@@ -783,8 +905,24 @@ def _load_hist() -> dict:
 
 
 def _compute_movimento(rep: Report):
-    """Saídas/entradas na semana = diff do roster do plantel vs o snapshot anterior
-    (lógica do operador). Precisa de 2 semanas capturadas pelo script; antes disso, None."""
+    """Saídas/entradas na semana.
+
+    Ordem de preferência (reunião 2026-07-31):
+      1. aba SAIDAS-ENTRADAS do controle mensal, classificada — entrada = nascimento
+         ou compra, saída = venda ou morte. É a fonte oficial daqui pra frente.
+      2. diff do roster do plantel vs o snapshot anterior (o que valia até agora).
+      3. bootstrap do relatório oficial em Word, na primeira captura.
+    """
+    if rep.saidas_planilha:
+        ent, sai = rep.saidas_planilha["ENTRADA"], rep.saidas_planilha["SAIDA"]
+        rep.saidas["saidas_semana"] = len(sai)
+        rep.saidas["entradas_semana"] = len(ent)
+        rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
+        rep.detalhe["saidas_diff"] = sai
+        rep.detalhe["entradas_diff"] = ent
+        return
+
+    rep.saidas["fonte"] = "diff_roster"
     hist = _load_hist()
     prev_roster = None
     for wid in sorted(hist):

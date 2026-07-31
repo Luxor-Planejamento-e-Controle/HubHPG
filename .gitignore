@@ -12,7 +12,7 @@ _cache/*
 !_cache/semanal_snapshots.json
 !_cache/headcount_history.json
 
-# saídas do pipeline: os JSON entram (leves e úteis pra diff), o resto não
+# saídas do pipeline
 bases/*
 !bases/semanal_data.json
 !bases/semanal_docx.json
@@ -20,9 +20,6 @@ bases/*
 # dashboard gerado: entra, é o entregável que se manda no grupo
 dashboards/*
 !dashboards/dashboard_semanal.html
-
-# planilhas modelo e amostras de fonte (7 MB, cópia do que já está no Drive)
-_docs/
 
 # planilhas / documentos em qualquer lugar
 *.xlsx
@@ -56,3 +53,13 @@ __pycache__/
 # Windows / Google Drive
 desktop.ini
 Thumbs.db
+
+# ============================================================
+# EXCEÇÕES — precisam vir DEPOIS das regras genéricas acima,
+# senão o `*.xlsx`/`*.parquet` genérico anula (no git, a última
+# regra que casa é a que vale).
+# ============================================================
+!bases/base_bi.parquet
+!bases/base_bi.xlsx
+!_docs/**/*.xlsx
+_docs/**/~$*
