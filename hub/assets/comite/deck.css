@@ -1,0 +1,110 @@
+/* Comitê Mensal HPG — deck. O slide é uma caixa fixa de 1280×720 (16:9, mesma
+   proporção do PPTX original de 10×5,625 in) e a página escala essa caixa pra
+   caber na janela. Assim o layout é o MESMO em qualquer tela e o que se vê é o
+   que sai no PPTX — sem reflow, sem quebra diferente. */
+:root{
+  --bg:#04223B; --bg-2:#072B49; --card:#0A3050; --line:#1B486B; --line-2:#2A5F87;
+  --ink:#EAF0F4; --ink-2:#B6C8D6; --ink-3:#93AABC;
+  --amber:#CA9703; --teal:#7FA8C4; --pos:#4CC38A; --neg:#F07A7A;
+  --font:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+  --W:1280px; --H:720px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--font);overflow:hidden}
+
+/* ---- moldura ---- */
+.stage{position:absolute;inset:0 0 54px 0;display:grid;place-items:center;padding:16px}
+.slide{
+  width:var(--W);height:var(--H);flex:0 0 auto;position:relative;overflow:hidden;
+  background:var(--bg);transform-origin:center center;
+  box-shadow:0 10px 44px rgba(0,0,0,.55);border:1px solid var(--line);
+}
+.bar{
+  position:absolute;left:0;right:0;bottom:0;height:54px;display:flex;align-items:center;gap:10px;
+  padding:0 16px;background:var(--bg-2);border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);
+}
+.bar .spacer{flex:1}
+.bar button{
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);height:32px;padding:0 12px;
+  border-radius:8px;font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap;
+}
+.bar button:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+.bar button:disabled{opacity:.35;cursor:default}
+.bar button.primary{background:var(--amber);border-color:var(--amber);color:#1a1300;font-weight:600}
+.bar button.primary:hover{background:#A87D02;border-color:#A87D02;color:#1a1300}
+.bar select{background:var(--card);border:1px solid var(--line);color:var(--ink);height:32px;
+  border-radius:8px;font:inherit;font-size:12.5px;max-width:340px;padding:0 8px}
+.bar .pos{font-variant-numeric:tabular-nums;min-width:64px;text-align:center}
+.bar .aviso{color:var(--amber);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw}
+
+/* apresentação: só o slide, sem barra */
+body.play .bar{display:none}
+body.play .stage{inset:0;padding:0;background:#000}
+body.play .slide{box-shadow:none;border:0}
+
+/* ---- elementos comuns do slide ---- */
+.s-head{position:absolute;left:52px;right:52px;top:20px}
+.s-head h1{margin:0;font-size:23px;font-weight:600;letter-spacing:.01em;color:var(--ink)}
+.s-head .sub{margin-top:7px;font-size:13px;color:var(--ink-3)}
+.s-body{position:absolute;left:52px;right:52px;top:96px;bottom:44px}
+.s-mark{position:absolute;right:34px;top:24px;height:40px;opacity:.9}
+.s-foot{position:absolute;left:52px;right:52px;bottom:16px;display:flex;font-size:11px;color:var(--ink-3)}
+.s-foot .spacer{flex:1}
+
+/* capa / divisor / encerramento */
+.capa,.fim{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 78px}
+.capa img,.fim img{position:absolute;right:78px;top:50%;transform:translateY(-50%);height:250px;opacity:.95}
+.capa h1{margin:0;font-size:40px;font-weight:600;letter-spacing:.01em;max-width:640px}
+.capa .mes{margin-top:12px;font-size:21px;color:var(--amber);letter-spacing:.05em}
+.capa .org{margin-top:38px;font-size:14px;letter-spacing:.3em;color:var(--ink-3)}
+.fim h1{margin:0;font-size:36px;letter-spacing:.06em;color:var(--amber)}
+.divisor{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 78px}
+.divisor .n{position:absolute;right:78px;top:56px;font-size:110px;font-weight:700;color:var(--line);line-height:1}
+.divisor h1{margin:0;font-size:38px;font-weight:600}
+.divisor .sub{margin-top:16px;font-size:15px;color:var(--ink-3);letter-spacing:.04em}
+
+/* agenda */
+.agenda{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;height:100%;align-content:start;padding-top:34px}
+.agenda .it{border-top:3px solid var(--amber);padding-top:14px}
+.agenda .it .n{font-size:26px;font-weight:700;color:var(--amber)}
+.agenda .it h3{margin:12px 0 6px;font-size:14px;letter-spacing:.04em}
+.agenda .it p{margin:0;font-size:12px;color:var(--ink-3);line-height:1.45}
+
+/* tabelas */
+table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;table-layout:fixed}
+table.t th{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+  text-align:right;padding:0 10px 8px;font-weight:600;border-bottom:1px solid var(--line-2);white-space:nowrap}
+table.t th:first-child,table.t td:first-child{text-align:left}
+table.t td{padding:0 10px;border-bottom:1px solid rgba(27,72,107,.55);color:var(--ink);text-align:right;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.t tr.tot td{font-weight:700;color:var(--ink)}
+table.t tr.tot td:first-child{color:var(--amber)}
+table.t td.nome{color:var(--ink-2)}
+table.t tr.tot td.nome{color:var(--amber)}
+table.t td.filho:first-child{padding-left:26px;color:var(--ink-2)}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+
+/* kpis */
+.kpis{display:grid;gap:14px;margin-bottom:20px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 16px}
+.kpi .v{font-size:26px;font-weight:700;line-height:1.1;color:var(--amber)}
+.kpi .l{margin-top:5px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.kpi .s{margin-top:2px;font-size:11px;color:var(--ink-3)}
+
+/* investimentos (lista por mês) */
+.lista{display:flex;flex-direction:column;gap:9px}
+.lista .m{display:grid;grid-template-columns:64px 1fr auto;gap:12px;align-items:baseline}
+.lista .m .mes{font-size:12px;letter-spacing:.06em;color:var(--amber);font-weight:600}
+.lista .m .tag{font-size:10.5px;letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase}
+.lista .m .tot{font-size:14px;font-weight:700}
+.lista .it{display:grid;grid-template-columns:64px 1fr auto;gap:12px;font-size:12px;color:var(--ink-2);
+  padding-bottom:7px;border-bottom:1px solid rgba(27,72,107,.5)}
+.lista .it .d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* pendente */
+.pend{display:flex;flex-direction:column;justify-content:center;height:100%;max-width:820px}
+.pend .tag{display:inline-flex;align-self:flex-start;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  background:rgba(202,151,3,.16);color:var(--amber);border:1px solid rgba(202,151,3,.4);padding:4px 11px;border-radius:20px}
+.pend .campo{margin-top:22px}
+.pend .campo .l{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
+.pend .campo .v{font-size:14px;color:var(--ink)}
