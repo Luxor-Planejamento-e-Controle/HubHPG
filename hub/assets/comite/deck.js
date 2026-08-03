@@ -123,12 +123,24 @@ const R = {
       ).join('') + `</div></div>`;
   },
 
-  pendente: s => head(s) + `<div class="s-body"><div class="pend">
-      <span class="tag">sem dado ainda</span>
-      <div class="campo"><div class="l">Base que vai alimentar</div><div class="v">${esc(s.fonte)}</div></div>
-      <div class="campo"><div class="l">Por que ainda não tem</div><div class="v">${esc(s.motivo)}</div></div>
-    </div></div>`,
+  pendente: s => head(s) + `<div class="s-body">` +
+    vazio('◇', 'slide em aberto', s.titulo, s.sub || '', s.fonte, s.motivo) + `</div>`,
 };
+
+/* Estado vazio comum aos dois casos — cartão centralizado, e não um bloco de
+   texto solto no meio do slide, que era como ficava antes. */
+function vazio(glyph, tag, titulo, texto, fonte, motivo){
+  return `<div class="vazio"><div class="box">
+    <div class="glyph">${glyph}</div>
+    <span class="tag">${esc(tag)}</span>
+    <h2>${esc(titulo)}</h2>
+    ${texto ? `<p>${esc(texto)}</p>` : ''}
+    ${fonte ? `<div class="campos">
+      <div><div class="l">Base que vai alimentar</div><div class="v">${esc(fonte)}</div></div>
+      <div><div class="l">Por que ainda não tem</div><div class="v">${esc(motivo)}</div></div>
+    </div>` : ''}
+  </div></div>`;
+}
 
 /* ---- navegação ---- */
 let mesAtual = SPEC.padrao;
