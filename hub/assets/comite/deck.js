@@ -102,7 +102,8 @@ const R = {
         if ((s.data || []).includes(j)) return `<td>${brdata(c)}</td>`;
         return `<td${j === 0 ? ' class="nome"' : ''}>${esc(c)}</td>`;
       }, BODY_H)
-    : `<div class="pend"><span class="tag">nenhum registro nesse recorte</span></div>`) + `</div>`,
+    : vazio('○', 'nada neste recorte', 'Sem registro para o filtro deste slide',
+            'A base foi lida e respondeu vazio — não é falta de fonte.')) + `</div>`,
 
   /* S12 — KPIs + matriz título × meses */
   matriz: s => head(s) + `<div class="s-body">${kpiRow(s.kpis)}` + tabelaHTML(

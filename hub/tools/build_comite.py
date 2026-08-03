@@ -866,9 +866,7 @@ def monta_deck(m, ano, ctx):
     s.append(divisor(2, "ESTAÇÃO DE MONTA", "Embriões · Doadoras · Garanhões"))
     for x in ctx["estacao"]:
         s += divide_tab(x)
-    s.append(pend(21, f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — COBERTURAS DISPONÍVEIS",
-                  "Saldo por garanhão de fora", "COBERTURAS_CAVALOS_FORA.xlsx, aba Planilha2",
-                  "arquivo não localizado no repo nem no Drive"))
+    s += divide_tab(ctx["coberturas"])
 
     s.append(divisor(3, "EXPOSIÇÕES", "Programação e resultados"))
     s.append(pend(23, f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO", "Calendário de participações previstas",
@@ -879,9 +877,7 @@ def monta_deck(m, ano, ctx):
     s.append(divisor(4, "VENDAS", "Pipeline e contratos"))
     for x in slides_vendas(m, ano):
         s += divide(x, 'rows')
-    s.append(pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
-                  "controle-de-inadimplencia → dashboard_conferencia.html",
-                  "hoje é print; dá pra embutir o HTML que o ControleInadimplencia.py gera"))
+    s += divide_tab(slide_inadimplencia(m, ano))
     for x in ctx["embrioes"]:
         s += divide(x, 'rows')
 
@@ -910,6 +906,7 @@ def build(so_mes=None):
         aviso("nenhum mês com realizado no DRE — deck sai só com as bases não-financeiras")
 
     ctx["estacao"] = slides_estacao()
+    ctx["coberturas"] = slide_coberturas()
     ctx["embrioes"] = slides_embrioes()
 
     alvo = [so_mes.month] if so_mes else meses
