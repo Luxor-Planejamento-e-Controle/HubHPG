@@ -57,8 +57,9 @@ function tabelaHTML(cols, rows, fmtCel, alt, larguras){
     ${larguras ? `<colgroup>${larguras.map(w => `<col style="width:${w}">`).join('')}</colgroup>` : ''}
     <thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(r => {
-      const cel = r.cells || r, tot = !!r.total;
-      return `<tr class="${tot ? 'tot' : ''}" style="height:${h.toFixed(1)}px">` +
+      const cel = r.cells || r;
+      const nv = r.nivel != null ? r.nivel : (r.total ? 0 : null);
+      return `<tr class="${nv === 0 ? 'tot' : nv === 1 ? 'sub' : ''}" style="height:${h.toFixed(1)}px">` +
         cel.map((c, j) => fmtCel(c, j, r)).join('') + `</tr>`;
     }).join('')}</tbody></table>`;
 }
@@ -76,12 +77,13 @@ const R = {
     s.itens.map(it => `<div class="it"><div class="n">${esc(it.n)}</div>
       <h3>${esc(it.titulo)}</h3><p>${esc(it.sub)}</p></div>`).join('') + `</div></div>`,
 
-  /* S04–S07, S10, S13, S14 — Orçado | Realizado | ∆ R$ k | ∆ % */
+  /* S04–S07, S10, S13, S14 — Orçado | Realizado | ∆ R$ k | ∆ %
+     Três níveis: 0 grupo (dourado), 1 subgrupo (branco, recuado), 2 folha. */
   dre: s => head(s) + `<div class="s-body">` + tabelaHTML(
     ['NATUREZA', 'ORÇADO', 'REALIZADO', '∆ R$ k', '∆ %'],
-    s.linhas.map(l => ({total: l.total, cells: [l.nome, ...l.v]})),
+    s.linhas.map(l => ({nivel: l.nivel == null ? (l.total ? 0 : 2) : l.nivel, cells: [l.nome, ...l.v]})),
     (c, j, r) => j === 0
-      ? `<td class="nome ${r.total ? '' : 'filho'}">${esc(c)}</td>`
+      ? `<td class="nome n${r.nivel}">${esc(c)}</td>`
       : j === 3 ? `<td class="${cls(c)}">${dk(c)}</td>`
       : j === 4 ? `<td class="${cls(c)}">${dpct(c)}</td>`
       : `<td>${rs(c)}</td>`,

@@ -81,11 +81,16 @@ table.t th{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:
 table.t th:first-child,table.t td:first-child{text-align:left}
 table.t td{padding:0 10px;border-bottom:1px solid rgba(27,72,107,.55);color:var(--ink);text-align:right;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-table.t tr.tot td{font-weight:700;color:var(--ink)}
-table.t tr.tot td:first-child{color:var(--amber)}
+/* hierarquia do DRE em três níveis — sem isso toda linha saía dourada e
+   negrito, e a lista virava um paredão sem leitura */
 table.t td.nome{color:var(--ink-2)}
-table.t tr.tot td.nome{color:var(--amber)}
-table.t td.filho:first-child{padding-left:26px;color:var(--ink-2)}
+table.t tr.tot td{font-weight:700;color:var(--ink)}
+table.t tr.tot td.n0{color:var(--amber);letter-spacing:.02em}
+table.t tr.tot td{border-top:1px solid var(--line-2)}
+table.t tr.sub td{font-weight:600;color:var(--ink)}
+table.t tr.sub td.n1{color:var(--ink);padding-left:26px}
+table.t td.n2{padding-left:44px;color:var(--ink-3)}
+table.t tr:not(.tot):not(.sub) td{color:var(--ink-2)}
 .pos{color:var(--pos)} .neg{color:var(--neg)}
 
 /* kpis */

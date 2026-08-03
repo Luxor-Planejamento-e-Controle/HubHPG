@@ -20,7 +20,7 @@ Uso:
 import json
 import re
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -423,67 +423,108 @@ def garanhoes(wb):
     6 lavados positivos, 7 %, 8 embriões confirmados, 9 prenhez, 10 aborto,
     11 total confirmados."""
     ws = wb["GARANHOES"]
-    rows = []
+    # no fim da aba há um bloco de legenda com os tipos de sêmen — ele entrava na
+    # lista como se fosse garanhão ("Fresco", "Refrigerado", "Congelado")
+    LEGENDA = {"FRESCO", "REFRIGERADO", "CONGELADO", "TIPO DE SEMEN", "TIPO DE SÊMEN"}
+    rows, sem_uso = [], []
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
         if i < 4 or len(r) < 11 or r[2] is None:
             continue
         nome = _s(r[2])
-        if not nome or _norm(r[2]).startswith("TOTAL"):
+        if not nome or _norm(r[2]).startswith("TOTAL") or _norm(r[2]) in LEGENDA:
             continue
-        tot, conf = _to_num(r[4]), _to_num(r[10])
-        rows.append([nome.title(), (_s(r[3]) or "")[:1].upper(), int(tot or 0),
-                     int(_to_num(r[5]) or 0), int(conf or 0),
-                     f"{conf/tot*100:.0f}%" if tot and conf is not None else "—"])
-    rows.sort(key=lambda x: -x[4])
+        tot, conf = int(_to_num(r[4]) or 0), int(_to_num(r[10]) or 0)
+        linha_ = [nome.title(), (_s(r[3]) or "")[:1].upper(), tot,
+                  int(_to_num(r[5]) or 0), conf, f"{conf/tot*100:.0f}%" if tot else "—"]
+        # garanhão sem nenhum lavado só ocupa espaço na tabela; vira nota de rodapé
+        (rows if tot else sem_uso).append(linha_)
+    rows.sort(key=lambda x: (-x[4], -x[2]))
     somas = [sum(r[i] for r in rows) for i in (2, 3, 4)]
     por_tipo = {}
     for r in rows:
-        t = r[1] or "?"
-        a, b = por_tipo.get(t, (0, 0))
-        por_tipo[t] = (a + r[3], b + r[2])
+        if not r[1]:
+            continue
+        a, b = por_tipo.get(r[1], (0, 0))
+        por_tipo[r[1]] = (a + r[3], b + r[2])
     nome_tipo = {"R": "Refrigerado", "C": "Congelado", "F": "Fresco"}
     return {"t": "kpis_tabela", "n": 17, "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — GARANHÕES",
-            "sub": f"{somas[0]} lavados · {somas[1]} positivos · {somas[2]} embriões confirmados",
-            "kpis": [{"v": f"{p/t*100:.0f}%" if t else "—", "l": nome_tipo.get(k, k),
-                      "s": f"{p} de {t} lavados"} for k, (p, t) in
-                     sorted(por_tipo.items(), key=lambda kv: -kv[1][1])[:4]],
+            "sub": (f"{len(rows)} garanhões usados · {somas[0]} lavados · {somas[1]} positivos"
+                    f" · {somas[2]} embriões confirmados · fonte: aba GARANHOES"),
+            "kpis": [{"v": f"{p/t*100:.0f}%", "l": nome_tipo.get(k, k), "s": f"{p} de {t} lavados"}
+                     for k, (p, t) in sorted(por_tipo.items(), key=lambda kv: -kv[1][1]) if t],
             "tabela": {"cols": ["GARANHÃO", "SÊMEN", "LAVADOS", "POSITIVOS", "CONFIRMADOS", "ÍND. %"],
-                       "rows": rows}}
+                       "rows": rows},
+            "obs": f"{len(sem_uso)} garanhões cadastrados sem lavado na safra ficaram fora da lista"
+                   if sem_uso else None}
+
+
+# Mês da estação de monta: começa em agosto e fecha em julho.
+MESES_ESTACAO = [8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7]
 
 
 def comparativo(wb):
-    """S18 — aba COMPARATIVO: linha 1 traz as estações nas colunas, cada linha um mês."""
-    ws = wb["COMPARATIVO"]
-    linhas = [list(r) for r in ws.iter_rows(values_only=True)]
-    if not linhas:
-        return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES", "",
-                    "ESTACAO DE MONTA.xlsx, aba COMPARATIVO", "aba vazia")
-    hdr = linhas[0]
-    cols_est = [(j, _s(v)) for j, v in enumerate(hdr) if v is not None and re.match(r"^\d{2}/\d{2}$", _s(v) or "")]
-    if not cols_est:
-        return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES", "",
-                    "ESTACAO DE MONTA.xlsx, aba COMPARATIVO",
-                    "não achei colunas de estação (formato AA/BB) no cabeçalho")
-    jm = next((j for j, v in enumerate(hdr) if _norm(v) in ("MÊS", "MES")), 1)
-    rows, totais = [], {j: 0 for j, _ in cols_est}
-    for r in linhas[1:]:
-        mes = _s(r[jm]) if jm < len(r) else None
-        if not mes or _norm(r[jm]).startswith("TOTAL"):
+    """S18 — comparativo entre estações, CALCULADO da aba ESTAÇÃO linha a linha.
+
+    A aba `COMPARATIVO` da planilha não serve: está congelada em 20/21–23/24 e o
+    haras parou de manter. Como a aba ESTAÇÃO guarda a safra de cada embrião
+    (coluna 36) e as datas, o comparativo sai da mesma base do funil (S16) — e
+    então nunca fica velho, nem depende de alguém atualizar um resumo à mão.
+
+    Mês de referência do embrião = IA + 60 dias, que é quando a prenhez é
+    confirmada (mesma conta do fechamento semanal).
+    """
+    ws = wb["ESTAÇÃO"]
+    por_safra = {}
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 3 or r[0] is None or len(r) < 36:
             continue
-        linha_ = [mes.title()]
-        for j, _ in cols_est:
-            v = _to_num(r[j]) if j < len(r) else None
-            linha_.append(int(v) if v else 0)
-            totais[j] += int(v or 0)
-        rows.append(linha_)
-    rows.append(["Total"] + [totais[j] for j, _ in cols_est])
-    ultima = cols_est[-1][1]
-    return {"t": "kpis_tabela", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES",
-            "sub": "Embriões confirmados por mês · " + " · ".join(n for _, n in cols_est),
-            "kpis": [{"v": str(totais[j]), "l": f"Estação {n}", "s": "confirmados no total"}
-                     for j, n in cols_est[-4:]],
-            "tabela": {"cols": ["MÊS"] + [n for _, n in cols_est], "rows": rows},
-            "obs": f"a aba COMPARATIVO da planilha vai até {ultima}"}
+        safra = _s(r[35])
+        if not safra or "/" not in safra:
+            continue
+        d = por_safra.setdefault(safra, {"conf": {}, "aborto": 0, "absorcao": 0,
+                                         "obito": 0, "lavados": 0, "tent": 0})
+        d["tent"] += 1
+        if _norm(r[10]) != "+":
+            continue
+        d["lavados"] += 1
+        if _norm(r[12]) != "+":
+            d["absorcao"] += 1        # perdeu antes da confirmação de 60 dias
+            continue
+        passou = all(_norm(r[j]) in ("+", "") for j in (13, 14, 15))
+        if not passou:
+            d["absorcao"] += 1
+            continue
+        if _norm(r[16]) == "SIM":
+            d["aborto"] += 1          # confirmado > 60d que não nasceu
+            continue
+        if r[28] is not None:
+            d["obito"] += 1           # nasceu e morreu — conta como confirmado
+        ia = r[7]
+        if not hasattr(ia, "month"):
+            continue
+        conf = ia + timedelta(days=60)
+        d["conf"][conf.month] = d["conf"].get(conf.month, 0) + 1
+
+    safras = sorted(por_safra, key=lambda s: s.split("/")[0])[-4:]
+    if not safras:
+        return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO ENTRE ESTAÇÕES", "",
+                    "ESTACAO DE MONTA.xlsx, aba ESTAÇÃO", "nenhuma safra encontrada na coluna ESTAÇÃO")
+    curto = [f"{s[2:4]}/{s[-2:]}" for s in safras]
+    rows = []
+    for m in MESES_ESTACAO:
+        rows.append([ABR[m - 1]] + [por_safra[s]["conf"].get(m, 0) for s in safras])
+    tot = {s: sum(por_safra[s]["conf"].values()) for s in safras}
+    rows.append(["Confirmados", *[tot[s] for s in safras]])
+    rows.append(["Abortos", *[por_safra[s]["aborto"] for s in safras]])
+    rows.append(["Absorções", *[por_safra[s]["absorcao"] for s in safras]])
+    rows.append(["Lavados (+)", *[por_safra[s]["lavados"] for s in safras]])
+    rows.append(["Tentativas", *[por_safra[s]["tent"] for s in safras]])
+    return {"t": "kpis_tabela", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO ENTRE ESTAÇÕES",
+            "sub": ("Embriões confirmados por mês (IA + 60 dias) · calculado da aba ESTAÇÃO, "
+                    "não da aba COMPARATIVO"),
+            "kpis": [{"v": str(tot[s]), "l": f"Estação {c}", "s": f"{por_safra[s]['lavados']} lavados (+)"}
+                     for s, c in zip(safras, curto)],
+            "tabela": {"cols": ["MÊS"] + curto, "rows": rows}}
 
 
 def doadoras(wb):
