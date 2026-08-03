@@ -1,21 +1,33 @@
 /* Hub HPG — casca web. Mesmo desenho do LuxorP&CHub (sidebar + rotas por hash),
    com a identidade do Haras Pao Grande.
 
-   Hoje tem UMA aba: Atualização Semanal, o dashboard que o pipeline já gera.
-   Comitê Mensal e Plantel/Movimentação entram quando a referência deles estiver
-   definida — hoje não existe painel web nenhum pros dois, e a casca não inventa
-   tela. Pra ligar uma aba nova: entrada em ROUTES + ICON + render, e o
-   vendor/echarts.min.js de volta no index.html (é o mesmo arquivo do P&C Hub). */
+   Uma aba real: Atualização Semanal, o dashboard que o pipeline já gera.
+   Comitê Mensal e Plantel/Movimentação são PLACEHOLDER — estão na navegação pra
+   marcar que também vêm pra cá, mas não desenham tela nenhuma: não existe painel
+   web dos dois hoje (o comitê sai do ComiteHPG.pbix, o plantel de e-mail com
+   xlsx), e sem uma referência do que mostrar a casca não inventa layout.
+
+   Pra promover um placeholder a aba de verdade: trocar `soon:true` pela função
+   de render e, se tiver gráfico, copiar o vendor/echarts.min.js do LuxorP&CHub
+   e voltar a tag <script> no index.html. */
 'use strict';
 
 /* ---- rotas ---- */
 const ICON = {
   home:'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10',
   semanal:'M3 5h18v16H3zM3 9h18M8 3v4M16 3v4M8 14h3M8 17h6',
+  comite:'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  plantel:'M4 20V8l8-5 8 5v12M9 20v-6h6v6',
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
   {id:'semanal', title:'Atualização Semanal', sub:'Fechamento da semana — plantel, produção e receptoras', icon:'semanal', render:renderSemanal},
+  {id:'comite', title:'Comitê Mensal', sub:'Plantel e patrimônio por mês de referência', icon:'comite', soon:true,
+   fonte:'bases/base_bi.parquet (PGBaseBI.py, este repo) — 27 meses, fev/24 a abr/26',
+   hoje:'O comitê é montado no ComiteHPG.pbix; não há painel web.'},
+  {id:'plantel', title:'Plantel / Movimentação', sub:'Cascata de valor e movimentos do mês', icon:'plantel', soon:true,
+   fonte:'mov_cascata / mov_detalhe do LuxorMonthlyP-CRoutines/PlantelHPG (LxMovimentacao.py)',
+   hoje:'Hoje sai por e-mail com o xlsx anexo (LxEmailHPGPlantel.py).'},
 ];
 function allowed(){
   const ok=(window.HUB&&window.HUB.dashboards)||[];
@@ -26,8 +38,9 @@ const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 function buildNav(){
   const nav=document.getElementById('nav'); nav.innerHTML='';
   for(const r of allowed()){
-    const a=document.createElement('a'); a.href='#/'+r.id;
-    a.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><span>${r.title}</span>`;
+    const a=document.createElement('a'); a.href='#/'+r.id; a.className=r.soon?'locked':'';
+    a.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg>`
+      +`<span>${r.title}</span>`+(r.soon?'<span class="badge">em breve</span>':'');
     nav.appendChild(a);
   }
 }
@@ -37,18 +50,43 @@ function router(){
   document.getElementById('pageTitle').textContent=r.title;
   document.getElementById('pageSub').textContent=r.sub;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#/'+id));
-  const c=document.getElementById('content'); c.className='content'; c.innerHTML=''; r.render(c); window.scrollTo(0,0);
+  const c=document.getElementById('content'); c.className='content'; c.innerHTML='';
+  (r.render||renderPlaceholder)(c,r); window.scrollTo(0,0);
 }
 
 /* ---- Início ---- */
 function renderHome(el){
   const cards=allowed().filter(r=>r.id).map(r=>`
     <a class="card hover" href="#/${r.id}">
-      <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CA9703" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.title}</h3></div>
+      <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CA9703" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.title}</h3>
+        ${r.soon?'<span class="pill soon" style="margin-left:auto">em breve</span>':'<span class="pill live" style="margin-left:auto">no ar</span>'}</div>
       <div class="desc">${r.sub}</div></a>`).join('');
   el.innerHTML=`<div class="hero"><h1>Haras Pao Grande</h1>
     <p>Hub dos painéis do haras.</p></div>
     <div class="grid g-3">${cards}</div>`;
+}
+
+/* ---- placeholder ----
+   Aba que ainda não existe. Mostra a fonte que vai alimentar e de onde o dado
+   sai hoje — nada de gráfico de mentira nem número de exemplo, que é o tipo de
+   coisa que depois alguém lê como se fosse o painel. */
+function renderPlaceholder(el,r){
+  el.innerHTML=`
+    <div class="card" style="max-width:720px">
+      <div class="card-title">
+        <svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CA9703" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg>
+        <h2>${r.title}</h2><span class="pill soon" style="margin-left:auto">em breve</span>
+      </div>
+      <p style="margin:0 0 18px;color:var(--ink-2)">${r.sub}.</p>
+      <div class="grid g-2" style="gap:12px">
+        <div><div class="label" style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px">Base que vai alimentar</div>
+          <div style="font-size:13px">${r.fonte}</div></div>
+        <div><div class="label" style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px">Como é hoje</div>
+          <div style="font-size:13px">${r.hoje}</div></div>
+      </div>
+      <div class="banner" style="margin:20px 0 0">O layout ainda não está definido — a tela entra quando a
+        referência do que mostrar estiver fechada.</div>
+    </div>`;
 }
 
 /* ---- Atualização Semanal ----
