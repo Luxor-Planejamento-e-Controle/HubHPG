@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haras Pao Grande · Hub</title>
+<link rel="icon" href="assets/pg-logo.png">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img class="mark" src="assets/pg-logo.png" alt="Haras Pao Grande" height="34">
+      <div class="txt"><span>HUB HPG</span></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="foot">
+      Haras Pao Grande
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Recolher menu" aria-label="Recolher menu">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div>
+        <h1 id="pageTitle">Início</h1>
+        <div class="sub" id="pageSub"></div>
+      </div>
+      <div class="spacer"></div>
+      <span class="chip" id="userChip" hidden><span id="userName"></span> <span class="avatar" id="userAvatar"></span></span>
+      <button class="chip chip-btn" id="signOut" type="button" hidden>Sair</button>
+    </header>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+<script src="assets/vendor/echarts.min.js"></script>
+<script src="assets/config.js"></script>
+<!-- dados locais da demo offline; quando o hub for a gold vêm do bucket privado -->
+<script src="assets/data/comite.js" onerror="void 0"></script>
+<script src="assets/data/plantel.js" onerror="void 0"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
