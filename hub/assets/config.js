@@ -8,5 +8,5 @@
    outras pessoas; nada compartilhado com o hub do P&C. */
 window.HUB = {
   offline: true,
-  dashboards: ['semanal', 'comite', 'plantel'],   // offline: tudo liberado
+  dashboards: ['semanal'],   // offline: tudo liberado
 };
