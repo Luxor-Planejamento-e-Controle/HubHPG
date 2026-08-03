@@ -630,41 +630,37 @@ def monta_deck(m, ano, ctx):
                    {"n": "05", "titulo": "DECISÕES E MANEJO", "sub": "Plantel · Obras · Casa"}]},
         divisor(1, "FINANCEIRO", f"DRE Haras · Caixa · Plantel | {MESES[m-1].upper()} {ano}"),
     ]
-    if dados:
-        s += slides_dre(m, ordem, dados, ano)[:1]
-        s.append({"t": "dre", "n": 5, "titulo": f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
-                  "sub": "DRE Haras · Custos indiretos de produção · linhas zeradas no mês omitidas",
-                  "linhas": bloco(ordem, dados, "CUSTOS INDIRETOS DE PRODUÇÃO", "DESPESAS", "mes", m)})
-        s.append({"t": "dre", "n": 6, "titulo": f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
-                  "sub": "DRE Haras · Despesas do mês · linhas zeradas no mês omitidas",
-                  "linhas": bloco(ordem, dados, "DESPESAS", "RESULTADO OPERACIONAL", "mes", m)})
-        s += slides_dre(m, ordem, dados, ano)[1:]
-    else:
-        for n, t in ((4, "RESUMO FINANCEIRO — HARAS COMPETÊNCIA"), (5, "ANÁLISE DE CUSTOS"),
-                     (6, "ANÁLISE DE DESPESAS"), (7, "HARAS COMPETÊNCIA — ACUMULADO (YTD)")):
-            s.append(pend(n, t, "", DRE_HARAS.name, "arquivo não encontrado no Drive"))
+    FONTE = "Fonte: DRE_Historico.xlsx (Base DRE Geral)"
+    mesano = f"{ABR[m-1].upper()}/{str(ano)[2:]}"
+    dre = lambda n, t, sub, lin, fonte=None: (
+        {"t": "dre", "n": n, "titulo": t, "sub": f"{sub} · {fonte or FONTE}", "linhas": lin}
+        if lin else pend(n, t, sub, DRE_HIST.name, "sem linha para esse recorte no histórico"))
+
+    s.append(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
+                 "DRE 2026 | HPG · competência mensal",
+                 dre_mes("HPG", "Competência", ano, m, so_subtotal=True)))
+    s.append(dre(5, f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
+                 "Custos indiretos de produção · linhas zeradas no mês omitidas",
+                 dre_grupo("HPG", "Competência", ano, m, "CUSTOS E DESPESAS OPERACIONAIS")))
+    s.append(dre(6, f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
+                 "Despesas do mês · linhas zeradas no mês omitidas",
+                 dre_grupo("HPG", "Competência", ano, m, "DESPESAS")))
+    s.append(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
+                 "DRE 2026 | HPG · acumulado no ano",
+                 dre_ytd("HPG", "Competência", ano, m, so_subtotal=True),
+                 "Fonte: DRE_Historico.xlsx (Base YTD)"))
     s.append(pend(8, "COMENTÁRIOS — VARIAÇÕES YTD", "Análise mês a mês por categoria",
                   "COMENTARIOS_DRE_HARAS.docx", "texto escrito por pessoa — não sai de base"))
     s.append(slide_investimentos(m, ano))
-    if ctx["dados_cx"]:
-        s.append({"t": "dre", "n": 10, "titulo": f"HARAS CAIXA — ORÇADO X REALIZADO {ABR[m-1].upper()}/{str(ano)[2:]}",
-                  "sub": "FC 2026 | HPG · Caixa mensal · Fonte: aba DRE-Caixa",
-                  "linhas": [x for x in (linha(ctx["dados_cx"], rot, nome, tot, "mes", m)
-                                         for rot, nome, tot in RESUMO) if x]})
-    else:
-        s.append(pend(10, "HARAS CAIXA — ORÇADO X REALIZADO", "", DRE_HARAS.name, "aba DRE-Caixa não lida"))
+    s.append(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}", "FC 2026 | HPG · caixa mensal",
+                 dre_mes("HPG", "Caixa", ano, m, so_subtotal=True)))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
-    if dados_c:
-        s.append({"t": "dre", "n": 13, "titulo": f"RESUMO FINANCEIRO — CASA/FPG — {ABR[m-1].upper()}/{str(ano)[2:]}",
-                  "sub": "FPG | Casa · Caixa mensal · Fonte: aba DRE-Novo formatoCaixa",
-                  "linhas": bloco(ordem_c, dados_c, ordem_c[0], ordem_c[-1], "mes", m)})
-        s.append({"t": "dre", "n": 14, "titulo": f"CASA/FPG — ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
-                  "sub": "FPG | Casa · Acumulado no ano",
-                  "linhas": bloco(ordem_c, dados_c, ordem_c[0], ordem_c[-1], "ytd", m)})
-    else:
-        s.append(pend(13, "RESUMO FINANCEIRO — CASA/FPG", "", DRE_CASA.name, "arquivo não encontrado"))
-        s.append(pend(14, "CASA/FPG — ACUMULADO", "", DRE_CASA.name, "arquivo não encontrado"))
+    s.append(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano}",
+                 "FPG | Casa · caixa mensal", dre_mes("FPG", "Caixa", ano, m)))
+    s.append(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
+                 "FPG | Casa · acumulado no ano", dre_ytd("FPG", "Caixa", ano, m),
+                 "Fonte: DRE_Historico.xlsx (Base YTD)"))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", "Embriões · Doadoras · Garanhões"))
     s += ctx["estacao"]
@@ -696,25 +692,18 @@ def monta_deck(m, ano, ctx):
 
 def build(so_mes=None):
     ano = so_mes.year if so_mes else 2026
-    ctx = {"ordem": [], "dados": {}, "ordem_c": [], "dados_c": {}, "dados_cx": {}}
-    meses = []
-    if DRE_HARAS.exists():
-        _, ctx["ordem"], ctx["dados"] = le_dre_mensal(DRE_HARAS, "DRE-Compet", 3)
-        meses = meses_com_dado(ctx["dados"])
-        try:
-            _, _, ctx["dados_cx"] = le_dre_mensal(DRE_HARAS, "DRE-Caixa", 3)
-        except Exception as e:
-            aviso(f"DRE-Caixa não lida ({e}) — S10 fica pendente")
+    ctx = {}
+    if not DRE_HIST.exists():
+        aviso(f"DRE_Historico.xlsx não encontrado em {DRE_DIR} — seção financeira fica pendente")
+        meses = []
     else:
-        aviso(f"DRE do Haras não encontrado em {DRE_DIR}")
-    if DRE_CASA.exists():
-        try:
-            _, ctx["ordem_c"], ctx["dados_c"] = le_dre_mensal(DRE_CASA, "DRE-Novo formatoCaixa", 4)
-        except Exception as e:
-            aviso(f"DRE da Casa não lida ({e}) — S13/S14 pendentes")
+        meses = meses_fechados(ano=ano)
+        if meses:
+            print(f"  [dre] meses fechados em {ano}: "
+                  f"{', '.join(ABR[x-1] for x in meses)}")
     if not meses:
         meses = [so_mes.month] if so_mes else [date.today().month]
-        aviso("nenhum mês com dado no DRE — deck sai só com as bases não-financeiras")
+        aviso("nenhum mês com realizado no DRE — deck sai só com as bases não-financeiras")
 
     ctx["estacao"] = slides_estacao()
     ctx["embrioes"] = slides_embrioes()
