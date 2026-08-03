@@ -22,9 +22,7 @@ const ICON = {
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
   {id:'semanal', title:'Atualização Semanal', sub:'Fechamento da semana — plantel, produção e receptoras', icon:'semanal', render:renderSemanal},
-  {id:'comite', title:'Comitê Mensal', sub:'Plantel e patrimônio por mês de referência', icon:'comite', soon:true,
-   fonte:'bases/base_bi.parquet (PGBaseBI.py, este repo) — 27 meses, fev/24 a abr/26',
-   hoje:'O comitê é montado no ComiteHPG.pbix; não há painel web.'},
+  {id:'comite', title:'Comitê Mensal', sub:'Relatório de desempenho estratégico — deck do mês', icon:'comite', render:renderComite},
   {id:'plantel', title:'Plantel / Movimentação', sub:'Cascata de valor e movimentos do mês', icon:'plantel', soon:true,
    fonte:'mov_cascata / mov_detalhe do LuxorMonthlyP-CRoutines/PlantelHPG (LxMovimentacao.py)',
    hoje:'Hoje sai por e-mail com o xlsx anexo (LxEmailHPGPlantel.py).'},
@@ -104,6 +102,15 @@ function renderSemanal(el){
   const f=document.createElement('iframe');
   f.className='embed'; f.title='Atualização Semanal'; f.srcdoc=html;
   el.appendChild(f);
+}
+
+/* ---- Comitê Mensal ----
+   Deck próprio (comite.html): 16:9, navegação por seta, modo apresentação e
+   export PPTX. Entra em iframe porque é uma apresentação, não uma página do
+   hub — dentro dele a topbar e a sidebar só atrapalhariam. */
+function renderComite(el){
+  el.classList.add('flush');
+  el.innerHTML=`<iframe class="embed" src="comite.html" title="Comitê Mensal"></iframe>`;
 }
 
 /* ---- sidebar recolhível ---- */
