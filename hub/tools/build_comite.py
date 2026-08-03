@@ -571,6 +571,92 @@ def doadoras(wb):
     return out
 
 
+# ========================================================= Coberturas (S21)
+# O guia chama de "COBERTURAS_CAVALOS_FORA.xlsx"; no Drive o arquivo é
+# REPRODUÇÃO/COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx.
+COBERTURAS = None            # resolvido em tempo de execução (ver _coberturas_path)
+# Excluídos por decisão do haras (constam no guia).
+COBERTURAS_FORA = ("TRILHO DA ZIZICA", "QUANTUM DE ALCATEIA")
+
+
+def _coberturas_path():
+    from _pg_common import DRIVE_ROOT
+    p = DRIVE_ROOT / "REPRODUÇÃO" / "COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx"
+    return p if p.exists() else None
+
+
+def slide_coberturas():
+    """S21 — aba Planilha2: 2 garanhão, 3 qtd comprada, 4 utilizadas, 5 saldo.
+    A Planilha1 é o log de compra (uma linha por negócio); a Planilha2 é o
+    consolidado por garanhão, que é o que o slide mostra."""
+    f = _coberturas_path()
+    if f is None:
+        return pend(21, f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — COBERTURAS DISPONÍVEIS",
+                    "Saldo por garanhão de fora",
+                    "REPRODUÇÃO/COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx",
+                    "arquivo não encontrado no Drive")
+    wb = _load(f)
+    ws = wb["Planilha2"]
+    rows = []
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 3 or r[1] is None:
+            continue
+        nome = _s(r[1])
+        if not nome or _norm(r[1]).startswith("TOTAL") or _norm(r[1]) in COBERTURAS_FORA:
+            continue
+        qtd, usa, saldo = (int(_to_num(r[j]) or 0) for j in (2, 3, 4))
+        rows.append([nome.title(), qtd, usa, saldo])
+    wb.close()
+    rows.sort(key=lambda x: -x[3])
+    com_saldo = [r for r in rows if r[3] > 0]
+    return {"t": "kpis_tabela", "n": 21,
+            "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — COBERTURAS DISPONÍVEIS",
+            "sub": (f"Coberturas de garanhões de fora · {len(com_saldo)} garanhões com saldo"
+                    f" · exclui {', '.join(x.title() for x in COBERTURAS_FORA)}"),
+            "kpis": [{"v": str(sum(r[3] for r in rows)), "l": "Saldo Total", "s": "coberturas a usar"},
+                     {"v": str(sum(r[1] for r in rows)), "l": "Compradas", "s": "no acumulado"},
+                     {"v": str(sum(r[2] for r in rows)), "l": "Utilizadas", "s": "aceites"},
+                     {"v": str(len(com_saldo)), "l": "Garanhões", "s": "com saldo disponível"}],
+            "tabela": {"cols": ["GARANHÃO", "COMPRADAS", "UTILIZADAS", "SALDO"], "rows": rows}}
+
+
+# ====================================================== Inadimplência (S31)
+# O ControleInadimplencia.py já grava os agregados; não é preciso print do
+# dashboard nem tocar em linha identificável — aqui só entram KPI e faixa etária,
+# que não têm nome de devedor.
+INAD_DIR = Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes"
+                r"/Controle de inadimplência/output_pbi")
+
+
+def slide_inadimplencia(m, ano):
+    kpi_f, faixa_f = INAD_DIR / "indicadores_kpi.xlsx", INAD_DIR / "resumo_por_faixa.xlsx"
+    if not kpi_f.exists() or not faixa_f.exists():
+        return pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
+                    "controle-de-inadimplencia → output_pbi/indicadores_kpi.xlsx",
+                    f"saída não encontrada em {INAD_DIR}; rode o ControleInadimplencia.py")
+    k = pd.read_excel(kpi_f).iloc[0]
+    fx = pd.read_excel(faixa_f)
+    ref = pd.to_datetime(k["data_referencia"]).strftime("%d/%m/%Y")
+    venc = fx[fx["status_titulo"] == "Vencido"].groupby("faixa_atraso")[["valor_total", "qtd_titulos"]].sum()
+    tot_venc = float(venc["valor_total"].sum()) or 1.0
+    rows = [[str(i).split(" - ", 1)[-1].title(), int(r["qtd_titulos"]),
+             brl_curto(r["valor_total"]), f"{r['valor_total']/tot_venc*100:.0f}%"]
+            for i, r in venc.iterrows()]
+    return {"t": "kpis_tabela", "n": 31, "titulo": "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS",
+            "sub": (f"Posição de {ref} · agregados do ControleInadimplencia.py"
+                    f" · sem dado identificável de devedor"),
+            "kpis": [{"v": brl_curto(k["total_em_aberto"]), "l": "Em Aberto", "s": f"{int(k['qtd_clientes_total'])} clientes"},
+                     {"v": brl_curto(k["total_vencido"]), "l": "Vencido",
+                      "s": f"{k['percentual_vencido']:.1f}% da carteira"},
+                     {"v": brl_curto(k["total_a_vencer"]), "l": "A Vencer", "s": "em dia"},
+                     {"v": brl_curto(k["acao_judicial_total"]), "l": "Ação Judicial", "s": "total em cobrança"},
+                     {"v": f"{int(k['qtd_clientes_vencidos'])}", "l": "Clientes Vencidos",
+                      "s": f"ticket médio {brl_curto(k['ticket_medio'])}"}],
+            "tabela": {"cols": ["FAIXA DE ATRASO", "TÍTULOS", "VALOR", "% DO VENCIDO"], "rows": rows},
+            "obs": None if pd.to_datetime(k["data_referencia"]).month == m
+                   else f"a base de cobrança está posicionada em {ref}"}
+
+
 # ============================================================== Vendas (S29–S35)
 VENDEDOR_COMITE = "CARLA"
 
