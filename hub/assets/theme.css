@@ -136,7 +136,7 @@ table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numer
 table.data th{
   text-align:right;padding:10px 14px;background:var(--bg-2);color:var(--ink-2);
   font-weight:600;font-size:11px;letter-spacing:.05em;text-transform:uppercase;position:sticky;top:0;z-index:1;
-  white-space:nowrap;cursor:pointer;user-select:none;
+  white-space:nowrap;cursor:pointer;-webkit-user-select:none;user-select:none;
 }
 table.data th:first-child,table.data td:first-child{text-align:left}
 table.data th .sort{color:var(--amber);margin-left:4px;font-size:10px}

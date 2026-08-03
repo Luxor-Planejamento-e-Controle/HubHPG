@@ -1,6 +1,6 @@
 /* Configuração do Hub HPG.
    Fase atual: DEMO OFFLINE — abre o index.html direto (file://), sem login e
-   sem rede. Os dados vêm dos assets/data/*.js gerados por tools/build_data.py.
+   sem rede. O painel da única aba vem de tools/build_semanal.py.
 
    Quando for a gold, é aqui que entram SUPABASE_URL + anon key (pública por
    design) e o hub passa a montar só depois do porteiro (assets/auth.js),
