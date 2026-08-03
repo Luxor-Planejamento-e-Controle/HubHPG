@@ -133,7 +133,18 @@ def pct(orc, real):
 
 
 def _linhas_dre(df, col_orc, col_real, so_subtotal=False, so_com_valor=False):
-    out = []
+    """Três níveis, tirados de Grupo/Subgrupo/É Subtotal:
+        0 = linha do GRUPO (Receita Bruta, Custos e Despesas, Resultado…)
+        1 = SUBGRUPO (Volumoso e Concentrado, Despesas com Pessoal…)
+        2 = natureza folha
+    Antes tudo que era `É Subtotal` virava nível 0, e o slide saía com quase toda
+    linha em dourado e negrito — sem hierarquia nenhuma pra ler.
+
+    Nome repetido em grupos diferentes (Sanidade aparece em Custos e em Despesas)
+    ganha o grupo entre parênteses; sem isso a mesma palavra aparecia duas vezes
+    com números diferentes.
+    """
+    linhas = []
     for _, r in df.sort_values("Ordem").iterrows():
         sub = bool(r["É Subtotal"])
         if so_subtotal and not sub:
@@ -142,11 +153,24 @@ def _linhas_dre(df, col_orc, col_real, so_subtotal=False, so_com_valor=False):
         if so_com_valor and not orc and not real and not sub:
             continue
         nome = str(r["Natureza de Lançamento"]).strip()
-        # linha de grupo (sem subgrupo) é o total; as demais são filhas
-        total = sub and (pd.isna(r["Subgrupo"]) or str(r["Subgrupo"]).strip() == nome)
-        out.append({"nome": nome.title(), "total": bool(total),
-                    "v": [orc, real, (real - orc) / 1000.0, pct(orc, real)]})
-    return out
+        grupo = "" if pd.isna(r["Grupo"]) else str(r["Grupo"]).strip()
+        subg = "" if pd.isna(r["Subgrupo"]) else str(r["Subgrupo"]).strip()
+        nivel = 0 if (not subg or subg == nome and not grupo) else (1 if sub else 2)
+        if subg == nome and grupo and grupo != nome:
+            nivel = 1
+        if not subg or grupo == nome:
+            nivel = 0
+        linhas.append({"nome": nome.title(), "nivel": nivel, "grupo": grupo.title(),
+                       "v": [orc, real, (real - orc) / 1000.0, pct(orc, real)]})
+    vistos = {}
+    for l in linhas:
+        vistos[l["nome"]] = vistos.get(l["nome"], 0) + 1
+    for l in linhas:
+        if vistos[l["nome"]] > 1 and l["grupo"] and l["grupo"] != l["nome"]:
+            l["nome"] = f"{l['nome']} ({l['grupo']})"
+        l["total"] = l["nivel"] == 0        # compat: o render antigo lia `total`
+        del l["grupo"]
+    return linhas
 
 
 def dre_mes(cc, modelo, ano, m, **kw):
@@ -627,10 +651,11 @@ def divisor(n, titulo, sub):
     return {"t": "divisor", "n": n, "titulo": titulo, "sub": sub}
 
 
-# Um slide 16:9 comporta ~40 linhas antes de a fonte ficar ilegível. Passou
-# disso, o slide QUEBRA em continuação — é o que o PowerPoint faria. Espremer
-# tudo numa página só foi o que fez o deck vazar por cima do rodapé.
-MAX_LINHAS = 38
+# Linhas por slide. Com 26 a linha fica em ~20px na tela de 720 — dá pra ler
+# sentado longe, que é o ponto de uma apresentação. Passou disso, o slide QUEBRA
+# em continuação, como o PowerPoint faria. Espremer tudo numa página só foi o
+# que deixou a lista ilegível e vazando por cima do rodapé.
+MAX_LINHAS = 26
 
 
 def divide_tab(slide):
