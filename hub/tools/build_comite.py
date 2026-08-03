@@ -80,23 +80,29 @@ def pendente(n, titulo, sub, fonte, motivo):
 #   r4+: A = natureza. Negrito em A marca total; sem negrito é filho.
 def le_real_x_orcado(caminho: Path, aba: str):
     import openpyxl
-    wb = openpyxl.load_workbook(caminho, data_only=True)   # com estilo: o negrito é a hierarquia
+    # read_only: o arquivo tem ~19 MB e o modo normal leva minutos. O modo
+    # read-only ainda expõe .font, que é onde mora a hierarquia (negrito = total).
+    wb = openpyxl.load_workbook(caminho, data_only=True, read_only=True)
     if aba not in wb.sheetnames:
         wb.close()
         raise KeyError(f"aba '{aba}' não existe em {caminho.name}: {wb.sheetnames}")
     ws = wb[aba]
-    rot_mes = str(ws.cell(1, 2).value or "").strip()
-    linhas = []
-    for i in range(4, ws.max_row + 1):
-        c = ws.cell(i, 1)
+    rot_mes, linhas = "", []
+    for i, row in enumerate(ws.iter_rows(min_col=1, max_col=9), start=1):
+        if i == 1:
+            rot_mes = str(row[1].value or "").strip()
+            continue
+        if i < 4:
+            continue
+        c = row[0]
         nome = str(c.value).strip() if c.value is not None else ""
         if not nome:
             continue
         linhas.append({
             "nome": nome,
-            "total": bool(c.font.b),
-            "mes": [num(ws.cell(i, j).value) for j in (2, 3, 4, 5)],
-            "ytd": [num(ws.cell(i, j).value) for j in (6, 7, 8, 9)],
+            "total": bool(c.font and c.font.b),
+            "mes": [num(row[j].value) for j in (1, 2, 3, 4)],
+            "ytd": [num(row[j].value) for j in (5, 6, 7, 8)],
         })
     wb.close()
     return rot_mes, linhas
