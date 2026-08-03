@@ -88,145 +88,99 @@ def brl_curto(v):
 
 
 # ==================================================================== DRE
-def le_dre_mensal(caminho: Path, aba: str, col_label: int):
-    """Lê uma aba DRE no formato 'YTD ano calendário' e devolve todos os meses.
-
-    Forma da aba (vale pro Haras e pra Casa, muda só a coluna do rótulo):
-      r6  -> em cada bloco de mês, o NÚMERO do mês na coluna do Realizado
-      r8  -> Orçado | Realizado | ∆ R$ k, repetido por bloco
-      r9+ -> col_label = natureza; a coluna 2/3 traz código contábil (ignorado)
-    Depois de cada mês (menos janeiro) vem um bloco 'Acumulado' — daí o YTD.
-    """
-    import openpyxl
-    wb = openpyxl.load_workbook(caminho, data_only=True, read_only=True)
-    ws = wb[aba]
-    linhas = list(ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=ws.max_column))
-    wb.close()
-
-    # r6: coluna (0-based) do Realizado de cada mês
-    col_real = {}
-    for j, c in enumerate(linhas[5]):
-        v = c.value
-        if isinstance(v, (int, float)) and 1 <= v <= 12 and float(v).is_integer():
-            col_real[int(v)] = j
-    if not col_real:
-        raise ValueError(f"{caminho.name}/{aba}: não achei os marcadores de mês na linha 6")
-
-    ordem, dados = [], {}
-    for i, row in enumerate(linhas[8:], start=9):
-        c = row[col_label - 1] if col_label - 1 < len(row) else None
-        if c is None or c.value is None:
-            continue
-        nome = str(c.value).strip()
-        if not nome or nome.lower().startswith("check"):
-            continue
-        if nome in dados:          # rótulo repetido (blocos de arrendamento) — vale o 1º
-            continue
-        ordem.append(nome)
-        d = {"total": bool(c.font and c.font.b), "linha": i, "mes": {}, "ytd": {}}
-        for m, jr in col_real.items():
-            d["mes"][m] = [num(row[jr - 1].value), num(row[jr].value), num(row[jr + 1].value)]
-            # janeiro não tem bloco 'Acumulado' próprio: o YTD dele é o próprio mês
-            jy = jr if m == 1 else jr + 3
-            d["ytd"][m] = ([num(row[jy - 1].value), num(row[jy].value), num(row[jy + 1].value)]
-                           if jy + 1 < len(row) else [None, None, None])
-        dados[nome] = d
-    return sorted(col_real), ordem, dados
+# Fonte: DRE_Historico.xlsx — a base consolidada que o LxDREdataExtractor gera e
+# que o LuxorP&CHub já lê. É ela, e NÃO o "DRE 2026 HPG - HARAS.xlsx":
+#   - o arquivo do ano tem só o mês em que o operador deixou a aba de resumo, e
+#     em 03/08/2026 estava em fevereiro, com a coluna Orçado zerada;
+#   - o histórico traz os 12 meses, Haras (HPG) e Casa (FPG), Competência e
+#     Caixa, com Orçado e Realizado de verdade (jun/26 bate com o deck oficial).
+DRE_HIST = DRE_DIR / "DRE_Historico.xlsx"
+_hist_cache = {}
 
 
-def meses_com_dado(dados, chave="mes"):
-    """Mês só entra no deck se tiver algum número diferente de zero — senão o
-    seletor ofereceria meses vazios (o arquivo tem as 12 colunas o ano todo)."""
-    ms = set()
-    for d in dados.values():
-        for m, v in d[chave].items():
-            if any(x for x in v if x):
-                ms.add(m)
-    return sorted(ms)
+def le_historico():
+    """Base DRE Geral (mês) + Base YTD (acumulado), já filtradas para 2026."""
+    if _hist_cache:
+        return _hist_cache
+    if not DRE_HIST.exists():
+        return {}
+    geral = pd.read_excel(DRE_HIST, sheet_name="Base DRE Geral")
+    ytd = pd.read_excel(DRE_HIST, sheet_name="Base YTD")
+    for d in (geral, ytd):
+        d["dt"] = pd.to_datetime(d["Data de Fechamento"])
+        d["mes"] = d["dt"].dt.month
+        d["ano"] = d["dt"].dt.year
+    _hist_cache["geral"], _hist_cache["ytd"] = geral, ytd
+    return _hist_cache
 
 
-def linha(dados, rotulo, nome=None, total=None, campo="mes", m=1, sinal=1):
-    d = dados.get(rotulo)
-    if d is None:
-        return None
-    v = d[campo][m]
-    return {"nome": nome or rotulo.title(), "total": d["total"] if total is None else total,
-            "v": [None if x is None else x * sinal for x in v] + [pct(v)]}
+def meses_fechados(cc="HPG", modelo="Competência", ano=2026):
+    """Mês só entra no deck quando tem realizado lançado — mês futuro tem só
+    orçado, e um deck com realizado zerado engana mais do que informa."""
+    h = le_historico()
+    if not h:
+        return []
+    g = h["geral"]
+    g = g[(g["Centro de Custo"] == cc) & (g["Modelo"] == modelo) & (g["ano"] == ano)]
+    return sorted(int(m) for m, s in g.groupby("mes")["Realizado"].apply(lambda x: x.abs().sum()).items() if s)
 
 
-def pct(v):
-    """∆ % = realizado sobre orçado. A planilha só traz ∆ R$ k; a coluna de %
-    do deck é derivada — com orçado zerado não existe percentual (N/A)."""
-    orc, real = v[0], v[1]
+def pct(orc, real):
+    """∆ % = (realizado − orçado) / |orçado|. Sem orçado não existe percentual."""
     if not orc:
         return None
     return (real - orc) / abs(orc)
 
 
-# Subconjunto que o slide de resumo mostra (mesmas linhas do deck de junho/26).
-# Rótulo da planilha -> rótulo do slide.
-RESUMO = [
-    ("RECEITA OPERACIONAL BRUTA", "Receita Bruta", True),
-    ("VENDA DE PRODUTOS", "Venda de Produtos", False),
-    ("EMBRIÕES", "Embriões", False),
-    ("COBERTURAS", "Coberturas", False),
-    ("ANIMAIS", "Animais", False),
-    ("OUTRAS RECEITAS", "Outras Receitas", False),
-    ("RECEITAS FINANCEIRAS", "Receitas Financeiras", False),
-    ("CANCELAMENTOS", "Cancelamentos", False),
-    ("CUSTOS DE VENDAS", "Custos de Venda", False),
-    ("RECEITA OPERACIONAL LIQUIDA", "Receita Líquida", True),
-    ("CUSTOS E DESPESAS OPERACIONAIS", "Custos e Despesas", True),
-    ("CUSTOS INDIRETOS DE PRODUÇÃO", "Custos", False),
-    ("DESPESAS", "Despesas", False),
-    ("DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS", "Arrendamento D. Lúdia", False),
-    ("DESPESAS - ARRENDAMENTO Vassouras - HARAS", "Arrendamento Vassouras", False),
-    ("RESULTADO OPERACIONAL", "Resultado Operacional", True),
-    ("VARIAÇÃO PATRIMONIAL", "Variação Patrimonial", True),
-    ("ATIVOS BIOLOGICOS", "Ativos Biológicos", False),
-    ("REAVALIAÇÃO DO PLANTEL", "Reavaliação do Plantel", False),
-    ("BAIXAS DE ESTOQUE", "Baixas de Estoque", True),
-    ("BAIXA DE ESTOQUE POR VENDA", "Por Venda", False),
-    ("BAIXA DE ESTOQUE POR MORTES E DOAÇÕES", "Mortes e Doações", False),
-    ("RESULTADO PATRIMONIAL", "Resultado Patrimonial", True),
-    ("INVESTIMENTOS", "Investimentos", True),
-    ("RESULTADO APÓS OS INVESTIMENTOS", "Resultado após Invest.", True),
-]
-
-
-def bloco(ordem, dados, de, ate, campo, m, so_com_valor=True):
-    """Linhas entre dois rótulos (inclusivo/exclusivo). `so_com_valor` derruba a
-    linha zerada no mês — sem isso o slide de custos tem 100 linhas e estoura."""
-    try:
-        i0, i1 = ordem.index(de), ordem.index(ate)
-    except ValueError:
-        return []
+def _linhas_dre(df, col_orc, col_real, so_subtotal=False, so_com_valor=False):
     out = []
-    for rot in ordem[i0:i1]:
-        d = dados[rot]
-        v = d[campo][m]
-        if so_com_valor and not any(x for x in v if x) and not d["total"]:
+    for _, r in df.sort_values("Ordem").iterrows():
+        sub = bool(r["É Subtotal"])
+        if so_subtotal and not sub:
             continue
-        out.append({"nome": rot.title(), "total": d["total"],
-                    "v": [None if x is None else -x for x in v] + [pct(v)]})
+        orc, real = num(r[col_orc]) or 0.0, num(r[col_real]) or 0.0
+        if so_com_valor and not orc and not real and not sub:
+            continue
+        nome = str(r["Natureza de Lançamento"]).strip()
+        # linha de grupo (sem subgrupo) é o total; as demais são filhas
+        total = sub and (pd.isna(r["Subgrupo"]) or str(r["Subgrupo"]).strip() == nome)
+        out.append({"nome": nome.title(), "total": bool(total),
+                    "v": [orc, real, (real - orc) / 1000.0, pct(orc, real)]})
     return out
 
 
-def slides_dre(m, ordem, dados, ano):
-    """S04 (resumo do mês) e S07 (resumo YTD). Despesa vem negativa na planilha e
-    é assim que o deck mostra — o sinal não é invertido."""
-    def resumo(campo):
-        return [x for x in (linha(dados, rot, nome, tot, campo, m)
-                            for rot, nome, tot in RESUMO) if x]
-    return [
-        {"t": "dre", "n": 4,
-         "titulo": f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {ABR[m-1].upper()}/{str(ano)[2:]}",
-         "sub": "DRE 2026 | HPG · Competência mensal · Fonte: aba DRE-Compet",
-         "linhas": resumo("mes")},
-        {"t": "dre", "n": 7, "titulo": f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
-         "sub": "DRE 2026 | HPG · Acumulado no ano · Fonte: aba DRE-Compet",
-         "linhas": resumo("ytd")},
-    ]
+def dre_mes(cc, modelo, ano, m, **kw):
+    h = le_historico()
+    if not h:
+        return []
+    g = h["geral"]
+    df = g[(g["Centro de Custo"] == cc) & (g["Modelo"] == modelo)
+           & (g["ano"] == ano) & (g["mes"] == m)]
+    return _linhas_dre(df, "Orçado", "Realizado", **kw)
+
+
+def dre_ytd(cc, modelo, ano, m, **kw):
+    h = le_historico()
+    if not h:
+        return []
+    y = h["ytd"]
+    faixa = f"{m:02d}-Jan a {ABR[m-1]}"
+    df = y[(y["Centro de Custo"] == cc) & (y["Modelo"] == modelo)
+           & (y["ano"] == ano) & (y["Acumulado"] == faixa)]
+    if df.empty:                       # a faixa é rotulada pelo mês final
+        df = y[(y["Centro de Custo"] == cc) & (y["Modelo"] == modelo)
+               & (y["ano"] == ano) & (y["mes"] == m) & (y["Acumulado"].str.startswith(f"{m:02d}-"))]
+    return _linhas_dre(df, "Orçado YTD", "Realizado YTD", **kw)
+
+
+def dre_grupo(cc, modelo, ano, m, grupo):
+    h = le_historico()
+    if not h:
+        return []
+    g = h["geral"]
+    df = g[(g["Centro de Custo"] == cc) & (g["Modelo"] == modelo) & (g["ano"] == ano)
+           & (g["mes"] == m) & (g["Grupo"] == grupo)]
+    return _linhas_dre(df, "Orçado", "Realizado", so_com_valor=True)
 
 
 # =========================================================== Investimentos (S09)
@@ -664,7 +618,6 @@ def divisor(n, titulo, sub):
 
 
 def monta_deck(m, ano, ctx):
-    ordem, dados, ordem_c, dados_c = ctx["ordem"], ctx["dados"], ctx["ordem_c"], ctx["dados_c"]
     s = [
         {"t": "capa", "titulo": "RELATÓRIO DE DESEMPENHO ESTRATÉGICO",
          "mes": f"{MESES[m-1].upper()} / {ano}", "org": "HARAS PAO GRANDE"},
