@@ -623,6 +623,22 @@ def divisor(n, titulo, sub):
 MAX_LINHAS = 38
 
 
+def divide_tab(slide):
+    """Mesma quebra, para o slide de KPIs + tabela (as linhas moram em .tabela)."""
+    t = slide.get("tabela")
+    if not t or len(t["rows"]) <= MAX_LINHAS - 6:
+        return [slide]
+    linhas, out = t["rows"], []
+    passo = MAX_LINHAS - 6
+    n = (len(linhas) + passo - 1) // passo
+    for k in range(n):
+        p = dict(slide)
+        p["tabela"] = dict(t, rows=linhas[k*passo:(k+1)*passo])
+        p["titulo"] = f"{slide['titulo']} ({k+1}/{n})"
+        out.append(p)
+    return out
+
+
 def divide(slide, campo="linhas"):
     """Devolve [slide] ou a lista de slides '(cont.)' quando a tabela é longa."""
     linhas = slide.get(campo) or []
@@ -675,18 +691,19 @@ def monta_deck(m, ano, ctx):
     s.append(pend(8, "COMENTÁRIOS — VARIAÇÕES YTD", "Análise mês a mês por categoria",
                   "COMENTARIOS_DRE_HARAS.docx", "texto escrito por pessoa — não sai de base"))
     s.append(slide_investimentos(m, ano))
-    s.append(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}", "FC 2026 | HPG · caixa mensal",
-                 dre_mes("HPG", "Caixa", ano, m, so_subtotal=True)))
+    s += divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}", "FC 2026 | HPG · caixa mensal",
+                    dre_mes("HPG", "Caixa", ano, m, so_subtotal=True)))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
-    s.append(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano}",
-                 "FPG | Casa · caixa mensal", dre_mes("FPG", "Caixa", ano, m)))
-    s.append(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
-                 "FPG | Casa · acumulado no ano", dre_ytd("FPG", "Caixa", ano, m),
-                 "Fonte: DRE_Historico.xlsx (Base YTD)"))
+    s += divide(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano}",
+                    "FPG | Casa · caixa mensal", dre_mes("FPG", "Caixa", ano, m, so_com_valor=True)))
+    s += divide(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
+                    "FPG | Casa · acumulado no ano", dre_ytd("FPG", "Caixa", ano, m, so_com_valor=True),
+                    "Fonte: DRE_Historico.xlsx (Base YTD)"))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", "Embriões · Doadoras · Garanhões"))
-    s += ctx["estacao"]
+    for x in ctx["estacao"]:
+        s += divide_tab(x)
     s.append(pend(21, f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — COBERTURAS DISPONÍVEIS",
                   "Saldo por garanhão de fora", "COBERTURAS_CAVALOS_FORA.xlsx, aba Planilha2",
                   "arquivo não localizado no repo nem no Drive"))
@@ -698,11 +715,13 @@ def monta_deck(m, ano, ctx):
                   "digitado após cada evento", "sem planilha por trás — é texto"))
 
     s.append(divisor(4, "VENDAS", "Pipeline e contratos"))
-    s += slides_vendas(m, ano)
+    for x in slides_vendas(m, ano):
+        s += divide(x, 'rows')
     s.append(pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
                   "controle-de-inadimplencia → dashboard_conferencia.html",
                   "hoje é print; dá pra embutir o HTML que o ControleInadimplencia.py gera"))
-    s += ctx["embrioes"]
+    for x in ctx["embrioes"]:
+        s += divide(x, 'rows')
 
     s.append(divisor(5, "DECISÕES E MANEJO", "Plantel · Obras · Casa"))
     s.append(slide_contagem(m, ano))
