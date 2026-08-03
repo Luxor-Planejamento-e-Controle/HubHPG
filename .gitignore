@@ -21,6 +21,13 @@ bases/*
 dashboards/*
 !dashboards/dashboard_semanal.html
 
+# hub/ — o site. A casca (HTML/CSS/JS/logo/vendor) é código e entra. O que o
+# build gera a partir das bases é DADO DO PLANTEL e fica fora: se um dia o repo
+# virar público pro deploy contínuo (como foi preciso no LuxorP&CHub), é essa
+# separação que impede o dado de ir junto.
+hub/assets/data/*
+hub/assets/semanal/*
+
 # planilhas / documentos em qualquer lugar
 *.xlsx
 *.xls
