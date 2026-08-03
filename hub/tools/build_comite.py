@@ -617,6 +617,29 @@ def divisor(n, titulo, sub):
     return {"t": "divisor", "n": n, "titulo": titulo, "sub": sub}
 
 
+# Um slide 16:9 comporta ~40 linhas antes de a fonte ficar ilegível. Passou
+# disso, o slide QUEBRA em continuação — é o que o PowerPoint faria. Espremer
+# tudo numa página só foi o que fez o deck vazar por cima do rodapé.
+MAX_LINHAS = 38
+
+
+def divide(slide, campo="linhas"):
+    """Devolve [slide] ou a lista de slides '(cont.)' quando a tabela é longa."""
+    linhas = slide.get(campo) or []
+    if len(linhas) <= MAX_LINHAS:
+        return [slide]
+    partes, n = [], (len(linhas) + MAX_LINHAS - 1) // MAX_LINHAS
+    for k in range(n):
+        p = dict(slide)
+        p[campo] = linhas[k * MAX_LINHAS:(k + 1) * MAX_LINHAS]
+        if k:
+            p["titulo"] = f"{slide['titulo']} (cont. {k + 1}/{n})"
+        else:
+            p["titulo"] = f"{slide['titulo']} (1/{n})"
+        partes.append(p)
+    return partes
+
+
 def monta_deck(m, ano, ctx):
     s = [
         {"t": "capa", "titulo": "RELATÓRIO DE DESEMPENHO ESTRATÉGICO",
@@ -636,19 +659,19 @@ def monta_deck(m, ano, ctx):
         {"t": "dre", "n": n, "titulo": t, "sub": f"{sub} · {fonte or FONTE}", "linhas": lin}
         if lin else pend(n, t, sub, DRE_HIST.name, "sem linha para esse recorte no histórico"))
 
-    s.append(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
-                 "DRE 2026 | HPG · competência mensal",
-                 dre_mes("HPG", "Competência", ano, m, so_subtotal=True)))
-    s.append(dre(5, f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
-                 "Custos indiretos de produção · linhas zeradas no mês omitidas",
-                 dre_grupo("HPG", "Competência", ano, m, "CUSTOS E DESPESAS OPERACIONAIS")))
-    s.append(dre(6, f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
-                 "Despesas do mês · linhas zeradas no mês omitidas",
-                 dre_grupo("HPG", "Competência", ano, m, "DESPESAS")))
-    s.append(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
-                 "DRE 2026 | HPG · acumulado no ano",
-                 dre_ytd("HPG", "Competência", ano, m, so_subtotal=True),
-                 "Fonte: DRE_Historico.xlsx (Base YTD)"))
+    s += divide(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
+                    "DRE 2026 | HPG · competência mensal",
+                    dre_mes("HPG", "Competência", ano, m, so_subtotal=True)))
+    s += divide(dre(5, f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
+                    "Custos indiretos de produção · linhas zeradas no mês omitidas",
+                    dre_grupo("HPG", "Competência", ano, m, "CUSTOS E DESPESAS OPERACIONAIS")))
+    s += divide(dre(6, f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
+                    "Despesas do mês · linhas zeradas no mês omitidas",
+                    dre_grupo("HPG", "Competência", ano, m, "DESPESAS")))
+    s += divide(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
+                    "DRE 2026 | HPG · acumulado no ano",
+                    dre_ytd("HPG", "Competência", ano, m, so_subtotal=True),
+                    "Fonte: DRE_Historico.xlsx (Base YTD)"))
     s.append(pend(8, "COMENTÁRIOS — VARIAÇÕES YTD", "Análise mês a mês por categoria",
                   "COMENTARIOS_DRE_HARAS.docx", "texto escrito por pessoa — não sai de base"))
     s.append(slide_investimentos(m, ano))
