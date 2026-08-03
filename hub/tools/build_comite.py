@@ -358,15 +358,23 @@ def funil(wb):
         if _norm(r[10]) != "+":
             continue
         lav += 1
-        if _norm(r[12]) == "+":
-            p15 += 1
-        if _norm(r[13]) in ("+", ""):
-            p30 += 1
-        if _norm(r[14]) in ("+", ""):
-            p45 += 1
-        if _norm(r[15]) in ("+", ""):
-            p60 += 1
-        if _norm(r[16]) == "SIM":
+        # o funil é ENCADEADO: só chega em 30d quem passou em 15d, e assim por
+        # diante. Contar cada coluna solta dava 85 confirmados contra 56 do
+        # relatório oficial, porque a linha que nunca chegou aos 60 dias tem a
+        # célula vazia e entrava como se tivesse passado.
+        if _norm(r[12]) != "+":
+            continue
+        p15 += 1
+        if _norm(r[13]) not in ("+", ""):
+            continue
+        p30 += 1
+        if _norm(r[14]) not in ("+", ""):
+            continue
+        p45 += 1
+        if _norm(r[15]) not in ("+", ""):
+            continue
+        p60 += 1
+        if _norm(r[16]) == "SIM":     # aborto só conta depois de confirmado >60d
             ab += 1
     conf = p60 - ab
     ref = lambda v: f"{v/lav*100:.0f}% dos lavados" if lav else "—"
@@ -519,7 +527,9 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
         if i < 3 or len(r) < 23 or r[21] is None:
             continue
-        if _norm(r[14]) != VENDEDOR_COMITE:
+        # a coluna traz o nome completo do vendedor ("CARLA ...") — comparar por
+        # igualdade zerava o slide inteiro
+        if VENDEDOR_COMITE not in _norm(r[14]):
             continue
         if "CANCELAD" in _norm(r[18]):
             continue
