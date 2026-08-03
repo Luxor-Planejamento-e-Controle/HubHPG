@@ -46,7 +46,7 @@ Legenda de status:
 | **06** | Análise de **despesas** do mês, aberta por natureza | idem S05 | idem | auto |
 | **07** | Haras competência — acumulado YTD | `DRE_2026_HPG_HARAS.xlsx` | aba `Real x Orçado (Comp)`, colunas de acumulado | auto |
 | **08** | Comentários das variações YTD | `COMENTARIOS_DRE_HARAS.docx` | texto livre, escrito por pessoa | manual |
-| **09** | Investimentos — compra de animais e produtos, mês a mês com descrição | `DRE_2026_HPG_HARAS.xlsx` aba `Investimentos` | descrição + valor por mês | semi — o valor é auto; a descrição de cada compra é escrita à mão |
+| **09** | Investimentos — compra de animais e produtos, mês a mês com descrição | `DRE_2026_HPG_HARAS.xlsx` aba `Investimentos` | blocos `INVESTIMENTOS - <MÊS>` → `COMPRA DE ANIMAIS E PRODUTOS` → A=fornecedor, B=descrição, C=valor | semi — a lista sai automática; **a conferir:** no deck de junho, fev/26 traz R$ 7,5k de estorno de cancelamento que não aparece sob esse cabeçalho na planilha |
 | **10** | Haras **caixa** — orçado × realizado do mês | `DRE_2026_HPG_HARAS.xlsx` | aba `DRE-Caixa`, col 30–32 (mês), 33–35 (YTD) | semi — hoje o orçado do caixa é preenchido à mão |
 | **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO`; patrimônio = soma `patrimonio_proporcional`; valor médio = média `valor_100` | auto |
 | **12** | Resumo da movimentação do plantel — saldo mensal e cascata | `LuxorMonthlyP-CRoutines/PlantelHPG/mov_cascata.parquet` | saldo_ini, compra, producao, venda, morte, doacao, reaval, saldo_fim | auto |
@@ -163,8 +163,14 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
 1. **`COBERTURAS_CAVALOS_FORA.xlsx`** — localizar. Sem ele, S21 fica manual.
 2. **S18 (comparativo entre estações)** — a aba `COMPARATIVO` do arquivo em cache
    está desatualizada. Definir se ela é a fonte ou se o histórico vem de outro lugar.
-3. **`DRE_2026_HPG_HARAS.xlsx` vs `DRE_Historico.xlsx`** — confirmar se é a mesma base.
-   Se for, uma fonte só serve os dois hubs.
+3. ~~**`DRE_2026_HPG_HARAS.xlsx`** — localizar.~~ **Resolvido:** estão em
+   `G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/DRE Data/`
+   como `DRE 2026 HPG - HARAS.xlsx` e `DRE 2026 FPG - CASA.xlsx`, com as abas que
+   o guia cita (`Real x Orçado (Comp)`, `Real x Orçado (Caixa)`, `DRE-Compet`,
+   `DRE-Caixa`, `Investimentos`). É a mesma pasta do `DRE_Historico.xlsx` que o
+   `LuxorP&CHub` já lê. **Atenção:** o arquivo é vivo e anda de mês em mês — em
+   03/08/2026 estava em *Fevereiro 2026*. O build usa o mês que estiver na
+   planilha e avisa quando for diferente do mês pedido.
 4. **Meta anual de vendas** e **meta de embriões** — hoje são parâmetro digitado.
    Definir onde ficam (planilha de metas ou campo do próprio hub).
 5. **Alinhar a contagem de embriões confirmados** entre o comitê (filtro

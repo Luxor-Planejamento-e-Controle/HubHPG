@@ -2,28 +2,25 @@
 
 O deck é a saída, não a fonte: cada slide vira um objeto {t: <tipo>, ...} num
 spec JSON, e daí saem as DUAS renderizações — o HTML (hub/comite.html) e o PPTX
-(botão "Exportar PPTX", via pptxgen no navegador). Fonte única, dois formatos.
+(botão "Exportar PPTX"). Fonte única, dois formatos.
 
 Mapa completo de slide × fonte: `_docs/COMITE_MAPEAMENTO.md`.
 
-O que este build já preenche com dado real:
-  S04/S07  DRE Haras competência, mês e YTD   -> DRE 2026 HPG - HARAS.xlsx
-  S09      Investimentos em animais/produtos  -> mesma pasta, aba Investimentos
-  S10      Haras caixa                        -> aba Real x Orçado (Caixa)
-  S11      Estoque em equinos                 -> bases/base_bi.parquet
-  S12      Movimentação do plantel            -> PlantelHPG/mov_cascata.parquet
-  S13/S14  Casa/FPG, mês e YTD                -> DRE 2026 FPG - CASA.xlsx
-
-O resto entra como slide `pendente`, que diz na cara qual é a fonte e por que
-ainda não tem dado. Slide sem fonte NÃO recebe número inventado.
+**Um deck por mês.** O DRE não é lido pela aba "Real x Orçado", que mostra só o
+mês em que o operador deixou o arquivo — é lido da aba `DRE-Compet`, que tem
+TODOS os meses lado a lado (a linha 6 marca, em cada bloco, o número do mês na
+coluna do Realizado). Assim o deck tem seletor de mês e nunca fica preso num mês
+velho. As bases não-DRE (plantel, estação, vendas) entram no mês que elas têm;
+quando o mês pedido não existe na base, o slide vira `pendente` dizendo isso.
 
 Uso:
-    python hub/tools/build_comite.py            # mês que a planilha do DRE está
-    python hub/tools/build_comite.py 06/2026    # mês específico
+    python hub/tools/build_comite.py          # todos os meses com dado
+    python hub/tools/build_comite.py 06/2026  # só esse mês
 """
 import json
+import re
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
@@ -32,33 +29,40 @@ import pandas as pd
 HUB = Path(__file__).resolve().parent.parent
 REPO = HUB.parent
 OUT = HUB / "assets" / "comite"
+sys.path.insert(0, str(REPO / "scripts"))
+
+# Caminhos do Drive e helpers vêm do pipeline que já roda — não duplicar.
+from PGSemanalReport import (                                    # noqa: E402
+    CONTROLE_PLANTEL_SEMANAL, EMB_COMERCIAIS, MAPA_VENDAS_DIR, SAFRA_ATUAL,
+    _latest_by_yymmdd, _latest_estacao_master, _load, _norm, _s, _to_num,
+)
 
 DRE_DIR = Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/DRE Data")
+DRE_HARAS = DRE_DIR / "DRE 2026 HPG - HARAS.xlsx"
+DRE_CASA = DRE_DIR / "DRE 2026 FPG - CASA.xlsx"
 PLANTEL_DIR = Path(r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines/PlantelHPG")
 BASE_BI = REPO / "bases" / "base_bi.parquet"
 
 MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
          "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-MES_ABR = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-           "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+ABR = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 avisos = []
+def aviso(m):
+    if m not in avisos:
+        avisos.append(m)
+        print(f"  [aviso] {m}")
 
 
-def aviso(msg):
-    avisos.append(msg)
-    print(f"  [aviso] {msg}")
-
-
-# ------------------------------------------------------------------ helpers
 def _json_default(o):
     if isinstance(o, np.generic):
         return o.item()
+    if isinstance(o, (datetime, date)):
+        return o.isoformat()[:10]
     raise TypeError(f"tipo não serializável: {type(o).__name__}")
 
 
 def num(v):
-    """Célula -> float ou None. Texto ('N/A', '-') vira None."""
     if v is None or isinstance(v, str):
         return None
     try:
@@ -68,227 +72,14 @@ def num(v):
     return None if pd.isna(f) else f
 
 
-def pendente(n, titulo, sub, fonte, motivo):
-    return {"t": "pendente", "n": n, "titulo": titulo, "sub": sub,
-            "fonte": fonte, "motivo": motivo}
-
-
-# ------------------------------------------------- leitor das abas Real x Orçado
-# As três abas (Haras competência, Haras caixa, Casa) têm a MESMA forma:
-#   r1: B = rótulo do mês ("Fevereiro 2026"), F = rótulo do YTD
-#   r2: B..E = Orçado/Realizado/∆k/∆% do MÊS · F..I = idem do YTD
-#   r4+: A = natureza. Negrito em A marca total; sem negrito é filho.
-def le_real_x_orcado(caminho: Path, aba: str):
-    import openpyxl
-    # read_only: o arquivo tem ~19 MB e o modo normal leva minutos. O modo
-    # read-only ainda expõe .font, que é onde mora a hierarquia (negrito = total).
-    wb = openpyxl.load_workbook(caminho, data_only=True, read_only=True)
-    if aba not in wb.sheetnames:
-        wb.close()
-        raise KeyError(f"aba '{aba}' não existe em {caminho.name}: {wb.sheetnames}")
-    ws = wb[aba]
-    rot_mes, linhas = "", []
-    for i, row in enumerate(ws.iter_rows(min_col=1, max_col=9), start=1):
-        if i == 1:
-            rot_mes = str(row[1].value or "").strip()
-            continue
-        if i < 4:
-            continue
-        c = row[0]
-        nome = str(c.value).strip() if c.value is not None else ""
-        if not nome:
-            continue
-        linhas.append({
-            "nome": nome,
-            "total": bool(c.font and c.font.b),
-            "mes": [num(row[j].value) for j in (1, 2, 3, 4)],
-            "ytd": [num(row[j].value) for j in (5, 6, 7, 8)],
-        })
-    wb.close()
-    return rot_mes, linhas
-
-
-def slide_dre(n, titulo, sub, linhas, campo):
-    return {"t": "dre", "n": n, "titulo": titulo, "sub": sub,
-            "linhas": [{"nome": l["nome"], "total": l["total"], "v": l[campo]} for l in linhas]}
-
-
-# --------------------------------------------------------------- Seção 01
-def secao_financeiro(mes_ref, spec):
-    haras = DRE_DIR / "DRE 2026 HPG - HARAS.xlsx"
-    casa = DRE_DIR / "DRE 2026 FPG - CASA.xlsx"
-    rotulo = f"{MESES[mes_ref.month - 1]}/{str(mes_ref.year)[2:]}"
-
-    if haras.exists():
-        rot, comp = le_real_x_orcado(haras, "Real x Orçado (Comp)")
-        if rot and rot.split()[0].lower() != MESES[mes_ref.month - 1].lower():
-            aviso(f"a planilha do DRE Haras está em '{rot}', não em {rotulo} — "
-                  f"S04/S07 saem com o mês da planilha")
-        spec.append(slide_dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {rot.upper()}",
-                              f"DRE 2026 | HPG · Competência mensal · Fonte: aba Real x Orçado (Comp)",
-                              comp, "mes"))
-        spec.append(pendente(5, f"ANÁLISE DE CUSTOS — {rot.upper()}",
-                             "DRE Haras · Custos indiretos de produção",
-                             "DRE 2026 HPG - HARAS.xlsx, aba DRE-Compet (col 30=Orçado, 31=Realizado)",
-                             "abertura por natureza de custo ainda não extraída"))
-        spec.append(pendente(6, f"ANÁLISE DE DESPESAS — {rot.upper()}",
-                             "DRE Haras · Despesas do mês",
-                             "DRE 2026 HPG - HARAS.xlsx, aba DRE-Compet",
-                             "abertura por natureza de despesa ainda não extraída"))
-        spec.append(slide_dre(7, f"HARAS COMPETÊNCIA — ACUMULADO {mes_ref.year} (YTD)",
-                              "DRE 2026 | HPG · Acumulado no ano · Fonte: aba Real x Orçado (Comp)",
-                              comp, "ytd"))
-        spec.append(pendente(8, "COMENTÁRIOS — VARIAÇÕES YTD",
-                             "Análise mês a mês por categoria",
-                             "COMENTARIOS_DRE_HARAS.docx",
-                             "texto escrito por pessoa — não sai de base"))
-        spec.append(slide_investimentos(haras, mes_ref))
-        rot_cx, caixa = le_real_x_orcado(haras, "Real x Orçado (Caixa)")
-        spec.append(slide_dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {rot_cx.upper()}",
-                              "FC 2026 | HPG · Caixa mensal · Fonte: aba Real x Orçado (Caixa)",
-                              caixa, "mes"))
-    else:
-        aviso(f"DRE do Haras não encontrado em {DRE_DIR} — S04–S10 ficam pendentes")
-        for n, t in ((4, "RESUMO FINANCEIRO — HARAS COMPETÊNCIA"), (5, "ANÁLISE DE CUSTOS"),
-                     (6, "ANÁLISE DE DESPESAS"), (7, "HARAS COMPETÊNCIA — ACUMULADO (YTD)"),
-                     (8, "COMENTÁRIOS — VARIAÇÕES YTD"), (9, "INVESTIMENTOS"),
-                     (10, "HARAS CAIXA — ORÇADO X REALIZADO")):
-            spec.append(pendente(n, t, "", "DRE 2026 HPG - HARAS.xlsx", "arquivo não encontrado no Drive"))
-
-    spec.append(slide_estoque(mes_ref))
-    spec.append(slide_movimentacao(mes_ref))
-
-    if casa.exists():
-        rot_c, linhas_c = le_real_x_orcado(casa, "Real x Orçado")
-        spec.append(slide_dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {rot_c.upper()}",
-                              "FPG | Casa · Competência mensal · Fonte: aba Real x Orçado",
-                              linhas_c, "mes"))
-        spec.append(slide_dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO {mes_ref.year}",
-                              "FPG | Casa · Acumulado no ano", linhas_c, "ytd"))
-    else:
-        aviso(f"DRE da Casa não encontrado — S13/S14 ficam pendentes")
-        spec.append(pendente(13, "RESUMO FINANCEIRO — CASA/FPG", "", "DRE 2026 FPG - CASA.xlsx",
-                             "arquivo não encontrado no Drive"))
-        spec.append(pendente(14, "CASA/FPG — ACUMULADO", "", "DRE 2026 FPG - CASA.xlsx",
-                             "arquivo não encontrado no Drive"))
-
-
-def slide_investimentos(haras: Path, mes_ref: date):
-    """S09 — só COMPRA DE ANIMAIS E PRODUTOS. Obra/infraestrutura fica de fora
-    (regra do guia). A aba é uma lista com cabeçalhos:
-      'INVESTIMENTOS - <MÊS>/<ANO>'  -> abre o mês
-      'INFRAESTRUTURA' / 'COMPRA DE ANIMAIS E PRODUTOS' -> abre o bloco
-      demais linhas: A=fornecedor, B=descrição, C=valor
-    """
-    import openpyxl
-    wb = openpyxl.load_workbook(haras, data_only=True, read_only=True)
-    ws = wb["Investimentos"]
-    meses, atual, bloco = [], None, None
-    for r in ws.iter_rows(values_only=True):
-        a = str(r[0]).strip().upper() if r[0] is not None else ""
-        b = str(r[1]).strip() if len(r) > 1 and r[1] is not None else ""
-        v = num(r[2]) if len(r) > 2 else None
-        if a.startswith("INVESTIMENTOS -"):
-            nome = a.split("-", 1)[1].strip().split("/")[0].title()
-            atual = {"mes": nome, "total": 0.0, "itens": []}
-            meses.append(atual)
-            bloco = None
-            continue
-        if atual is None:
-            continue
-        if a in ("INFRAESTRUTURA", "COMPRA DE ANIMAIS E PRODUTOS", "MÁQUINAS E EQUIPAMENTOS",
-                 "INSTALAÇÕES", "FORMAÇÃO DE PASTAGEM"):
-            bloco = a
-            if bloco == "COMPRA DE ANIMAIS E PRODUTOS" and v:
-                atual["total"] = v
-            continue
-        if bloco == "COMPRA DE ANIMAIS E PRODUTOS" and v is not None:
-            atual["itens"].append({"desc": b or a.title(), "valor": v})
-    wb.close()
-    # mês sem compra aparece zerado — some da lista esconderia a informação
-    for m in meses:
-        if not m["itens"]:
-            m["itens"] = [{"desc": "Sem compra de animais e produtos registrada no mês", "valor": 0.0}]
-    return {"t": "lista_mes", "n": 9, "titulo": f"INVESTIMENTOS — COMENTÁRIOS {mes_ref.year}",
-            "sub": "Compra de animais e produtos · acumulado do ano",
-            "meses": meses}
-
-
-# S11 — estoque em equinos. Regra do guia: status PLANTEL e sufixo EXATO
-# 'DA PAO GRANDE' ou 'OUTRO' (variação com percentual duplicaria o animal).
-SUFIXOS_S11 = ("DA PAO GRANDE", "OUTRO")
-
-
-def slide_estoque(mes_ref: date):
-    alvo = f"{mes_ref.year}-{mes_ref.month:02d}"
-    if not BASE_BI.exists():
-        return pendente(11, "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE", "",
-                        "bases/base_bi.parquet", "rode python scripts/PGBaseBI.py")
-    d = pd.read_parquet(BASE_BI)
-    d["mes"] = pd.to_datetime(d["mes_referencia"]).dt.strftime("%Y-%m")
-    if alvo not in set(d["mes"]):
-        ult = sorted(d["mes"].unique())[-1]
-        aviso(f"base_bi não tem {alvo} (vai até {ult}) — S11 fica pendente")
-        return pendente(11, "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE", "",
-                        "bases/base_bi.parquet", f"a base vai até {ult}; sem o mês {alvo}")
-    m = d[(d["mes"] == alvo) & (d["status_plantel"] == "PLANTEL")
-          & (d["sufixo_grupo"].isin(SUFIXOS_S11))]
-    patrim = float(m["patrimonio_proporcional"].sum())
-    avaliados = m["valor_100"].notna().sum()
-    medio = float(m["valor_100"].mean()) if avaliados else 0.0
-    cat = m["categoria"].value_counts()
-    rows = [[k.title(), int(v), f"{v / len(m) * 100:.0f}%"] for k, v in cat.items()]
-    return {"t": "kpis_tabela", "n": 11,
-            "titulo": "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE",
-            "sub": (f"Composição patrimonial do plantel · {MESES[mes_ref.month-1].upper()} {mes_ref.year}"
-                    f" · {len(m)} animais · Status PLANTEL · Sufixo: Da PG / Outros"),
-            "kpis": [
-                {"v": f"{len(m)}", "l": "Animais Ativos", "s": "DA PAO GRANDE + OUTROS"},
-                {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "soma do patrimônio proporcional"},
-                {"v": brl_curto(medio), "l": "Valor Médio", "s": f"{avaliados} animais avaliados"},
-            ],
-            "tabela": {"cols": ["CATEGORIA", "Nº", "%"], "rows": rows, "num": [1, 2]}}
-
-
-MOV_LINHAS = [("saldo_ini", "Saldo Inicial"), ("compra", "(+) Compras"),
-              ("producao", "(+) Prod. Emb."), ("venda", "(-) Baixa Vendas"),
-              ("morte", "(-) Baixa Mortes"), ("doacao", "(-) Doações"),
-              ("reaval", "(±) Reavaliação"), ("saiu_controle", "(-) Saiu do Controle"),
-              ("saldo_fim", "Saldo Final")]
-
-
-def slide_movimentacao(mes_ref: date):
-    f = PLANTEL_DIR / "mov_cascata.parquet"
-    if not f.exists():
-        return pendente(12, f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {mes_ref.year}", "",
-                        "LuxorMonthlyP-CRoutines/PlantelHPG/mov_cascata.parquet",
-                        "rode o LxMovimentacao.py no repo LuxorMonthlyP-CRoutines")
-    c = pd.read_parquet(f)
-    ano = c[c["mes"].str.startswith(str(mes_ref.year))].sort_values("mes")
-    ano = ano[ano["mes"] <= f"{mes_ref.year}-{mes_ref.month:02d}"]
-    if ano.empty:
-        return pendente(12, f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {mes_ref.year}", "",
-                        f.name, f"sem meses de {mes_ref.year} na cascata")
-    cols = ["TÍTULO"] + [MES_ABR[int(m.split("-")[1]) - 1].upper() for m in ano["mes"]]
-    rows = [[rot] + [ano[k].tolist()[i] for i in range(len(ano))] for k, rot in MOV_LINHAS]
-    ult = ano.iloc[-1]
-    return {"t": "matriz", "n": 12,
-            "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {mes_ref.year}",
-            "sub": "Saldo mensal · compras, produções, vendas e baixas",
-            "kpis": [
-                {"v": brl_curto(ult["producao"]), "l": "Produção Emb.", "s": cols[-1]},
-                {"v": brl_curto(ult["venda"]), "l": "Baixa Vendas", "s": cols[-1]},
-                {"v": brl_curto(ult["morte"] + ult["doacao"]), "l": "Mortes/Doações", "s": cols[-1]},
-                {"v": brl_curto(ult["saldo_fim"]), "l": "Saldo Final", "s": "Haras PG"},
-            ],
-            "cols": cols, "rows": rows, "moeda": True}
+def pend(n, titulo, sub, fonte, motivo):
+    return {"t": "pendente", "n": n, "titulo": titulo, "sub": sub, "fonte": fonte, "motivo": motivo}
 
 
 def brl_curto(v):
     if v is None:
         return "—"
-    s = "-" if v < 0 else ""
-    a = abs(v)
+    s, a = ("-" if v < 0 else ""), abs(v)
     if a >= 1e6:
         return f"{s}R$ {a/1e6:.1f}M".replace(".", ",")
     if a >= 1e3:
@@ -296,127 +87,710 @@ def brl_curto(v):
     return f"{s}R$ {a:.0f}"
 
 
-# ------------------------------------------------------- Seções 02 a 05 (pendentes)
-def secoes_pendentes(spec, mes_ref):
-    est = "ESTACAO DE MONTA.xlsx (REPRODUÇÃO/ESTAÇÃO DE MONTA no Drive)"
-    emb = "EMBRIOES A ENTREGAR - A RECEBER.xlsx"
-    spec += [
-        divisor(2, "ESTAÇÃO DE MONTA", "Embriões · Doadoras · Garanhões"),
-        pendente(16, "ESTAÇÃO DE MONTA — EMBRIÕES E PRENHEZES", "Funil de prenhez da estação",
-                 f"{est}, aba ESTAÇÃO (K=lavado, M=15d, N=30d, O=45d, P=60d, Q=aborto, AJ=estação)",
-                 "extração ainda não feita"),
-        pendente(17, "ESTAÇÃO DE MONTA — GARANHÕES", "Lavados, confirmados e índice por garanhão",
-                 f"{est}, aba GARANHOES", "extração ainda não feita"),
-        pendente(18, "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES",
-                 "Embriões confirmados por mês, por estação",
-                 f"{est}, aba COMPARATIVO",
-                 "a aba do arquivo em cache está em 20/21–23/24; confirmar a fonte do histórico atual"),
-        pendente(19, "ESTAÇÃO DE MONTA — DOADORAS TIME A", "Meta × realizado por doadora",
-                 f"{est}, abas REC. EMBR. (TIME) + PLANEJAMENTO (meta/real)", "extração ainda não feita"),
-        pendente(20, "ESTAÇÃO DE MONTA — DOADORAS TIME B", "Meta × realizado por doadora",
-                 f"{est}, abas REC. EMBR. + PLANEJAMENTO", "extração ainda não feita"),
-        pendente(21, "ESTAÇÃO DE MONTA — COBERTURAS DISPONÍVEIS", "Saldo por garanhão de fora",
-                 "COBERTURAS_CAVALOS_FORA.xlsx, aba Planilha2",
-                 "arquivo não localizado no repo nem no Drive"),
+# ==================================================================== DRE
+def le_dre_mensal(caminho: Path, aba: str, col_label: int):
+    """Lê uma aba DRE no formato 'YTD ano calendário' e devolve todos os meses.
 
-        divisor(3, "EXPOSIÇÕES", "Programação e resultados"),
-        pendente(23, "EXPOSIÇÕES — PROGRAMAÇÃO", "Calendário de participações previstas",
-                 "digitado", "sem planilha por trás — é texto"),
-        pendente(24, "RESULTADOS DAS EXPOSIÇÕES", "Animais, títulos e colocações",
-                 "digitado após cada evento", "sem planilha por trás — é texto"),
+    Forma da aba (vale pro Haras e pra Casa, muda só a coluna do rótulo):
+      r6  -> em cada bloco de mês, o NÚMERO do mês na coluna do Realizado
+      r8  -> Orçado | Realizado | ∆ R$ k, repetido por bloco
+      r9+ -> col_label = natureza; a coluna 2/3 traz código contábil (ignorado)
+    Depois de cada mês (menos janeiro) vem um bloco 'Acumulado' — daí o YTD.
+    """
+    import openpyxl
+    wb = openpyxl.load_workbook(caminho, data_only=True, read_only=True)
+    ws = wb[aba]
+    linhas = list(ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=ws.max_column))
+    wb.close()
 
-        divisor(4, "VENDAS", "Pipeline e contratos"),
-        pendente(29, "VENDAS — RESULTADO ACUMULADO", "Mês, YTD, meta anual e saldo para meta",
-                 "PG_Mapa Vendas.xlsx, aba MAPA VENDAS (col 7=valor, 14=vendedor, 21=ano, 22=mês)",
-                 "extração ainda não feita; a meta anual é parâmetro, não sai de planilha"),
-        pendente(30, "VENDAS — DETALHAMENTO POR MÊS E EVENTO", "Filtro: vendedor = CARLA, sem cancelados",
-                 "PG_Mapa Vendas.xlsx, aba MAPA VENDAS", "extração ainda não feita"),
-        pendente(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", "Posição do mês",
-                 "controle-de-inadimplencia -> dashboard_conferencia.html",
-                 "hoje é print; dá pra embutir o HTML que o ControleInadimplencia.py já gera"),
-        pendente(32, "VENDAS — EMBRIÕES VENDIDOS A FAZER (QUITADO / PAGANDO)", "",
-                 f"{emb}, aba ENTREGAR — status_embrião='A fazer' e pgto Pagando/Quitado",
-                 "extração ainda não feita"),
-        pendente(33, "VENDAS — EMBRIÕES VENDIDOS A FAZER (PGTO PAUSADO / APÓS CONF.)", "",
-                 f"{emb}, aba ENTREGAR — status_embrião='A fazer' e pgto Pausado/Após conf",
-                 "extração ainda não feita"),
-        pendente(34, "VENDAS — EMBRIÕES DE DIREITO / REPOSIÇÃO", "",
-                 f"{emb}, aba ENTREGAR — status_embrião='Reposição' ou 'A fazer' com pgto Direito/Troca",
-                 "extração ainda não feita"),
-        pendente(35, "ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER", "",
-                 f"{emb}, aba RECEBER — status_embrião='A fazer'", "extração ainda não feita"),
+    # r6: coluna (0-based) do Realizado de cada mês
+    col_real = {}
+    for j, c in enumerate(linhas[5]):
+        v = c.value
+        if isinstance(v, (int, float)) and 1 <= v <= 12 and float(v).is_integer():
+            col_real[int(v)] = j
+    if not col_real:
+        raise ValueError(f"{caminho.name}/{aba}: não achei os marcadores de mês na linha 6")
 
-        divisor(5, "DECISÕES E MANEJO", "Plantel · Obras · Casa"),
-        pendente(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS", "Total de animais sob responsabilidade da PG",
-                 "CONTROLE PLANTEL.xlsx, aba CONTAGEM (o PGSemanalReport.py já lê)",
-                 "extração ainda não feita"),
-        pendente(38, "MANEJO — PONTOS DE MELHORIA E DECISÕES", "Histórico de intervenções",
-                 "digitado", "sem planilha por trás — é texto"),
-        pendente(39, "MANEJO — FOTOS E REGISTROS", "Fotos do mês", "fotos", "upload manual"),
+    ordem, dados = [], {}
+    for i, row in enumerate(linhas[8:], start=9):
+        c = row[col_label - 1] if col_label - 1 < len(row) else None
+        if c is None or c.value is None:
+            continue
+        nome = str(c.value).strip()
+        if not nome or nome.lower().startswith("check"):
+            continue
+        if nome in dados:          # rótulo repetido (blocos de arrendamento) — vale o 1º
+            continue
+        ordem.append(nome)
+        d = {"total": bool(c.font and c.font.b), "linha": i, "mes": {}, "ytd": {}}
+        for m, jr in col_real.items():
+            d["mes"][m] = [num(row[jr - 1].value), num(row[jr].value), num(row[jr + 1].value)]
+            # janeiro não tem bloco 'Acumulado' próprio: o YTD dele é o próprio mês
+            jy = jr if m == 1 else jr + 3
+            d["ytd"][m] = ([num(row[jy - 1].value), num(row[jy].value), num(row[jy + 1].value)]
+                           if jy + 1 < len(row) else [None, None, None])
+        dados[nome] = d
+    return sorted(col_real), ordem, dados
+
+
+def meses_com_dado(dados, chave="mes"):
+    """Mês só entra no deck se tiver algum número diferente de zero — senão o
+    seletor ofereceria meses vazios (o arquivo tem as 12 colunas o ano todo)."""
+    ms = set()
+    for d in dados.values():
+        for m, v in d[chave].items():
+            if any(x for x in v if x):
+                ms.add(m)
+    return sorted(ms)
+
+
+def linha(dados, rotulo, nome=None, total=None, campo="mes", m=1, sinal=1):
+    d = dados.get(rotulo)
+    if d is None:
+        return None
+    v = d[campo][m]
+    return {"nome": nome or rotulo.title(), "total": d["total"] if total is None else total,
+            "v": [None if x is None else x * sinal for x in v] + [pct(v)]}
+
+
+def pct(v):
+    """∆ % = realizado sobre orçado. A planilha só traz ∆ R$ k; a coluna de %
+    do deck é derivada — com orçado zerado não existe percentual (N/A)."""
+    orc, real = v[0], v[1]
+    if not orc:
+        return None
+    return (real - orc) / abs(orc)
+
+
+# Subconjunto que o slide de resumo mostra (mesmas linhas do deck de junho/26).
+# Rótulo da planilha -> rótulo do slide.
+RESUMO = [
+    ("RECEITA OPERACIONAL BRUTA", "Receita Bruta", True),
+    ("VENDA DE PRODUTOS", "Venda de Produtos", False),
+    ("EMBRIÕES", "Embriões", False),
+    ("COBERTURAS", "Coberturas", False),
+    ("ANIMAIS", "Animais", False),
+    ("OUTRAS RECEITAS", "Outras Receitas", False),
+    ("RECEITAS FINANCEIRAS", "Receitas Financeiras", False),
+    ("CANCELAMENTOS", "Cancelamentos", False),
+    ("CUSTOS DE VENDAS", "Custos de Venda", False),
+    ("RECEITA OPERACIONAL LIQUIDA", "Receita Líquida", True),
+    ("CUSTOS E DESPESAS OPERACIONAIS", "Custos e Despesas", True),
+    ("CUSTOS INDIRETOS DE PRODUÇÃO", "Custos", False),
+    ("DESPESAS", "Despesas", False),
+    ("DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS", "Arrendamento D. Lúdia", False),
+    ("DESPESAS - ARRENDAMENTO Vassouras - HARAS", "Arrendamento Vassouras", False),
+    ("RESULTADO OPERACIONAL", "Resultado Operacional", True),
+    ("VARIAÇÃO PATRIMONIAL", "Variação Patrimonial", True),
+    ("ATIVOS BIOLOGICOS", "Ativos Biológicos", False),
+    ("REAVALIAÇÃO DO PLANTEL", "Reavaliação do Plantel", False),
+    ("BAIXAS DE ESTOQUE", "Baixas de Estoque", True),
+    ("BAIXA DE ESTOQUE POR VENDA", "Por Venda", False),
+    ("BAIXA DE ESTOQUE POR MORTES E DOAÇÕES", "Mortes e Doações", False),
+    ("RESULTADO PATRIMONIAL", "Resultado Patrimonial", True),
+    ("INVESTIMENTOS", "Investimentos", True),
+    ("RESULTADO APÓS OS INVESTIMENTOS", "Resultado após Invest.", True),
+]
+
+
+def bloco(ordem, dados, de, ate, campo, m, so_com_valor=True):
+    """Linhas entre dois rótulos (inclusivo/exclusivo). `so_com_valor` derruba a
+    linha zerada no mês — sem isso o slide de custos tem 100 linhas e estoura."""
+    try:
+        i0, i1 = ordem.index(de), ordem.index(ate)
+    except ValueError:
+        return []
+    out = []
+    for rot in ordem[i0:i1]:
+        d = dados[rot]
+        v = d[campo][m]
+        if so_com_valor and not any(x for x in v if x) and not d["total"]:
+            continue
+        out.append({"nome": rot.title(), "total": d["total"],
+                    "v": [None if x is None else -x for x in v] + [pct(v)]})
+    return out
+
+
+def slides_dre(m, ordem, dados, ano):
+    """S04 (resumo do mês) e S07 (resumo YTD). Despesa vem negativa na planilha e
+    é assim que o deck mostra — o sinal não é invertido."""
+    def resumo(campo):
+        return [x for x in (linha(dados, rot, nome, tot, campo, m)
+                            for rot, nome, tot in RESUMO) if x]
+    return [
+        {"t": "dre", "n": 4,
+         "titulo": f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {ABR[m-1].upper()}/{str(ano)[2:]}",
+         "sub": "DRE 2026 | HPG · Competência mensal · Fonte: aba DRE-Compet",
+         "linhas": resumo("mes")},
+        {"t": "dre", "n": 7, "titulo": f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
+         "sub": "DRE 2026 | HPG · Acumulado no ano · Fonte: aba DRE-Compet",
+         "linhas": resumo("ytd")},
     ]
 
 
+# =========================================================== Investimentos (S09)
+def slide_investimentos(m, ano):
+    if not DRE_HARAS.exists():
+        return pend(9, f"INVESTIMENTOS — COMENTÁRIOS {ano}", "", DRE_HARAS.name, "arquivo não encontrado")
+    import openpyxl
+    wb = openpyxl.load_workbook(DRE_HARAS, data_only=True, read_only=True)
+    ws = wb["Investimentos"]
+    BLOCOS = ("INFRAESTRUTURA", "COMPRA DE ANIMAIS E PRODUTOS", "MÁQUINAS E EQUIPAMENTOS",
+              "INSTALAÇÕES", "FORMAÇÃO DE PASTAGEM")
+    meses, atual, bl = [], None, None
+    for r in ws.iter_rows(values_only=True):
+        a = str(r[0]).strip().upper() if r[0] is not None else ""
+        b = str(r[1]).strip() if len(r) > 1 and r[1] is not None else ""
+        v = num(r[2]) if len(r) > 2 else None
+        if a.startswith("INVESTIMENTOS -"):
+            nome = a.split("-", 1)[1].strip().split("/")[0].title()
+            atual = {"mes": nome, "total": 0.0, "itens": []}
+            meses.append(atual); bl = None
+            continue
+        if atual is None:
+            continue
+        if a in BLOCOS:
+            bl = a
+            if bl == "COMPRA DE ANIMAIS E PRODUTOS" and v:
+                atual["total"] = v
+            continue
+        if bl == "COMPRA DE ANIMAIS E PRODUTOS" and v is not None:
+            atual["itens"].append({"desc": b or a.title(), "valor": v})
+    wb.close()
+    # o slide é acumulado do ano: mostra de janeiro até o mês do deck
+    idx = {nm.lower(): i + 1 for i, nm in enumerate(MESES)}
+    meses = [x for x in meses if idx.get(x["mes"].lower(), 99) <= m]
+    for x in meses:
+        if not x["itens"]:
+            x["itens"] = [{"desc": "Sem compra de animais e produtos registrada no mês", "valor": 0.0}]
+    return {"t": "lista_mes", "n": 9, "titulo": f"INVESTIMENTOS — COMENTÁRIOS {ano}",
+            "sub": f"Compra de animais e produtos · Jan–{ABR[m-1]}", "meses": meses}
+
+
+# ============================================================ Plantel (S11/S12/S37)
+SUFIXOS_S11 = ("DA PAO GRANDE", "OUTRO")
+_base_bi_cache = None
+
+
+def base_bi():
+    global _base_bi_cache
+    if _base_bi_cache is None and BASE_BI.exists():
+        d = pd.read_parquet(BASE_BI)
+        d["mes"] = pd.to_datetime(d["mes_referencia"]).dt.strftime("%Y-%m")
+        _base_bi_cache = d
+    return _base_bi_cache
+
+
+def slide_estoque(m, ano):
+    d = base_bi()
+    if d is None:
+        return pend(11, "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE", "", "bases/base_bi.parquet",
+                    "rode python scripts/PGBaseBI.py")
+    alvo = f"{ano}-{m:02d}"
+    if alvo not in set(d["mes"]):
+        ult = sorted(d["mes"].unique())[-1]
+        aviso(f"base_bi vai até {ult} — S11 fica pendente nos meses seguintes")
+        return pend(11, "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE", "", "bases/base_bi.parquet",
+                    f"a base vai até {ult}; sem o mês {alvo}. Rode scripts/PGDataExtractor.py + PGBaseBI.py")
+    x = d[(d["mes"] == alvo) & (d["status_plantel"] == "PLANTEL") & (d["sufixo_grupo"].isin(SUFIXOS_S11))]
+    patrim = float(x["patrimonio_proporcional"].sum())
+    aval = int(x["valor_100"].notna().sum())
+    medio = float(x["valor_100"].mean()) if aval else 0.0
+    cat = x["categoria"].value_counts()
+    return {"t": "kpis_tabela", "n": 11, "titulo": "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE",
+            "sub": (f"Composição patrimonial do plantel · {MESES[m-1].upper()} {ano} · {len(x)} animais"
+                    f" · Status PLANTEL · Sufixo: Da PG / Outros"),
+            "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "DA PAO GRANDE + OUTROS"},
+                     {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "patrimônio proporcional"},
+                     {"v": brl_curto(medio), "l": "Valor Médio", "s": f"{aval} animais avaliados"}],
+            "tabela": {"cols": ["CATEGORIA", "Nº", "%"],
+                       "rows": [[k.title(), int(v), f"{v/len(x)*100:.0f}%"] for k, v in cat.items()]}}
+
+
+MOV_LINHAS = [("saldo_ini", "Saldo Inicial"), ("compra", "(+) Compras"), ("producao", "(+) Prod. Emb."),
+              ("venda", "(-) Baixa Vendas"), ("morte", "(-) Baixa Mortes"), ("doacao", "(-) Doações"),
+              ("reaval", "(±) Reavaliação"), ("saiu_controle", "(-) Saiu do Controle"),
+              ("saldo_fim", "Saldo Final")]
+
+
+def slide_movimentacao(m, ano):
+    f = PLANTEL_DIR / "mov_cascata.parquet"
+    if not f.exists():
+        return pend(12, f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}", "", f.name,
+                    "rode o LxMovimentacao.py no repo LuxorMonthlyP-CRoutines")
+    c = pd.read_parquet(f)
+    a = c[(c["mes"] >= f"{ano}-01") & (c["mes"] <= f"{ano}-{m:02d}")].sort_values("mes")
+    if a.empty:
+        ult = c["mes"].max()
+        return pend(12, f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}", "", f.name,
+                    f"a cascata vai até {ult}; sem meses de {ano} até {ABR[m-1]}")
+    cols = ["TÍTULO"] + [ABR[int(x.split("-")[1]) - 1].upper() for x in a["mes"]]
+    rows = [[rot] + [a[k].tolist()[i] for i in range(len(a))] for k, rot in MOV_LINHAS]
+    u = a.iloc[-1]
+    return {"t": "matriz", "n": 12, "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}",
+            "sub": "Saldo mensal · compras, produções, vendas e baixas",
+            "kpis": [{"v": brl_curto(u["producao"]), "l": "Produção Emb.", "s": cols[-1]},
+                     {"v": brl_curto(u["venda"]), "l": "Baixa Vendas", "s": cols[-1]},
+                     {"v": brl_curto(u["morte"] + u["doacao"]), "l": "Mortes/Doações", "s": cols[-1]},
+                     {"v": brl_curto(u["saldo_fim"]), "l": "Saldo Final", "s": "Haras PG"}],
+            "cols": cols, "rows": rows}
+
+
+def slide_contagem(m, ano):
+    """S37 — a aba CONTAGEM é pré-agregada (o PGSemanalReport já lê ela)."""
+    try:
+        wb = _load(CONTROLE_PLANTEL_SEMANAL)
+    except Exception as e:
+        return pend(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS", "",
+                    "CONTROLE PLANTEL.xlsx, aba CONTAGEM", f"não consegui abrir: {e}")
+    ws = wb["CONTAGEM"]
+    rows, total = [], None
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 3 or r[1] is None:
+            continue
+        nome = _s(r[1])
+        if _norm(r[1]).startswith("TOTAL"):
+            total = _to_num(r[4]); continue
+        rows.append([nome.title(), _to_num(r[2]) or 0, _to_num(r[3]) or 0, _to_num(r[4]) or 0])
+    wb.close()
+    total = total or sum(r[3] for r in rows)
+    kp = [{"v": f"{int(r[3])}", "l": r[0].upper(), "s": f"{r[3]/total*100:.0f}% do total"} for r in rows[:3]]
+    kp.append({"v": f"{int(total)}", "l": "TOTAL GERAL", "s": "sob responsabilidade da PG"})
+    return {"t": "kpis_tabela", "n": 37, "titulo": "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
+            "sub": f"{MESES[m-1].upper()} {ano} · aba CONTAGEM do CONTROLE PLANTEL",
+            "kpis": kp,
+            "tabela": {"cols": ["LOCAL", "ANIMAIS", "RECEPTORAS", "TOTAL"],
+                       "rows": [[r[0], int(r[1]), int(r[2]), int(r[3])] for r in rows]}}
+
+
+# ============================================================ Estação (S16–S20)
+def _estacao_wb():
+    return _load(_latest_estacao_master())
+
+
+def slides_estacao():
+    """S16 funil, S17 garanhões, S18 comparativo, S19/S20 doadoras A e B.
+
+    A estação é da SAFRA, não do mês — o mesmo conteúdo vale para qualquer mês do
+    deck. Definições (do guia): absorção = perda antes dos 60d; aborto = embrião
+    confirmado que não nasceu; óbito = nasceu e morreu.
+    """
+    try:
+        src = _latest_estacao_master()
+        wb = _load(src)
+    except Exception as e:
+        p = pend(16, "ESTAÇÃO DE MONTA — EMBRIÕES E PRENHEZES", "", "ESTACAO DE MONTA.xlsx",
+                 f"não consegui abrir: {e}")
+        return [p, dict(p, n=17, titulo="ESTAÇÃO DE MONTA — GARANHÕES"),
+                dict(p, n=18, titulo="ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES"),
+                dict(p, n=19, titulo="ESTAÇÃO DE MONTA — DOADORAS TIME A"),
+                dict(p, n=20, titulo="ESTAÇÃO DE MONTA — DOADORAS TIME B")]
+    out = [funil(wb), garanhoes(wb), comparativo(wb)] + doadoras(wb)
+    wb.close()
+    return out
+
+
+def funil(wb):
+    """S16 — aba ESTAÇÃO. Colunas (1-based): 11 LAVADO, 13 15D, 14 30D, 15 45D,
+    16 60D, 17 ABORTO, 36 ESTAÇÃO. Confirmado = lavado+ e 15d+ e (30/45/60 '+' ou
+    vazio), menos aborto=SIM."""
+    ws = wb["ESTAÇÃO"]
+    tent = lav = p15 = p30 = p45 = p60 = ab = 0
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 3 or r[0] is None or _s(r[35]) != SAFRA_ATUAL:
+            continue
+        tent += 1
+        if _norm(r[10]) != "+":
+            continue
+        lav += 1
+        if _norm(r[12]) == "+":
+            p15 += 1
+        if _norm(r[13]) in ("+", ""):
+            p30 += 1
+        if _norm(r[14]) in ("+", ""):
+            p45 += 1
+        if _norm(r[15]) in ("+", ""):
+            p60 += 1
+        if _norm(r[16]) == "SIM":
+            ab += 1
+    conf = p60 - ab
+    ref = lambda v: f"{v/lav*100:.0f}% dos lavados" if lav else "—"
+    return {"t": "kpis_tabela", "n": 16, "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — EMBRIÕES E PRENHEZES",
+            "sub": (f"{conf} embriões confirmados · taxa de recuperação {lav/tent*100:.0f}%"
+                    f" · {tent} tentativas" if tent else "sem tentativas na safra"),
+            "kpis": [{"v": str(conf), "l": "Embriões Conf.", "s": f"Estação {SAFRA_ATUAL}"},
+                     {"v": str(lav), "l": "Lavados (+)", "s": f"{lav/tent*100:.0f}% de positivos" if tent else "—"},
+                     {"v": f"{lav/tent*100:.0f}%" if tent else "—", "l": "Taxa Recup.", "s": SAFRA_ATUAL},
+                     {"v": str(ab), "l": "Abortos", "s": "confirmados > 60d"}],
+            "tabela": {"cols": [f"FUNIL DE PRENHEZ — ESTAÇÃO {SAFRA_ATUAL}", "Nº", "REFERÊNCIA"],
+                       "rows": [["Tentativas", tent, "100%"],
+                                ["Lavados (+)", lav, f"{lav/tent*100:.0f}%" if tent else "—"],
+                                ["Prenhez 15d", p15, ref(p15)], ["Prenhez 30d", p30, ref(p30)],
+                                ["Prenhez 45d", p45, ref(p45)], ["Prenhez 60d", p60, ref(p60)],
+                                ["(−) Abortos", ab, "> 60 dias confirmados"],
+                                ["Confirmados", conf, ref(conf)]]}}
+
+
+def garanhoes(wb):
+    """S17 — aba GARANHOES: 3 garanhão, 4 tipo de sêmen, 5 total lavados,
+    6 lavados positivos, 7 %, 8 embriões confirmados, 9 prenhez, 10 aborto,
+    11 total confirmados."""
+    ws = wb["GARANHOES"]
+    rows = []
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 4 or len(r) < 11 or r[2] is None:
+            continue
+        nome = _s(r[2])
+        if not nome or _norm(r[2]).startswith("TOTAL"):
+            continue
+        tot, conf = _to_num(r[4]), _to_num(r[10])
+        rows.append([nome.title(), (_s(r[3]) or "")[:1].upper(), int(tot or 0),
+                     int(_to_num(r[5]) or 0), int(conf or 0),
+                     f"{conf/tot*100:.0f}%" if tot and conf is not None else "—"])
+    rows.sort(key=lambda x: -x[4])
+    somas = [sum(r[i] for r in rows) for i in (2, 3, 4)]
+    por_tipo = {}
+    for r in rows:
+        t = r[1] or "?"
+        a, b = por_tipo.get(t, (0, 0))
+        por_tipo[t] = (a + r[3], b + r[2])
+    nome_tipo = {"R": "Refrigerado", "C": "Congelado", "F": "Fresco"}
+    return {"t": "kpis_tabela", "n": 17, "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — GARANHÕES",
+            "sub": f"{somas[0]} lavados · {somas[1]} positivos · {somas[2]} embriões confirmados",
+            "kpis": [{"v": f"{p/t*100:.0f}%" if t else "—", "l": nome_tipo.get(k, k),
+                      "s": f"{p} de {t} lavados"} for k, (p, t) in
+                     sorted(por_tipo.items(), key=lambda kv: -kv[1][1])[:4]],
+            "tabela": {"cols": ["GARANHÃO", "SÊMEN", "LAVADOS", "POSITIVOS", "CONFIRMADOS", "ÍND. %"],
+                       "rows": rows}}
+
+
+def comparativo(wb):
+    """S18 — aba COMPARATIVO: linha 1 traz as estações nas colunas, cada linha um mês."""
+    ws = wb["COMPARATIVO"]
+    linhas = [list(r) for r in ws.iter_rows(values_only=True)]
+    if not linhas:
+        return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES", "",
+                    "ESTACAO DE MONTA.xlsx, aba COMPARATIVO", "aba vazia")
+    hdr = linhas[0]
+    cols_est = [(j, _s(v)) for j, v in enumerate(hdr) if v is not None and re.match(r"^\d{2}/\d{2}$", _s(v) or "")]
+    if not cols_est:
+        return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES", "",
+                    "ESTACAO DE MONTA.xlsx, aba COMPARATIVO",
+                    "não achei colunas de estação (formato AA/BB) no cabeçalho")
+    jm = next((j for j, v in enumerate(hdr) if _norm(v) in ("MÊS", "MES")), 1)
+    rows, totais = [], {j: 0 for j, _ in cols_est}
+    for r in linhas[1:]:
+        mes = _s(r[jm]) if jm < len(r) else None
+        if not mes or _norm(r[jm]).startswith("TOTAL"):
+            continue
+        linha_ = [mes.title()]
+        for j, _ in cols_est:
+            v = _to_num(r[j]) if j < len(r) else None
+            linha_.append(int(v) if v else 0)
+            totais[j] += int(v or 0)
+        rows.append(linha_)
+    rows.append(["Total"] + [totais[j] for j, _ in cols_est])
+    ultima = cols_est[-1][1]
+    return {"t": "kpis_tabela", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES",
+            "sub": "Embriões confirmados por mês · " + " · ".join(n for _, n in cols_est),
+            "kpis": [{"v": str(totais[j]), "l": f"Estação {n}", "s": "confirmados no total"}
+                     for j, n in cols_est[-4:]],
+            "tabela": {"cols": ["MÊS"] + [n for _, n in cols_est], "rows": rows},
+            "obs": f"a aba COMPARATIVO da planilha vai até {ultima}"}
+
+
+def doadoras(wb):
+    """S19/S20 — meta × realizado por doadora. Meta e Time vêm do PLANEJAMENTO
+    (7 TIME, 8 META TOTAL, 9 TOTAL EMBRIÕES); REC. EMBR. traz os lavados+."""
+    ws = wb["PLANEJAMENTO"]
+    por_time = {"A": [], "B": []}
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 4 or r[1] is None:
+            continue
+        nome = _s(r[1])
+        if not nome or _norm(r[1]).startswith("TOTAL"):
+            continue
+        time = _norm(r[6])
+        if time not in ("A", "B"):
+            continue
+        meta, real = _to_num(r[7]) or 0, _to_num(r[8]) or 0
+        por_time[time].append([nome.title(), int(meta), int(real),
+                               f"{real/meta*100:.0f}%" if meta else "—"])
+    lav = {}
+    ws2 = wb["REC. EMBR."]
+    for i, r in enumerate(ws2.iter_rows(values_only=True), 1):
+        if i < 3 or r[2] is None:
+            continue
+        lav[_norm(r[2])] = _to_num(r[5]) or 0
+    out = []
+    for time in ("A", "B"):
+        rows = por_time[time]
+        for row in rows:
+            row.insert(3, int(lav.get(_norm(row[0]), 0)))
+        meta = sum(r[1] for r in rows)
+        real = sum(r[2] for r in rows)
+        lavp = sum(r[3] for r in rows)
+        rows.sort(key=lambda x: -x[2])
+        out.append({"t": "kpis_tabela", "n": 19 if time == "A" else 20,
+                    "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — DOADORAS TIME {time}",
+                    "sub": f"{len(rows)} doadoras · meta {meta} embriões · realizado {real}",
+                    "kpis": [{"v": str(meta), "l": "Meta", "s": f"Time {time}"},
+                             {"v": str(real), "l": "Realizado", "s": "embriões confirmados"},
+                             {"v": f"{real/meta*100:.0f}%" if meta else "—", "l": "Atingimento", "s": "real ÷ meta"},
+                             {"v": str(lavp), "l": "Lavados (+)", "s": "aba REC. EMBR."}],
+                    "tabela": {"cols": ["DOADORA", "META", "REAL", "LAV +", "%"],
+                               "rows": [[r[0], r[1], r[2], r[3], r[4]] for r in rows]}})
+    return out
+
+
+# ============================================================== Vendas (S29–S35)
+VENDEDOR_COMITE = "CARLA"
+
+
+def slides_vendas(m, ano, meta_anual=4_500_000):
+    """S29 KPI e S30 detalhamento. Filtro obrigatório: VENDEDOR = CARLA, sem
+    CANCELADO (regra do guia). Colunas do MAPA VENDAS (1-based): 7 valor produto,
+    8 valor da venda, 11 tipo de evento, 12 nome do evento, 15 vendedor,
+    19 status contrato, 22 ano, 23 mês."""
+    try:
+        src = _latest_by_yymmdd(MAPA_VENDAS_DIR, "*_PG_Mapa Vendas.xlsx")
+        wb = _load(src)
+    except Exception as e:
+        p = pend(29, "VENDAS — RESULTADO ACUMULADO", "", "PG_Mapa Vendas.xlsx, aba MAPA VENDAS",
+                 f"não consegui abrir: {e}")
+        return [p, dict(p, n=30, titulo="VENDAS — DETALHAMENTO POR MÊS E EVENTO")]
+    ws = wb["MAPA VENDAS"]
+    por_mes = {}
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 3 or len(r) < 23 or r[21] is None:
+            continue
+        if _norm(r[14]) != VENDEDOR_COMITE:
+            continue
+        if "CANCELAD" in _norm(r[18]):
+            continue
+        a, mm = _to_num(r[21]), _to_num(r[22])
+        if a != ano or not mm or mm > m:
+            continue
+        v = _to_num(r[7]) or 0
+        ev = _s(r[10]) or _s(r[11]) or "—"
+        por_mes.setdefault(int(mm), {}).setdefault(ev.title(), 0)
+        por_mes[int(mm)][ev.title()] += v
+    wb.close()
+    ytd = sum(sum(d.values()) for d in por_mes.values())
+    mes_v = sum(por_mes.get(m, {}).values())
+    rows = []
+    for mm in sorted(por_mes):
+        tot = sum(por_mes[mm].values())
+        rows.append([MESES[mm - 1].upper(), "", tot])
+        for ev, v in sorted(por_mes[mm].items(), key=lambda kv: -kv[1]):
+            rows.append(["", ev, v])
+    return [
+        {"t": "kpis_tabela", "n": 29, "titulo": f"VENDAS {ano} — RESULTADO ACUMULADO — {VENDEDOR_COMITE.title()}",
+         "sub": f"Meta anual {brl_curto(meta_anual)} · acumulado Jan–{ABR[m-1]} {brl_curto(ytd)}",
+         "kpis": [{"v": brl_curto(mes_v), "l": f"Vendas {ABR[m-1]}", "s": "realizado no mês"},
+                  {"v": brl_curto(ytd), "l": "Acumulado YTD", "s": f"Jan–{ABR[m-1]}"},
+                  {"v": brl_curto(meta_anual), "l": "Meta Anual", "s": "parâmetro do comitê"},
+                  {"v": brl_curto(meta_anual - ytd), "l": "Saldo para Meta",
+                   "s": f"{ytd/meta_anual*100:.0f}% atingido"}],
+         "tabela": {"cols": ["MÊS", "TOTAL"],
+                    "rows": [[MESES[mm - 1].title(), brl_curto(sum(por_mes[mm].values()))]
+                             for mm in sorted(por_mes)]}},
+        {"t": "tabela", "n": 30, "titulo": f"VENDAS — JANEIRO A {MESES[m-1].upper()}/{str(ano)[2:]} — {VENDEDOR_COMITE.title()}",
+         "sub": f"Detalhamento por mês e evento · filtro: vendedor = {VENDEDOR_COMITE}, sem cancelados",
+         "cols": ["MÊS", "EVENTO / ORIGEM", "VALOR"], "moeda": [2],
+         "rows": rows},
+    ]
+
+
+# ENTREGAR (1-based): 2 doadora, 3 garanhão, 4 data venda, 6 comprador, 7 cota,
+# 11 valor, 12 status pgto, 13 status embrião.  RECEBER: 6 vendedor.
+S32 = ("QUITADO", "PAGANDO")
+S33 = ("PAUSAD", "APOS CONF", "APÓS CONF")
+S34 = ("DIREITO", "TROCA")
+
+
+def slides_embrioes():
+    try:
+        wb = _load(EMB_COMERCIAIS)
+    except Exception as e:
+        base = pend(32, "VENDAS — EMBRIÕES VENDIDOS A FAZER", "", EMB_COMERCIAIS.name,
+                    f"não consegui abrir: {e}")
+        return [base, dict(base, n=33), dict(base, n=34),
+                dict(base, n=35, titulo="ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER")]
+
+    def linhas(aba, col_contraparte):
+        out = []
+        for i, r in enumerate(wb[aba].iter_rows(values_only=True), 1):
+            if i < 4 or len(r) < 13 or r[1] is None:
+                continue
+            out.append({"doadora": _s(r[1]), "garanhao": _s(r[2]), "data": r[3],
+                        "contraparte": _s(r[col_contraparte]), "cota": _to_num(r[6]),
+                        "valor": _to_num(r[10]), "pgto": _s(r[11]) or "",
+                        "status": _s(r[12]) or ""})
+        return out
+
+    ent = linhas("ENTREGAR", 5)
+    rec = linhas("RECEBER", 5)
+    wb.close()
+    af = lambda x: _norm(x["status"]).startswith("A FAZER")
+    tem = lambda x, ks: any(k in _norm(x["pgto"]) for k in ks)
+
+    def tabela(n, titulo, sel, itens, rotulo_contra="COMPRADOR"):
+        lst = [x for x in itens if sel(x)]
+        tot = sum(x["valor"] or 0 for x in lst)
+        return {"t": "tabela", "n": n, "titulo": titulo,
+                "sub": f"{len(lst)} contrato(s) · {brl_curto(tot)}",
+                "cols": ["DOADORA", "GARANHÃO", "DATA", rotulo_contra, "CT", "VALOR", "PGTO"],
+                "moeda": [5], "data": [2],
+                "rows": [[x["doadora"], x["garanhao"], x["data"], x["contraparte"],
+                          f"{x['cota']*100:.0f}%" if x["cota"] else "—", x["valor"], x["pgto"]]
+                         for x in sorted(lst, key=lambda y: -(y["valor"] or 0))]}
+
+    return [
+        tabela(32, "VENDAS — EMBRIÕES VENDIDOS A FAZER (QUITADO / PAGANDO)",
+               lambda x: af(x) and tem(x, S32), ent),
+        tabela(33, "VENDAS — EMBRIÕES VENDIDOS A FAZER (PGTO PAUSADO / APÓS CONF.)",
+               lambda x: af(x) and tem(x, S33), ent),
+        tabela(34, "VENDAS — EMBRIÕES DE DIREITO / REPOSIÇÃO",
+               lambda x: _norm(x["status"]).startswith("REPOSI") or (af(x) and tem(x, S34)), ent),
+        tabela(35, "ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER", af, rec, "VENDEDOR"),
+    ]
+
+
+# ==================================================================== deck
 def divisor(n, titulo, sub):
     return {"t": "divisor", "n": n, "titulo": titulo, "sub": sub}
 
 
-# ------------------------------------------------------------------- main
-def build(mes_ref: date):
-    spec = [
+def monta_deck(m, ano, ctx):
+    ordem, dados, ordem_c, dados_c = ctx["ordem"], ctx["dados"], ctx["ordem_c"], ctx["dados_c"]
+    s = [
         {"t": "capa", "titulo": "RELATÓRIO DE DESEMPENHO ESTRATÉGICO",
-         "mes": f"{MESES[mes_ref.month - 1].upper()} / {mes_ref.year}",
-         "org": "HARAS PAO GRANDE"},
+         "mes": f"{MESES[m-1].upper()} / {ano}", "org": "HARAS PAO GRANDE"},
         {"t": "agenda", "titulo": "AGENDA",
-         "sub": f"RELATÓRIO DESEMPENHO ESTRATÉGICO — {MES_ABR[mes_ref.month-1].upper()}/{str(mes_ref.year)[2:]}",
-         "itens": [
-             {"n": "01", "titulo": "FINANCEIRO", "sub": "DRE Haras · Caixa · Plantel"},
-             {"n": "02", "titulo": "ESTAÇÃO DE MONTA", "sub": "Embriões · Doadoras · Garanhões"},
-             {"n": "03", "titulo": "EXPOSIÇÕES", "sub": "Programação e resultados"},
-             {"n": "04", "titulo": "VENDAS", "sub": "Pipeline e contratos"},
-             {"n": "05", "titulo": "DECISÕES E MANEJO", "sub": "Plantel · Obras · Casa"},
-         ]},
-        divisor(1, "FINANCEIRO", f"DRE Haras · Caixa · Plantel | {MESES[mes_ref.month-1].upper()} {mes_ref.year}"),
+         "sub": f"RELATÓRIO DESEMPENHO ESTRATÉGICO — {ABR[m-1].upper()}/{str(ano)[2:]}",
+         "itens": [{"n": "01", "titulo": "FINANCEIRO", "sub": "DRE Haras · Caixa · Plantel"},
+                   {"n": "02", "titulo": "ESTAÇÃO DE MONTA", "sub": "Embriões · Doadoras · Garanhões"},
+                   {"n": "03", "titulo": "EXPOSIÇÕES", "sub": "Programação e resultados"},
+                   {"n": "04", "titulo": "VENDAS", "sub": "Pipeline e contratos"},
+                   {"n": "05", "titulo": "DECISÕES E MANEJO", "sub": "Plantel · Obras · Casa"}]},
+        divisor(1, "FINANCEIRO", f"DRE Haras · Caixa · Plantel | {MESES[m-1].upper()} {ano}"),
     ]
-    secao_financeiro(mes_ref, spec)
-    secoes_pendentes(spec, mes_ref)
-    spec.append({"t": "encerramento", "titulo": "HARAS PAO GRANDE"})
+    if dados:
+        s += slides_dre(m, ordem, dados, ano)[:1]
+        s.append({"t": "dre", "n": 5, "titulo": f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
+                  "sub": "DRE Haras · Custos indiretos de produção · linhas zeradas no mês omitidas",
+                  "linhas": bloco(ordem, dados, "CUSTOS INDIRETOS DE PRODUÇÃO", "DESPESAS", "mes", m)})
+        s.append({"t": "dre", "n": 6, "titulo": f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
+                  "sub": "DRE Haras · Despesas do mês · linhas zeradas no mês omitidas",
+                  "linhas": bloco(ordem, dados, "DESPESAS", "RESULTADO OPERACIONAL", "mes", m)})
+        s += slides_dre(m, ordem, dados, ano)[1:]
+    else:
+        for n, t in ((4, "RESUMO FINANCEIRO — HARAS COMPETÊNCIA"), (5, "ANÁLISE DE CUSTOS"),
+                     (6, "ANÁLISE DE DESPESAS"), (7, "HARAS COMPETÊNCIA — ACUMULADO (YTD)")):
+            s.append(pend(n, t, "", DRE_HARAS.name, "arquivo não encontrado no Drive"))
+    s.append(pend(8, "COMENTÁRIOS — VARIAÇÕES YTD", "Análise mês a mês por categoria",
+                  "COMENTARIOS_DRE_HARAS.docx", "texto escrito por pessoa — não sai de base"))
+    s.append(slide_investimentos(m, ano))
+    if ctx["dados_cx"]:
+        s.append({"t": "dre", "n": 10, "titulo": f"HARAS CAIXA — ORÇADO X REALIZADO {ABR[m-1].upper()}/{str(ano)[2:]}",
+                  "sub": "FC 2026 | HPG · Caixa mensal · Fonte: aba DRE-Caixa",
+                  "linhas": [x for x in (linha(ctx["dados_cx"], rot, nome, tot, "mes", m)
+                                         for rot, nome, tot in RESUMO) if x]})
+    else:
+        s.append(pend(10, "HARAS CAIXA — ORÇADO X REALIZADO", "", DRE_HARAS.name, "aba DRE-Caixa não lida"))
+    s.append(slide_estoque(m, ano))
+    s.append(slide_movimentacao(m, ano))
+    if dados_c:
+        s.append({"t": "dre", "n": 13, "titulo": f"RESUMO FINANCEIRO — CASA/FPG — {ABR[m-1].upper()}/{str(ano)[2:]}",
+                  "sub": "FPG | Casa · Caixa mensal · Fonte: aba DRE-Novo formatoCaixa",
+                  "linhas": bloco(ordem_c, dados_c, ordem_c[0], ordem_c[-1], "mes", m)})
+        s.append({"t": "dre", "n": 14, "titulo": f"CASA/FPG — ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
+                  "sub": "FPG | Casa · Acumulado no ano",
+                  "linhas": bloco(ordem_c, dados_c, ordem_c[0], ordem_c[-1], "ytd", m)})
+    else:
+        s.append(pend(13, "RESUMO FINANCEIRO — CASA/FPG", "", DRE_CASA.name, "arquivo não encontrado"))
+        s.append(pend(14, "CASA/FPG — ACUMULADO", "", DRE_CASA.name, "arquivo não encontrado"))
 
-    payload = {
-        "mes": f"{mes_ref.year}-{mes_ref.month:02d}",
-        "mesLabel": f"{MESES[mes_ref.month - 1]} {mes_ref.year}",
-        "avisos": avisos,
-        "slides": spec,
-    }
+    s.append(divisor(2, "ESTAÇÃO DE MONTA", "Embriões · Doadoras · Garanhões"))
+    s += ctx["estacao"]
+    s.append(pend(21, f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — COBERTURAS DISPONÍVEIS",
+                  "Saldo por garanhão de fora", "COBERTURAS_CAVALOS_FORA.xlsx, aba Planilha2",
+                  "arquivo não localizado no repo nem no Drive"))
+
+    s.append(divisor(3, "EXPOSIÇÕES", "Programação e resultados"))
+    s.append(pend(23, f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO", "Calendário de participações previstas",
+                  "digitado", "sem planilha por trás — é texto"))
+    s.append(pend(24, "RESULTADOS DAS EXPOSIÇÕES", "Animais, títulos e colocações",
+                  "digitado após cada evento", "sem planilha por trás — é texto"))
+
+    s.append(divisor(4, "VENDAS", "Pipeline e contratos"))
+    s += slides_vendas(m, ano)
+    s.append(pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
+                  "controle-de-inadimplencia → dashboard_conferencia.html",
+                  "hoje é print; dá pra embutir o HTML que o ControleInadimplencia.py gera"))
+    s += ctx["embrioes"]
+
+    s.append(divisor(5, "DECISÕES E MANEJO", "Plantel · Obras · Casa"))
+    s.append(slide_contagem(m, ano))
+    s.append(pend(38, "MANEJO — PONTOS DE MELHORIA E DECISÕES", "Histórico de intervenções",
+                  "digitado", "sem planilha por trás — é texto"))
+    s.append(pend(39, "MANEJO — FOTOS E REGISTROS", "Fotos do mês", "fotos", "upload manual"))
+    s.append({"t": "encerramento", "titulo": "HARAS PAO GRANDE"})
+    return s
+
+
+def build(so_mes=None):
+    ano = so_mes.year if so_mes else 2026
+    ctx = {"ordem": [], "dados": {}, "ordem_c": [], "dados_c": {}, "dados_cx": {}}
+    meses = []
+    if DRE_HARAS.exists():
+        _, ctx["ordem"], ctx["dados"] = le_dre_mensal(DRE_HARAS, "DRE-Compet", 3)
+        meses = meses_com_dado(ctx["dados"])
+        try:
+            _, _, ctx["dados_cx"] = le_dre_mensal(DRE_HARAS, "DRE-Caixa", 3)
+        except Exception as e:
+            aviso(f"DRE-Caixa não lida ({e}) — S10 fica pendente")
+    else:
+        aviso(f"DRE do Haras não encontrado em {DRE_DIR}")
+    if DRE_CASA.exists():
+        try:
+            _, ctx["ordem_c"], ctx["dados_c"] = le_dre_mensal(DRE_CASA, "DRE-Novo formatoCaixa", 4)
+        except Exception as e:
+            aviso(f"DRE da Casa não lida ({e}) — S13/S14 pendentes")
+    if not meses:
+        meses = [so_mes.month] if so_mes else [date.today().month]
+        aviso("nenhum mês com dado no DRE — deck sai só com as bases não-financeiras")
+
+    ctx["estacao"] = slides_estacao()
+    ctx["embrioes"] = slides_embrioes()
+
+    alvo = [so_mes.month] if so_mes else meses
+    decks = {}
+    for m in alvo:
+        decks[f"{ano}-{m:02d}"] = monta_deck(m, ano, ctx)
+
+    chaves = sorted(decks)
+    payload = {"meses": chaves, "padrao": chaves[-1], "avisos": avisos,
+               "labels": {k: f"{MESES[int(k[5:]) - 1]} {k[:4]}" for k in chaves},
+               "decks": decks}
     OUT.mkdir(parents=True, exist_ok=True)
     js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=_json_default)
     (OUT / "spec.json").write_text(js, encoding="utf-8")
     (OUT / "spec.js").write_text(f"window.COMITE_SPEC = {js};\n", encoding="utf-8")
-    prontos = sum(1 for s in spec if s["t"] not in ("pendente",))
-    print(f"[comite] {len(spec)} slides ({prontos} com conteúdo, "
-          f"{len(spec) - prontos} pendentes) · {len(js)//1024} KB -> assets/comite/spec.js")
-
-
-def parse_mes(arg):
-    try:
-        mm, aaaa = arg.split("/")
-        return date(int(aaaa), int(mm), 1)
-    except Exception:
-        sys.exit(f"mês inválido: {arg!r} — use MM/AAAA (ex.: 06/2026)")
+    n = len(decks[chaves[-1]])
+    p = sum(1 for x in decks[chaves[-1]] if x["t"] == "pendente")
+    print(f"[comite] {len(chaves)} meses ({chaves[0]} … {chaves[-1]}) · {n} slides "
+          f"({n - p} com conteúdo, {p} pendentes) · {len(js)//1024} KB -> assets/comite/spec.js")
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        build(parse_mes(sys.argv[1]))
-    else:
-        # sem argumento: usa o mês em que a planilha do DRE está
         try:
-            import openpyxl
-            wb = openpyxl.load_workbook(DRE_DIR / "DRE 2026 HPG - HARAS.xlsx",
-                                        data_only=True, read_only=True)
-            rot = str(wb["Real x Orçado (Comp)"].cell(1, 2).value or "").strip()
-            wb.close()
-            nome, ano = rot.split()
-            build(date(int(ano), MESES.index(nome.capitalize()) + 1, 1))
-        except Exception as e:
-            sys.exit(f"não consegui descobrir o mês pela planilha ({e}). "
-                     f"Passe explícito: python hub/tools/build_comite.py MM/AAAA")
+            mm, aaaa = sys.argv[1].split("/")
+            build(date(int(aaaa), int(mm), 1))
+        except ValueError:
+            sys.exit(f"mês inválido: {sys.argv[1]!r} — use MM/AAAA (ex.: 06/2026)")
+    else:
+        build()

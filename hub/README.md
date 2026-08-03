@@ -13,6 +13,8 @@ hub do P&C.
 
 ```bash
 python hub/tools/build_semanal.py   # dashboard do pipeline -> assets/semanal/dashboard.html
+python hub/tools/build_comite.py    # bases -> assets/comite/spec.js  (mês da planilha do DRE)
+python hub/tools/build_comite.py 06/2026   # mês específico
 ```
 
 Depois é só abrir `hub/index.html`.
@@ -24,13 +26,23 @@ Depois é só abrir `hub/index.html`.
 haras, então o build só confere que segue autocontido e esconde o header
 interno, que duplicaria o título da aba.
 
-**Comitê Mensal** e **Plantel / Movimentação** (em breve) — entradas
-*placeholder*: aparecem na navegação com o selo "em breve" e uma tela que diz
-qual base vai alimentar e de onde o dado sai hoje. Nenhum gráfico, nenhum número
-de exemplo — não existe painel web dos dois (o comitê é montado no
-`ComiteHPG.pbix`, o plantel sai por e-mail com xlsx anexo via
-`LuxorMonthlyP-CRoutines/PlantelHPG/LxEmailHPGPlantel.py`) e, sem referência do
-que mostrar, a casca não inventa layout.
+**Comitê Mensal** (no ar) — o *Relatório Mensal de Desempenho Estratégico*, que
+hoje é um PPTX montado à mão. Vira deck HTML em `comite.html`: slide de
+1280×720 (16:9, mesma proporção do PPTX), navegação por seta, modo apresentação
+(tecla **P**, **Esc** sai) e **Exportar PPTX**.
+
+O desenho é *um spec, duas saídas*: `hub/tools/build_comite.py` lê as bases e
+grava `assets/comite/spec.js` — uma lista de `{t: <tipo de slide>, ...}`. O HTML
+e o PPTX renderizam **o mesmo spec**, então não existe conteúdo que só viva num
+dos dois. Slide sem fonte vira tipo `pendente` e diz na tela qual base vai
+alimentar e por que ainda não tem — nada de número de exemplo.
+
+Mapa de slide × fonte: [`_docs/COMITE_MAPEAMENTO.md`](../_docs/COMITE_MAPEAMENTO.md).
+
+**Plantel / Movimentação** (em breve) — entrada *placeholder*: aparece na
+navegação com o selo "em breve" e uma tela que diz qual base vai alimentar. Hoje
+sai por e-mail com xlsx anexo (`LuxorMonthlyP-CRoutines/PlantelHPG/LxEmailHPGPlantel.py`);
+sem referência do que mostrar, a casca não inventa layout.
 
 Para promover um placeholder: em `assets/app.js`, trocar `soon:true` pela função
 de render; se a tela tiver gráfico, copiar o `assets/vendor/echarts.min.js` do
@@ -40,15 +52,21 @@ de render; se a tela tiver gráfico, copiar o `assets/vendor/echarts.min.js` do
 
 ```text
 hub/
-├── index.html
+├── index.html                 # casca do hub
+├── comite.html                # deck do comitê (roda dentro do hub, em iframe)
 ├── assets/
 │   ├── theme.css              # tema Haras Pao Grande (mesmos tokens do dashboard semanal)
-│   ├── app.js                 # rotas + nav + embed da aba
+│   ├── app.js                 # rotas + nav + embed das abas
 │   ├── config.js              # offline hoje; SUPABASE_URL + anon key na fase gold
 │   ├── pg-logo.png            # GERADO por tools/build_logo.py
-│   └── semanal/               # GERADO — gitignored (dado do plantel)
+│   ├── comite/
+│   │   ├── deck.css · deck.js # renderer do deck + export PPTX
+│   │   └── spec.js            # GERADO — gitignored (número de DRE)
+│   ├── semanal/               # GERADO — gitignored (dado do plantel)
+│   └── vendor/pptxgen.bundle.js
 └── tools/
     ├── build_semanal.py
+    ├── build_comite.py
     └── build_logo.py          # só roda de novo se o logo mudar
 ```
 
