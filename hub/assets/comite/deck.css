@@ -48,8 +48,12 @@ body.play .slide{box-shadow:none;border:0}
 .s-head .sub{margin-top:7px;font-size:13px;color:var(--ink-3)}
 .s-body{position:absolute;left:52px;right:52px;top:96px;bottom:44px}
 .s-mark{position:absolute;right:34px;top:24px;height:40px;opacity:.9}
-.s-foot{position:absolute;left:52px;right:52px;bottom:16px;display:flex;font-size:11px;color:var(--ink-3)}
+.s-foot{position:absolute;left:52px;right:52px;bottom:16px;display:flex;gap:14px;font-size:11px;color:var(--ink-3)}
 .s-foot .spacer{flex:1}
+.s-foot .obs{color:var(--amber)}
+/* o corpo do slide nunca empurra conteúdo pra fora da moldura: a tabela é
+   dimensionada em JS (ajusta()), e isto aqui é a rede de segurança */
+.s-body{overflow:hidden}
 
 /* capa / divisor / encerramento */
 .capa,.fim{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 78px}
