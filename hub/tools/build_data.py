@@ -15,6 +15,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 HUB = Path(__file__).resolve().parent.parent
@@ -26,9 +27,17 @@ BASE_BI = REPO / "bases" / "base_bi.parquet"
 PLANTEL_DIR = Path(r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines/PlantelHPG")
 
 
+def _json_default(o):
+    """np.bool_/np.int64/... não são serializáveis (np.float64 é, por herdar de
+    float). .item() devolve o equivalente Python."""
+    if isinstance(o, np.generic):
+        return o.item()
+    raise TypeError(f"tipo não serializável no payload: {type(o).__name__}")
+
+
 def write(nome, var, payload):
     OUT.mkdir(parents=True, exist_ok=True)
-    js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=_json_default)
     (OUT / f"{nome}.json").write_text(js, encoding="utf-8")
     (OUT / f"{nome}.js").write_text(f"window.{var} = {js};\n", encoding="utf-8")
     print(f"[{nome}] {len(js) // 1024} KB -> assets/data/{nome}.js (+ .json)")
@@ -36,14 +45,13 @@ def write(nome, var, payload):
 
 def tabela(df, cols):
     """Formato compacto {cols, rows}: o nome da coluna não se repete por linha,
-    o que corta o JSON quase pela metade. O app.js reidrata com objify()."""
-    df = df[cols].where(pd.notna(df[cols]), None)
-    return {"cols": list(cols), "rows": df.to_numpy().tolist()}
+    o que corta o JSON quase pela metade. O app.js reidrata com objify().
 
-
-def limpa(v):
-    """NaN/NaT viram None (viram null no JSON); o resto passa como está."""
-    return None if pd.isna(v) else v
+    astype(object) antes do where: em coluna de dtype nullable (string, boolean)
+    o pd.NA sobrevive ao where e estoura no json.dumps."""
+    out = df[cols].astype(object)
+    out = out.where(pd.notna(out), None)
+    return {"cols": list(cols), "rows": out.to_numpy().tolist()}
 
 
 # ---------------------------------------------------------------- Comitê
