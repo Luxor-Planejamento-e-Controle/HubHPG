@@ -49,7 +49,7 @@ fotos (S39).
 | **05** | Análise de **custos** do mês, aberta por natureza | `DRE_Historico.xlsx` | `Base DRE Geral`, `Grupo = CUSTOS E DESPESAS OPERACIONAIS`; linha zerada no mês omitida | auto |
 | **06** | Análise de **despesas** do mês, aberta por natureza | `DRE_Historico.xlsx` | `Base DRE Geral`, `Grupo = DESPESAS` | auto |
 | **07** | Haras competência — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, faixa `NN-Jan a <Mês>` | auto |
-| **08** | Comentários das variações YTD | `COMENTARIOS_DRE_HARAS.docx` | texto livre, escrito por pessoa | manual |
+| **08** | Comentários das variações YTD | `_docs/comite_conteudo.json` → `comentarios` | categoria · destaque · ∆ | manual **estruturado** — semeado do deck de junho por `hub/tools/extrair_conteudo.py`; daí em diante é editar o JSON |
 | **09** | Investimentos — compra de animais e produtos, mês a mês com descrição | `DRE_2026_HPG_HARAS.xlsx` aba `Investimentos` | blocos `INVESTIMENTOS - <MÊS>` → `COMPRA DE ANIMAIS E PRODUTOS` → A=fornecedor, B=descrição, C=valor | semi — a lista sai automática; **a conferir:** no deck de junho, fev/26 traz R$ 7,5k de estorno de cancelamento que não aparece sob esse cabeçalho na planilha |
 | **10** | Haras **caixa** — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, `Modelo = Caixa` | auto |
 | **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO`; patrimônio = soma `patrimonio_proporcional`; valor médio = média `valor_100` | auto |
@@ -113,11 +113,13 @@ histórico por trás de S19/S20).
 
 | Slide | Conteúdo | Fonte | Status |
 |---|---|---|---|
-| **23** | Programação 2026 — evento, data, local, status | digitado | manual |
-| **24–27** | Resultados por exposição — animais, títulos, colocações | digitado após cada evento | manual |
+| **23** | Programação — evento, data, local, status | `_docs/comite_conteudo.json` → `exposicoes.programacao` | manual estruturado |
+| **24–27** | Resultados por exposição — animal e prêmios | `_docs/comite_conteudo.json` → `exposicoes.resultados` | manual estruturado |
 
-Não há planilha por trás. Se virar controle (uma aba de eventos com resultado),
-passa a auto — hoje é texto.
+Não há planilha por trás, mas também não é mais placeholder: o conteúdo do deck
+de junho foi extraído para o JSON e o slide é montado a partir dele. Todo mês
+novo é uma chave `AAAA-MM` no arquivo. Mês sem conteúdo escrito volta a aparecer
+como slide em aberto, dizendo exatamente isso — nunca repete o mês anterior.
 
 ---
 
@@ -144,8 +146,8 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
 | Slide | Conteúdo | Fonte | Status |
 |---|---|---|---|
 | **37** | Plantel — Pao Grande / Arrendamento / Sócios, com total | `CONTROLE PLANTEL.xlsx` aba `CONTAGEM` (o `PGSemanalReport.py` já lê isso) | auto |
-| **38** | Manejo — histórico de intervenções e decisões, mês a mês | texto | manual |
-| **39–51** | Fotos e registros do mês | fotos | manual |
+| **38** | Manejo — histórico de intervenções e decisões, mês a mês | `_docs/comite_conteudo.json` → `manejo` | manual estruturado |
+| **39+** | Fotos e registros do mês | `_docs/comite_conteudo.json` → `fotos` + `hub/assets/comite/fotos/` | manual — 6 fotos por slide, quantos slides forem precisos |
 
 ---
 

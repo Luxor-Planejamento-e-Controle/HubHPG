@@ -13,8 +13,8 @@ hub do P&C.
 
 ```bash
 python hub/tools/build_semanal.py   # dashboard do pipeline -> assets/semanal/dashboard.html
-python hub/tools/build_comite.py    # bases -> assets/comite/spec.js  (mês da planilha do DRE)
-python hub/tools/build_comite.py 06/2026   # mês específico
+python hub/tools/build_comite.py    # bases -> assets/comite/spec.js (todos os meses fechados)
+python hub/tools/build_comite.py 06/2026   # só um mês
 ```
 
 Depois é só abrir `hub/index.html`.
@@ -39,6 +39,12 @@ alimentar e por que ainda não tem — nada de número de exemplo.
 
 Mapa de slide × fonte: [`_docs/COMITE_MAPEAMENTO.md`](../_docs/COMITE_MAPEAMENTO.md).
 
+O que **não** sai de planilha — comentários do DRE, exposições, manejo e fotos —
+mora em [`_docs/comite_conteudo.json`](../_docs/comite_conteudo.json), uma chave
+por mês (`AAAA-MM`). Foi semeado do último deck aprovado por
+`hub/tools/extrair_conteudo.py`; daí em diante é editar o JSON. Mês sem conteúdo
+escrito mostra o slide em aberto dizendo isso — nunca repete o mês anterior.
+
 **Plantel / Movimentação** (em breve) — entrada *placeholder*: aparece na
 navegação com o selo "em breve" e uma tela que diz qual base vai alimentar. Hoje
 sai por e-mail com xlsx anexo (`LuxorMonthlyP-CRoutines/PlantelHPG/LxEmailHPGPlantel.py`);
@@ -61,12 +67,14 @@ hub/
 │   ├── pg-logo.png            # GERADO por tools/build_logo.py
 │   ├── comite/
 │   │   ├── deck.css · deck.js # renderer do deck + export PPTX
-│   │   └── spec.js            # GERADO — gitignored (número de DRE)
+│   │   ├── spec.js            # GERADO — gitignored (número de DRE)
+│   │   └── fotos/             # GERADO — gitignored (12 MB)
 │   ├── semanal/               # GERADO — gitignored (dado do plantel)
 │   └── vendor/pptxgen.bundle.js
 └── tools/
     ├── build_semanal.py
     ├── build_comite.py
+    ├── extrair_conteudo.py    # semeia o conteúdo manual do último PPTX aprovado
     └── build_logo.py          # só roda de novo se o logo mudar
 ```
 
