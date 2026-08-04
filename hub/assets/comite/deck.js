@@ -393,6 +393,55 @@ function pptSlide(p, s, i, logo, imgs){
     });
     return;
   }
+  if (s.t === 'comentarios'){
+    const rows = [[th('CATEGORIA'), th('DESTAQUE DO ACUMULADO'), th('∆')]];
+    s.itens.forEach(it => rows.push([
+      {text:it.cat, options:{align:'left', bold:true, color:C.amber}},
+      {text:it.txt, options:{align:'left', color:C.ink2}},
+      {text:it.delta, options:{align:'right', bold:true, color:/^[-−]/.test(it.delta) ? C.neg : C.pos}},
+    ]));
+    tbl(rows, {colW:[1.9, 6.3, 1.0], rowH:Math.min(0.42, 4.1 / rows.length), fontSize:8, valign:'top'});
+    return;
+  }
+  if (s.t === 'resultados'){
+    // duas colunas, quebrando por altura acumulada
+    const col = [[], []];
+    const alt = a => 0.26 + a.premios.length * 0.24;
+    let h0 = 0;
+    s.animais.forEach(a => { const k = h0 <= 2.0 ? 0 : 1; col[k].push(a); if (!k) h0 += alt(a); });
+    col.forEach((lista, k) => {
+      let y = 0.95;
+      lista.forEach(a => {
+        T(a.nome, {x:0.41 + k * 4.7, y, w:4.4, h:0.24, fontSize:10, bold:true, color:C.amber});
+        y += 0.26;
+        a.premios.forEach(pr => {
+          T('🏆  ' + pr, {x:0.55 + k * 4.7, y, w:4.3, h:0.24, fontSize:9, color:C.ink});
+          y += 0.24;
+        });
+        y += 0.08;
+      });
+    });
+    return;
+  }
+  if (s.t === 'manejo'){
+    const rows = [[th('MÊS'), th('INTERVENÇÕES E DECISÕES')]];
+    s.itens.forEach(([m, t]) => rows.push([
+      {text:m, options:{align:'left', bold:true, color:C.amber}},
+      {text:t, options:{align:'left', color:C.ink}},
+    ]));
+    tbl(rows, {colW:[0.9, 8.3], rowH:Math.min(0.6, 4.1 / rows.length), fontSize:8.5, valign:'top'});
+    return;
+  }
+  if (s.t === 'fotos'){
+    const cols = 3, w = (9.2 - 0.24) / cols, alt = (4.15 - 0.24) / 2;
+    s.fotos.forEach((f, k) => {
+      const d = imgs && imgs[f];
+      if (!d) return;
+      sl.addImage({data:d, x:0.41 + (k % cols) * (w + 0.12), y:0.95 + Math.floor(k / cols) * (alt + 0.12),
+                   w, h:alt, sizing:{type:'cover', w, h:alt}});
+    });
+    return;
+  }
   // pendente
   T('SEM DADO AINDA', {x:0.41, y:1.6, w:3, h:0.3, fontSize:9, bold:true, color:C.amber, charSpacing:2});
   T('BASE QUE VAI ALIMENTAR', {x:0.41, y:2.2, w:8.6, h:0.22, fontSize:8, color:C.ink3, charSpacing:1});
