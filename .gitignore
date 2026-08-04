@@ -28,6 +28,10 @@ dashboards/*
 hub/assets/semanal/*
 hub/assets/comite/spec.js
 hub/assets/comite/spec.json
+# fotos do mês: 12 MB extraídos do PPTX, refazíveis pelo extrair_conteudo.py.
+# O texto que acompanha (_docs/comite_conteudo.json) ESSE fica versionado — é
+# escrito à mão e não tem como ser reconstruído.
+hub/assets/comite/fotos/
 
 # planilhas / documentos em qualquer lugar
 *.xlsx
