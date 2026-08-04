@@ -773,6 +773,86 @@ def slides_embrioes():
     ]
 
 
+# ============================= Conteúdo escrito à mão (S08, S23–S27, S38, S39)
+# Comentário do DRE, exposição, manejo e foto não saem de planilha: são escritos
+# todo mês. Ficam em `_docs/comite_conteudo.json`, semeado do último deck
+# aprovado por `hub/tools/extrair_conteudo.py`. Sem isso esses slides seriam
+# placeholder pra sempre.
+CONTEUDO = REPO / "_docs" / "comite_conteudo.json"
+FALTA_CONTEUDO = "escreva o conteúdo desse mês em _docs/comite_conteudo.json"
+
+
+def le_conteudo():
+    if not CONTEUDO.exists():
+        return {}
+    d = json.loads(CONTEUDO.read_text(encoding="utf-8"))
+    return {k: v for k, v in d.items() if re.fullmatch(r"\d{4}-\d{2}", k)}
+
+
+def conteudo_do_mes(todos, chave):
+    """Só conteúdo do próprio mês — puxar de um mês futuro colocaria no deck de
+    janeiro a exposição que ainda não tinha acontecido."""
+    return todos.get(chave, {})
+
+
+def slide_comentarios(c, m, ano):
+    itens = c.get("comentarios") or []
+    if not itens:
+        return pend(8, f"COMENTÁRIOS — VARIAÇÕES YTD JAN–{ABR[m-1].upper()} {ano}",
+                    "Principais destaques acumulados por categoria",
+                    "_docs/comite_conteudo.json → comentarios", FALTA_CONTEUDO)
+    return {"t": "comentarios", "n": 8,
+            "titulo": f"COMENTÁRIOS — VARIAÇÕES YTD JAN–{ABR[m-1].upper()} {ano}",
+            "sub": "DRE 2026 | HPG · principais destaques acumulados por categoria",
+            "itens": itens}
+
+
+def slides_exposicoes(c, ano):
+    exp = c.get("exposicoes") or {}
+    prog, res = exp.get("programacao") or [], exp.get("resultados") or []
+    out = []
+    if prog:
+        out.append({"t": "tabela", "n": 23, "titulo": f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO",
+                    "sub": "Calendário de participações previstas",
+                    "cols": ["EVENTO", "DATA", "LOCAL", "STATUS"], "rows": prog})
+    else:
+        out.append(pend(23, f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO", "Calendário de participações",
+                        "_docs/comite_conteudo.json → exposicoes.programacao", FALTA_CONTEUDO))
+    if res:
+        for k, r in enumerate(res):
+            out.append({"t": "resultados", "n": 24 + k, "titulo": r["titulo"],
+                        "sub": r.get("sub", ""), "animais": r["animais"]})
+    else:
+        out.append(pend(24, "RESULTADOS DAS EXPOSIÇÕES", "Animais, títulos e colocações",
+                        "_docs/comite_conteudo.json → exposicoes.resultados", FALTA_CONTEUDO))
+    return out
+
+
+def slide_manejo(c, m, ano):
+    itens = c.get("manejo") or []
+    if not itens:
+        return pend(38, "MANEJO — PONTOS DE MELHORIA E DECISÕES", "Histórico de intervenções",
+                    "_docs/comite_conteudo.json → manejo", FALTA_CONTEUDO)
+    return {"t": "manejo", "n": 38, "titulo": "MANEJO — PONTOS DE MELHORIA E DECISÕES",
+            "sub": f"Histórico de intervenções Jan–{ABR[m-1]} {ano}", "itens": itens}
+
+
+# 6 fotos por slide: mais que isso e cada foto vira selo; menos, sobra tela.
+FOTOS_POR_SLIDE = 6
+
+
+def slides_fotos(c, m, ano):
+    fs = c.get("fotos") or []
+    if not fs:
+        return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
+                     "_docs/comite_conteudo.json → fotos (hub/assets/comite/fotos/)",
+                     "rode hub/tools/extrair_conteudo.py ou solte as fotos do mês na pasta")]
+    n = (len(fs) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
+    return [{"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
+             "sub": f"Registros de {MESES[m-1]} {ano}" + (f" · {k+1}/{n}" if n > 1 else ""),
+             "fotos": fs[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]} for k in range(n)]
+
+
 # ==================================================================== deck
 def divisor(n, titulo, sub):
     return {"t": "divisor", "n": n, "titulo": titulo, "sub": sub}
