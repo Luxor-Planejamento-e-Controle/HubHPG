@@ -253,7 +253,12 @@ async function exportarPptx(btn){
     p.layout = 'HPG';
     p.title = `Relatório de Desempenho Estratégico — ${SPEC.labels[mesAtual]}`;
     const logo = await dataURI(LOGO);
-    slides.forEach((s, i) => pptSlide(p, s, i, logo));
+    // fotos precisam virar base64 antes: o pptxgen não busca arquivo sozinho
+    const imgs = {};
+    for (const s of slides) for (const f of (s.fotos || [])) {
+      if (!(f in imgs)) imgs[f] = await dataURI('assets/comite/' + f);
+    }
+    slides.forEach((s, i) => pptSlide(p, s, i, logo, imgs));
     await p.writeFile({fileName: `RELATORIO MENSAL_PG_${mesAtual}.pptx`});
     btn.textContent = 'Exportar PPTX';
   } catch (e) {
@@ -271,7 +276,7 @@ async function dataURI(url){
   } catch { return null; }
 }
 
-function pptSlide(p, s, i, logo){
+function pptSlide(p, s, i, logo, imgs){
   const sl = p.addSlide();
   sl.background = {color: C.bg};
   const T = (t, o) => sl.addText(t, Object.assign({fontFace:'Segoe UI', color:C.ink}, o));
