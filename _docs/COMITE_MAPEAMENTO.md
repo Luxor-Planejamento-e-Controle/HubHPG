@@ -18,11 +18,15 @@ Legenda de status:
 | Seção | Slides | auto | semi | manual | falta fonte |
 |---|---|---|---|---|---|
 | Capa / Agenda / Divisores | 01, 02, 03, 15, 22, 28, 36, 52 | 8 | – | – | – |
-| 01 Financeiro | 04–14 | 4 | 3 | 4 | – |
-| 02 Estação de Monta | 16–21 | 4 | 1 | – | 1 |
+| 01 Financeiro | 04–14 | 9 | 1 | 1 | – |
+| 02 Estação de Monta | 16–21 | 6 | – | – | – |
 | 03 Exposições | 23–27 | – | – | 5 | – |
-| 04 Vendas | 29–35 | 5 | 1 | 1 | – |
+| 04 Vendas | 29–35 | 6 | 1 | – | – |
 | 05 Decisões e Manejo | 37–51 | 1 | – | 14 | – |
+
+No build de 06/2026: **42 de 47 slides com dado**. Os 5 que sobram são os que
+não têm base — comentários do DRE (S08), exposições (S23/S24), manejo (S38) e
+fotos (S39).
 
 ---
 
@@ -85,7 +89,7 @@ do arquivo do ano, porque a descrição de cada compra não existe no histórico
 | **18** | Comparativo entre estações — confirmados por mês, abortos, absorções, lavados e tentativas | `ESTACAO_DE_MONTA.xlsx` aba **`ESTAÇÃO`** (não a aba COMPARATIVO) | agrupado por coluna 36 (safra); mês do embrião = IA + 60 dias | auto — **calculado da base bruta**. A aba `COMPARATIVO` está congelada em 20/21–23/24 e foi descartada; calculando da mesma base do funil, o comparativo nunca fica velho |
 | **19** | Doadoras **Time A** — meta × realizado por doadora | `ESTACAO_DE_MONTA.xlsx` | aba `REC. EMBR.` (doadora, TIME, nº de embriões, lavados+) + aba `PLANEJAMENTO` col 7=Meta, 8=Real, 6=Time | auto |
 | **20** | Doadoras **Time B** — mesma estrutura de S19 | idem S19, `TIME = B` | idem | auto |
-| **21** | Coberturas disponíveis de garanhões de fora | `COBERTURAS_CAVALOS_FORA.xlsx`, aba `Planilha2` | garanhão + saldo; excluir *Trilho da Zizica* e *Quantum de Alcateia* | **falta fonte** — arquivo não está no repo nem no `_cache`; a `Planilha2` do ESTACAO é outra coisa (legenda) |
+| **21** | Coberturas disponíveis de garanhões de fora | **`REPRODUÇÃO/COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx`** no Drive (o guia chama de `COBERTURAS_CAVALOS_FORA.xlsx`) | aba `Planilha2`: 2 garanhão, 3 compradas, 4 utilizadas, 5 saldo; excluir *Trilho da Zizica* e *Quantum de Alcateia* | auto |
 
 **Definições que o guia fixa e o dashboard tem que respeitar:**
 
@@ -123,7 +127,7 @@ passa a auto — hoje é texto.
 |---|---|---|---|---|
 | **29** | KPI de vendas — mês, YTD, meta anual, saldo para meta | `PG_MAPA_VENDAS.xlsx` + meta anual | aba `MAPA VENDAS`, col 7=valor, 14=vendedor, 21=ano, 22=mês | semi — a **meta anual** (R$ 4,5M) é parâmetro, não sai de planilha |
 | **30** | Detalhamento de vendas por mês e evento/origem | idem S29 | idem | auto |
-| **31** | Inadimplências e recebíveis | print do dashboard de cobrança (`controle-de-inadimplencia`) | imagem | manual hoje — o dashboard é HTML gerado por `ControleInadimplencia.py`; dá pra embutir em vez de printar |
+| **31** | Inadimplências e recebíveis | `controle-de-inadimplencia` → `output_pbi/indicadores_kpi.xlsx` + `resumo_por_faixa.xlsx` | KPIs (em aberto, vencido, a vencer, ação judicial, clientes) + aging por faixa | auto — **agregados, sem PII**. Deixou de ser print: os dois xlsx que o `ControleInadimplencia.py` já grava dão um slide de verdade, que também sai no PPTX (o `dashboard_conferencia.html` não sairia) |
 | **32** | Embriões vendidos a fazer — quitado / pagando | `EMBRIOES_ENTREGAR_RECEBER.xlsx` | aba `ENTREGAR`, col 11=status pgto, 12=status embrião; filtro `status_embrião="A fazer"` **e** pgto `Pagando`/`Quitado` | auto |
 | **33** | Embriões vendidos a fazer — pgto pausado / após confirmação | idem | `status_embrião="A fazer"` **e** pgto `Pgto pausado`/`Pgto após conf` | auto |
 | **34** | Embriões de direito / reposição | idem | `status_embrião="Reposição"` **ou** (`"A fazer"` **e** pgto `Direito`/`Troca/Direito`) | auto |
@@ -165,7 +169,11 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
 
 ## Pendências antes de automatizar
 
-1. **`COBERTURAS_CAVALOS_FORA.xlsx`** — localizar. Sem ele, S21 fica manual.
+1. ~~**`COBERTURAS_CAVALOS_FORA.xlsx`** — localizar.~~ **Resolvido:** é o
+   `REPRODUÇÃO/COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx` do Drive, só com
+   outro nome. `Planilha1` é o log de compra; `Planilha2` é o consolidado por
+   garanhão, que é o que o slide usa. Hoje: 13 garanhões com saldo, 35 coberturas
+   a usar.
 2. ~~**S18 (comparativo entre estações)**~~ **Resolvido:** deixou de ler a aba
    `COMPARATIVO` (congelada em 23/24) e passou a calcular da aba `ESTAÇÃO`,
    agrupando por safra. Hoje sai 23/24 = 78 · 24/25 = 87 · 25/26 = 56 confirmados,
@@ -191,5 +199,7 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
    157 lavados / 74 positivos / 55 confirmados; o funil da aba `ESTAÇÃO` dá
    196 / 88 / 56. As duas abas são mantidas em separado e divergem. Definir qual
    manda (ou corrigir a de garanhões).
-6. **Inadimplência (S31)** — trocar o print por embed do HTML que o
-   `ControleInadimplencia.py` já gera.
+6. ~~**Inadimplência (S31)** — trocar o print.~~ **Resolvido:** o slide passou a
+   sair dos agregados (`indicadores_kpi.xlsx` + `resumo_por_faixa.xlsx`), que não
+   têm nome de devedor. Embutir o `dashboard_conferencia.html` foi descartado: são
+   2,7 MB de HTML que não viram slide de PPTX e carregariam PII pra dentro do deck.
