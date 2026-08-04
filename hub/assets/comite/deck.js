@@ -123,6 +123,36 @@ const R = {
       ).join('') + `</div></div>`;
   },
 
+  /* S08 — comentários do DRE: categoria · texto · delta */
+  comentarios: s => {
+    const {h, fs} = ajusta(s.itens.length, BODY_H, 56);
+    return head(s) + `<div class="s-body"><div class="coment">` + s.itens.map(i =>
+      `<div class="li" style="min-height:${h.toFixed(0)}px;font-size:${Math.min(12.5, fs + 1.5).toFixed(1)}px">
+        <div class="cat">${esc(i.cat)}</div>
+        <div class="txt">${esc(i.txt)}</div>
+        <div class="d ${/^[-−]/.test(i.delta) ? 'neg' : 'pos'}">${esc(i.delta)}</div>
+      </div>`).join('') + `</div></div>`;
+  },
+
+  /* S24+ — resultados de exposição: animal e seus prêmios, em duas colunas */
+  resultados: s => head(s) + `<div class="s-body"><div class="premios">` +
+    s.animais.map(a => `<div class="an"><div class="nome">${esc(a.nome)}</div>` +
+      a.premios.map(p => `<div class="p">${esc(p)}</div>`).join('') + `</div>`).join('') +
+    `</div></div>`,
+
+  /* S38 — histórico de manejo, mês a mês */
+  manejo: s => {
+    const {h} = ajusta(s.itens.length, BODY_H, 74);
+    return head(s) + `<div class="s-body"><div class="manejo">` + s.itens.map(([m, t]) =>
+      `<div class="li" style="min-height:${h.toFixed(0)}px"><div class="m">${esc(m)}</div>
+        <div class="t">${esc(t)}</div></div>`).join('') + `</div></div>`;
+  },
+
+  /* S39+ — fotos do mês */
+  fotos: s => head(s) + `<div class="s-body"><div class="fotos">` +
+    s.fotos.map(f => `<div class="f" style="background-image:url('assets/comite/${f}')"></div>`).join('') +
+    `</div></div>`,
+
   pendente: s => head(s) + `<div class="s-body">` +
     vazio('◇', 'slide em aberto', s.titulo, s.sub || '', s.fonte, s.motivo) + `</div>`,
 };
