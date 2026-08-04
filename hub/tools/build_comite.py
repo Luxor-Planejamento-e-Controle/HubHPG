@@ -899,6 +899,7 @@ def divide(slide, campo="linhas"):
 
 
 def monta_deck(m, ano, ctx):
+    cont = conteudo_do_mes(ctx["conteudo"], f"{ano}-{m:02d}")
     s = [
         {"t": "capa", "titulo": "RELATÓRIO DE DESEMPENHO ESTRATÉGICO",
          "mes": f"{MESES[m-1].upper()} / {ano}", "org": "HARAS PAO GRANDE"},
@@ -930,8 +931,7 @@ def monta_deck(m, ano, ctx):
                     "DRE 2026 | HPG · acumulado no ano",
                     dre_ytd("HPG", "Competência", ano, m, so_subtotal=True),
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
-    s.append(pend(8, "COMENTÁRIOS — VARIAÇÕES YTD", "Análise mês a mês por categoria",
-                  "COMENTARIOS_DRE_HARAS.docx", "texto escrito por pessoa — não sai de base"))
+    s.append(slide_comentarios(cont, m, ano))
     s.append(slide_investimentos(m, ano))
     s += divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}", "FC 2026 | HPG · caixa mensal",
                     dre_mes("HPG", "Caixa", ano, m, so_subtotal=True)))
@@ -949,10 +949,8 @@ def monta_deck(m, ano, ctx):
     s += divide_tab(ctx["coberturas"])
 
     s.append(divisor(3, "EXPOSIÇÕES", "Programação e resultados"))
-    s.append(pend(23, f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO", "Calendário de participações previstas",
-                  "digitado", "sem planilha por trás — é texto"))
-    s.append(pend(24, "RESULTADOS DAS EXPOSIÇÕES", "Animais, títulos e colocações",
-                  "digitado após cada evento", "sem planilha por trás — é texto"))
+    for x in slides_exposicoes(cont, ano):
+        s += divide(x, 'rows') if x["t"] == "tabela" else [x]
 
     s.append(divisor(4, "VENDAS", "Pipeline e contratos"))
     for x in slides_vendas(m, ano):
@@ -963,9 +961,8 @@ def monta_deck(m, ano, ctx):
 
     s.append(divisor(5, "DECISÕES E MANEJO", "Plantel · Obras · Casa"))
     s.append(slide_contagem(m, ano))
-    s.append(pend(38, "MANEJO — PONTOS DE MELHORIA E DECISÕES", "Histórico de intervenções",
-                  "digitado", "sem planilha por trás — é texto"))
-    s.append(pend(39, "MANEJO — FOTOS E REGISTROS", "Fotos do mês", "fotos", "upload manual"))
+    s.append(slide_manejo(cont, m, ano))
+    s += slides_fotos(cont, m, ano)
     s.append({"t": "encerramento", "titulo": "HARAS PAO GRANDE"})
     return s
 
@@ -987,6 +984,7 @@ def build(so_mes=None):
 
     ctx["estacao"] = slides_estacao()
     ctx["coberturas"] = slide_coberturas()
+    ctx["conteudo"] = le_conteudo()
     ctx["embrioes"] = slides_embrioes()
 
     alvo = [so_mes.month] if so_mes else meses
