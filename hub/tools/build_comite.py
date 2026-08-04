@@ -247,7 +247,15 @@ def slide_investimentos(m, ano):
 
 
 # ============================================================ Plantel (S11/S12/S37)
+# S11 — estoque em equinos. Regra do guia: status PLANTEL e sufixo EXATO
+# 'DA PAO GRANDE' ou 'OUTRO'; variação com percentual ficava fora porque o
+# animal dividido já aparece pela cota e contá-lo de novo o duplicaria.
 SUFIXOS_S11 = ("DA PAO GRANDE", "OUTRO")
+# Mudança pedida em 04/08/2026: o headcount passa a contar também o que é
+# **100% do Eduardo**. No sufixo, o "E nn%" é a fatia dele — então entra só o
+# `E 100%`, que é dele inteiro (cota 1,0, sem divisão). As fatias parciais
+# (E 50%, E 25%, …) continuam fora, pelo mesmo motivo de sempre.
+SUFIXOS_EXTRA_S11 = ("DA PAO GRANDE - E 100%",)
 _base_bi_cache = None
 
 
@@ -271,15 +279,20 @@ def slide_estoque(m, ano):
         aviso(f"base_bi vai até {ult} — S11 fica pendente nos meses seguintes")
         return pend(11, "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE", "", "bases/base_bi.parquet",
                     f"a base vai até {ult}; sem o mês {alvo}. Rode scripts/PGDataExtractor.py + PGBaseBI.py")
-    x = d[(d["mes"] == alvo) & (d["status_plantel"] == "PLANTEL") & (d["sufixo_grupo"].isin(SUFIXOS_S11))]
+    x = d[(d["mes"] == alvo) & (d["status_plantel"] == "PLANTEL")
+          & (d["sufixo_grupo"].isin(SUFIXOS_S11) | d["sufixo"].isin(SUFIXOS_EXTRA_S11))]
+    n_eduardo = int((x["sufixo"].isin(SUFIXOS_EXTRA_S11)).sum())
     patrim = float(x["patrimonio_proporcional"].sum())
     aval = int(x["valor_100"].notna().sum())
     medio = float(x["valor_100"].mean()) if aval else 0.0
     cat = x["categoria"].value_counts()
     return {"t": "kpis_tabela", "n": 11, "titulo": "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE",
             "sub": (f"Composição patrimonial do plantel · {MESES[m-1].upper()} {ano} · {len(x)} animais"
-                    f" · Status PLANTEL · Sufixo: Da PG / Outros"),
-            "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "DA PAO GRANDE + OUTROS"},
+                    f" · Status PLANTEL · Sufixo: Da PG / Outros"
+                    + (f" / E 100% (Eduardo)" if n_eduardo else "")),
+            "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos",
+                      "s": (f"Da PG + Outros + {n_eduardo} do Eduardo" if n_eduardo
+                            else "DA PAO GRANDE + OUTROS")},
                      {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "patrimônio proporcional"},
                      {"v": brl_curto(medio), "l": "Valor Médio", "s": f"{aval} animais avaliados"}],
             "tabela": {"cols": ["CATEGORIA", "Nº", "%"],

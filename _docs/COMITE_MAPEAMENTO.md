@@ -52,7 +52,7 @@ fotos (S39).
 | **08** | Comentários das variações YTD | `_docs/comite_conteudo.json` → `comentarios` | categoria · destaque · ∆ | manual **estruturado** — semeado do deck de junho por `hub/tools/extrair_conteudo.py`; daí em diante é editar o JSON |
 | **09** | Investimentos — compra de animais e produtos, mês a mês com descrição | `DRE_2026_HPG_HARAS.xlsx` aba `Investimentos` | blocos `INVESTIMENTOS - <MÊS>` → `COMPRA DE ANIMAIS E PRODUTOS` → A=fornecedor, B=descrição, C=valor | semi — a lista sai automática; **a conferir:** no deck de junho, fev/26 traz R$ 7,5k de estorno de cancelamento que não aparece sob esse cabeçalho na planilha |
 | **10** | Haras **caixa** — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, `Modelo = Caixa` | auto |
-| **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO`; patrimônio = soma `patrimonio_proporcional`; valor médio = média `valor_100` | auto |
+| **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO`, **mais o sufixo `DA PAO GRANDE - E 100%`** (o que é 100% do Eduardo); patrimônio = soma `patrimonio_proporcional`; valor médio = média `valor_100` | auto |
 | **12** | Resumo da movimentação do plantel — saldo mensal e cascata | `LuxorMonthlyP-CRoutines/PlantelHPG/mov_cascata.parquet` | saldo_ini, compra, producao, venda, morte, doacao, reaval, saldo_fim | auto |
 | **13** | Resumo financeiro Casa/FPG — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, **CC=FPG**, `Modelo = Caixa` | auto |
 | **14** | Casa/FPG — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, CC=FPG | auto |
@@ -68,8 +68,15 @@ fotos (S39).
   como nível 0 deixa o slide inteiro em negrito e sem leitura.
 - Nome de subgrupo se repete entre grupos (Sanidade e Reprodução aparecem em
   Custos **e** em Despesas) — desambiguar com o grupo entre parênteses.
-- S11 usa sufixo **exato** — `DA PAO GRANDE - E 50%` e variantes com percentual ficam de fora,
-  senão o animal conta duas vezes.
+- S11 usa sufixo **exato** — `DA PAO GRANDE - E 50%`, `- E 25%` e as demais fatias
+  parciais ficam de fora, senão o animal dividido conta duas vezes (ele já entra
+  pela cota).
+- **Exceção desde 04/08/2026:** `DA PAO GRANDE - E 100%` **entra**. É o que é
+  inteiro do Eduardo (cota 1,0, sem divisão), e o headcount passou a contar
+  Carla + Eduardo. Efeito em jun/26: 186 → **190 animais**, patrimônio
+  R$ 15,8M → **R$ 18,3M**. Quase toda a diferença é um bicho só — Loucura da Pao
+  Grande, égua de pista avaliada em R$ 2,0M; Loteria da Pao Grande entra com
+  R$ 500k e os dois embriões, sem valor.
 - S09 é só compra de animais e produtos; obra e infraestrutura não entram.
 
 **Fonte única com o P&C:** toda a seção financeira lê o mesmo
