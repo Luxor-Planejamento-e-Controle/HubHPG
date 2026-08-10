@@ -97,8 +97,30 @@ def _validacao(rep):
         flag = "OK " if _eq(got, tgt) else "≠  "
         if _eq(got, tgt):
             ok += 1
-        print(f"    {flag} {lab:22} calc={got}  docx={tgt}")
+        print(f"    {flag} {lab:23} calc={got}  docx={tgt}")
     print(f"    -> {ok}/{len(linhas)} batem")
+    _conferir_docx(rep, dx)
+
+
+def _conferir_docx(rep, dx):
+    """O relatório oficial é digitado à mão. Antes de culpar o cálculo, checa se o
+    próprio docx fecha — e se o docx da semana anterior fecha, porque o Δ desta
+    semana depende dele."""
+    dh = dx["headcount"]
+    if dh.get("coerente") is False:
+        print(f"    !  relatório desta semana não fecha: locais somam {dh['soma_locais']} "
+              f"e o total declarado é {dh['total']}")
+    ant = None
+    for wid in sorted(rep.docx_ref):
+        if wid < rep.semana_atual:
+            ant = wid
+    if not ant:
+        return
+    dha = rep.docx_ref[ant]["headcount"]
+    if dha.get("coerente") is False:
+        print(f"    !  relatório de {ant} não fecha: locais somam {dha['soma_locais']} "
+              f"e o total declarado é {dha['total']} — o Δ desta semana é medido contra "
+              f"essa base, então divergência de Δ provavelmente vem daí")
 
 
 def main():
