@@ -98,9 +98,14 @@ def parse_docx(path: Path, ref: date) -> dict:
                 out.append(ln)
         return out
 
+    # A semana declarada tem de sair da linha 'Semana: DD/MM a DD/MM'. find("Semana")
+    # casava antes com o título '*ATUALIZAÇÃO SEMANAL*' (contém "semana"), e devolvia
+    # "L*" em todos os relatórios — o campo era lixo e ninguém conferia a data.
+    semana_ln = next((ln for ln in paras if ln.lower().startswith("semana:")), None)
+
     rep = {
         "ref": ref.isoformat(),
-        "semana_txt": find("Semana"),
+        "semana_txt": semana_ln,
         "producao": {
             "confirmados_semana": _int(find("Embriões confirmados na semana")),
             "acumulado_estacao": _int_valor(find("Acumulado na estação")),
@@ -141,6 +146,15 @@ def parse_docx(path: Path, ref: date) -> dict:
             "confirmados": det_after("Embriões confirmados na semana", ["Acumulado"]),
         },
     }
+    # A data de referência vem do NOME do arquivo, mas o haras reaproveita o .docx da
+    # semana passada como rascunho da nova: em 4 dos 25 relatórios a linha 'Semana:'
+    # aponta outra semana que a do nome. O caso de 31/07/2026 é o pior — foi editado
+    # em 07/08 e declara 'Semana: 03/08 a 07/08', com receptoras já da semana nova e
+    # locais ainda da antiga. Validar contra um arquivo assim persegue fantasma.
+    rep["semana_fim_declarada"] = _fim_declarado(semana_ln, ref.year)
+    rep["ref_confere"] = (rep["semana_fim_declarada"] == ref.isoformat()
+                          if rep["semana_fim_declarada"] else None)
+
     h = rep["headcount"]
     h["delta_net"] = _delta_net(h["delta_txt"])
     # O relatório é digitado à mão e já saiu com erro de digitação: em 31/07/2026 o
@@ -151,6 +165,21 @@ def parse_docx(path: Path, ref: date) -> dict:
     h["soma_locais"] = sum(x for x in locais if x) if any(locais) else None
     h["coerente"] = (h["soma_locais"] == h["total"]) if (h["soma_locais"] and h["total"]) else None
     return rep
+
+
+def _fim_declarado(txt, ano):
+    """Fim da semana declarada em 'Semana: 03/08 a 07/08' -> '2026-08-07'. O ano não
+    aparece na linha; vem da referência do nome do arquivo."""
+    if not txt:
+        return None
+    pares = re.findall(r"(\d{1,2})/(\d{1,2})", txt)
+    if not pares:
+        return None
+    dd, mm = (int(x) for x in pares[-1])
+    try:
+        return date(ano, mm, dd).isoformat()
+    except ValueError:
+        return None
 
 
 def _delta_net(txt):

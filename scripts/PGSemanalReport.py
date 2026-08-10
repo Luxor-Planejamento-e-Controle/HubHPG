@@ -967,10 +967,18 @@ def build_headcount_delta(rep: Report, fim: date):
         rep.headcount["delta"] = total - prev.get("total", total)
     else:
         rep.headcount["delta"] = None
+    atual = {"total": total, "fpg": rep.headcount.get("fazenda_pg"),
+             "arr": rep.headcount.get("arrendamento"),
+             "cte": rep.headcount.get("cte"), "soc": rep.headcount.get("socio")}
+    # CONTAGEM idêntica à da semana passada, local por local, quase sempre significa
+    # que a aba não foi atualizada — não que nada mudou. Em 31/07/2026 isso aconteceu:
+    # o snapshot repetiu 205 de 24/07, Δ saiu 0, e o relatório oficial dizia 204 / -01.
+    if prev is not None and atual == prev:
+        print(f"  [headcount] CONTAGEM idêntica à de {max(k for k in hist if k < fim.isoformat())} "
+              f"em todos os locais ({total} total) — conferir se a aba foi atualizada; "
+              f"Δ desta semana sai 0 por isso")
     # grava snapshot desta run (idempotente por data)
-    hist[fim.isoformat()] = {"total": total, "fpg": rep.headcount.get("fazenda_pg"),
-                             "arr": rep.headcount.get("arrendamento"),
-                             "cte": rep.headcount.get("cte"), "soc": rep.headcount.get("socio")}
+    hist[fim.isoformat()] = atual
     HIST_HEADCOUNT.write_text(json.dumps(hist, ensure_ascii=False, indent=2), encoding="utf-8")
 
 

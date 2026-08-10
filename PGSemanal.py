@@ -106,21 +106,34 @@ def _conferir_docx(rep, dx):
     """O relatório oficial é digitado à mão. Antes de culpar o cálculo, checa se o
     próprio docx fecha — e se o docx da semana anterior fecha, porque o Δ desta
     semana depende dele."""
-    dh = dx["headcount"]
-    if dh.get("coerente") is False:
-        print(f"    !  relatório desta semana não fecha: locais somam {dh['soma_locais']} "
-              f"e o total declarado é {dh['total']}")
+    def _avisos(wid, dxw, papel):
+        h = dxw["headcount"]
+        if dxw.get("ref_confere") is False:
+            print(f"    !  {papel} ({wid}) declara '{dxw.get('semana_txt')}' — o arquivo "
+                  f"foi reaproveitado como rascunho de outra semana, então os números "
+                  f"dele estão misturados")
+        if h.get("coerente") is False:
+            print(f"    !  {papel} ({wid}) não fecha: locais somam {h['soma_locais']} "
+                  f"e o total declarado é {h['total']}")
+
+    _avisos(rep.semana_atual, dx, "relatório desta semana")
     ant = None
     for wid in sorted(rep.docx_ref):
         if wid < rep.semana_atual:
             ant = wid
     if not ant:
         return
-    dha = rep.docx_ref[ant]["headcount"]
-    if dha.get("coerente") is False:
-        print(f"    !  relatório de {ant} não fecha: locais somam {dha['soma_locais']} "
-              f"e o total declarado é {dha['total']} — o Δ desta semana é medido contra "
-              f"essa base, então divergência de Δ provavelmente vem daí")
+    _avisos(ant, rep.docx_ref[ant], "relatório da semana anterior")
+    # O Δ é medido contra o nosso snapshot da semana anterior. Se ele discordar do
+    # total oficial daquela semana, o Δ desta semana nasce errado — e foi assim que
+    # 31/07 passou batido: a aba CONTAGEM não tinha sido atualizada, o snapshot
+    # repetiu o total de 24/07 e o Δ daquela semana saiu 0 em vez de -1.
+    nosso = (rep.snapshots.get(ant) or {}).get("headcount", {}).get("total")
+    oficial = rep.docx_ref[ant]["headcount"].get("total")
+    if nosso and oficial and nosso != oficial:
+        print(f"    !  base do Δ divergente: nosso snapshot de {ant} tem headcount "
+              f"{nosso} e o relatório daquela semana diz {oficial} — corrigir o "
+              f"snapshot de {ant} antes de confiar no Δ desta semana")
 
 
 def main():
