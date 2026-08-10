@@ -72,6 +72,12 @@ TEMPLATE = r"""<!doctype html>
   .kpi.edited.editing .rst{display:block}
   .kpi .rst:hover{color:var(--neg)}
   .kpi .val .pos{color:var(--pos)} .kpi .val .neg{color:var(--neg)}
+  /* comentário do KPI: a composição do número, não o número */
+  .kpi .val .nota{display:block;font-size:12px;font-weight:400;color:var(--mut);
+    line-height:1.3;margin-top:5px}
+  /* detalhe de uma coluna só: lista, não tabela */
+  .det-lista{color:var(--txt);font-size:12.5px;line-height:1.6;
+    border:1px solid var(--line);border-radius:8px;padding:8px 11px}
   .kpi .chk{position:absolute;top:6px;right:8px;font-size:9px;font-weight:700;letter-spacing:.3px}
   .kpi .chk.ok{color:var(--pos)} .kpi .chk.no{color:var(--amber)}
   /* detalhe integrado no card, sempre visível, sem scroll lateral */
@@ -175,16 +181,16 @@ const SECTIONS = [
  {n:"5", t:"SAÍDAS", wide:true, kpis:[
     {p:"sai.sa", l:"Saídas na semana", get:s=>s.movimento?.saidas},
     {p:"sai.vp", l:"Vendidos pendentes de saída", get:s=>s.terceiros?.vendidos_pendentes},
-    // mesma descrição do relatório oficial: "07 (2 animais e 5 embriões)"
-    {p:"sai.sp", l:"Em sociedade pendentes de saída", get:s=>{
+    // mesma descrição do relatório oficial: "07 (2 animais e 5 embriões)". A quebra
+    // vai em fonte menor, como comentário — o número é que é o KPI.
+    {p:"sai.sp", l:"Em sociedade pendentes de saída", html:true, get:s=>{
       const t=s.terceiros||{}, n=t.sociedade_pendentes;
       if(n==null) return null;
       const a=t.sociedade_pendentes_animais, e=t.sociedade_pendentes_embrioes;
-      if(a==null&&e==null) return n;
       const partes=[];
       if(a) partes.push(`${a} ${a===1?"animal":"animais"}`);
       if(e) partes.push(`${e} ${e===1?"embrião":"embriões"}`);
-      return partes.length? `${n} (${partes.join(" e ")})` : n;
+      return partes.length? `${n}<span class="nota">${partes.join(" e ")}</span>` : String(n);
     }},
     {p:"sai.tr", l:"Transferências internas", get:s=>s.movimento?.transferencias},
     {p:"sai.en", l:"Entradas na semana", get:s=>s.movimento?.entradas},
@@ -220,7 +226,7 @@ function lab(c){ return LABELS[c] || c.replace(/_/g," "); }
 function detTable(title, key){
   let rows = (snap().detalhe||{})[key];
   if(!rows || !rows.length) return "";
-  let head, body;
+  let head, body, nCols=1, unica=null;
   if(typeof rows[0]==="string"){
     head="<th>Detalhe</th>";
     body=rows.map(r=>`<tr><td>${r}</td></tr>`).join("");
@@ -228,11 +234,19 @@ function detTable(title, key){
     // todas as colunas, menos internas e menos as 100% vazias nesta semana
     let cols=Object.keys(rows[0]).filter(c=>!HIDE.has(c));
     cols=cols.filter(c=>rows.some(r=>r[c]!=null && String(r[c]).trim()!==""));
+    nCols=cols.length; unica=cols[0];
     head=cols.map(c=>`<th>${lab(c)}</th>`).join("");
     body=rows.map(r=>`<tr>${cols.map(c=>{let v=r[c];
       if(DATECOLS.has(c))v=br(v);
       else if(PCTCOLS.has(c)&&v!=null&&v!=="")v=Math.round(Number(v)*100)+"%";
       return `<td>${v==null?"":v}</td>`;}).join("")}</tr>`).join("");
+  }
+  // Uma coluna só não é tabela — é lista. Tabela de largura inteira com um
+  // cabeçalho "ANIMAL" e uma célula "309" é pior que não mostrar nada.
+  if(nCols===1){
+    const itens=rows.map(r=>typeof r==="string"?r:(r[unica]??"")).filter(v=>String(v).trim()!=="");
+    return `<div class="det"><div class="det-h">${title}<span class="c">${rows.length}</span></div>
+      <div class="det-lista">${itens.join(" · ")}</div></div>`;
   }
   return `<div class="det"><div class="det-h">${title}<span class="c">${rows.length}</span></div>
     <div class="det-b"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
@@ -249,7 +263,7 @@ function render(){
       const cls="kpi"+(edited?" edited":"")+(editMode?" editing":"")+(k.manual?" manual":"");
       const tag=k.manual?`<span class="tag" title="dado manual — preencher toda semana (Alexandre / grupo)">manual</span>`:"";
       return `<div class="${cls}"><div class="lab">${k.l}</div>
-        <div class="val" contenteditable="${editMode}" data-path="${k.p}">${fmtVal(k)}</div>
+        <div class="val" contenteditable="${editMode && !k.html}" data-path="${k.p}">${fmtVal(k)}</div>
         ${tag}<span class="rst" data-path="${k.p}">reset</span></div>`;
     }).join("");
     const det=(sec.det||[]).map(([t,key])=>detTable(t,key)).join("");
