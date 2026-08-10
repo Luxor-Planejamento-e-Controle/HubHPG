@@ -79,11 +79,15 @@ TEMPLATE = r"""<!doctype html>
   .det-h{color:var(--teal);font-size:11.5px;font-weight:700;text-transform:uppercase;
     letter-spacing:.5px;margin-bottom:8px}
   .det-h .c{color:var(--amber);margin-left:4px}
-  .det-b{max-height:320px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--line);border-radius:8px}
+  /* tabela inteira à vista: nada de scroll interno vertical. Só o horizontal fica,
+     pra tabela larga não empurrar a página. */
+  .det-b{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
   table{width:100%;border-collapse:collapse;font-size:12px}
   th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;line-height:1.35}
+  /* sem scroll interno o sticky grudaria na viewport da página e vários cabeçalhos
+     de tabela ficariam flutuando um sobre o outro — melhor fixo na tabela */
   th{color:var(--mut);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.3px;
-    position:sticky;top:0;background:#0c2740;white-space:nowrap}
+    background:#0c2740;white-space:nowrap}
   td{color:var(--txt);white-space:normal;overflow-wrap:break-word}
   tr:last-child td{border-bottom:none}
 </style></head>

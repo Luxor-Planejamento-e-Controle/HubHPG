@@ -78,8 +78,11 @@ def _validacao(rep):
         ("Centro de Treinamento", h.get("cte"), dh.get("cte")),
         ("Sócios", h["socio"], dh["socio"]),
         ("Δ headcount", h.get("delta"), dh.get("delta_net")),
-        ("Saídas semana", s["saidas_semana"], ds["saidas_semana"]),
-        ("Entradas semana", s.get("entradas_semana"), ds.get("entradas")),
+        # bullet vazio ('--') cai no Δ do relatório, que diz a mesma coisa
+        ("Saídas semana", s["saidas_semana"],
+         ds["saidas_semana"] if ds["saidas_semana"] is not None else dh.get("delta_saidas")),
+        ("Entradas semana", s.get("entradas_semana"),
+         ds["entradas"] if ds.get("entradas") is not None else dh.get("delta_entradas")),
         ("Transferências internas", s.get("transferencias_semana"), ds.get("transferencias")),
         ("Vendidos pendentes", rep.terceiros.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
         ("Sociedade pendentes", rep.terceiros.get("sociedade_pendentes"),

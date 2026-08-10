@@ -157,6 +157,10 @@ def parse_docx(path: Path, ref: date) -> dict:
 
     h = rep["headcount"]
     h["delta_net"] = _delta_net(h["delta_txt"])
+    # O relatório diz a mesma coisa em dois lugares e às vezes só preenche um: em
+    # 07/08/2026 os bullets 'Saídas/Entradas na semana' vieram '--' e o Δ vinha
+    # '+00 / -01'. Guardo as duas pontas pra validação poder cair no Δ.
+    h["delta_entradas"], h["delta_saidas"] = _delta_partes(h["delta_txt"])
     # O relatório é digitado à mão e já saiu com erro de digitação: em 31/07/2026 o
     # arrendamento foi escrito como 31 (era 41) e o total como 204, e a conta não
     # fecha. Quem valida contra ele precisa saber disso, senão persegue divergência
@@ -190,6 +194,16 @@ def _delta_net(txt):
     if not nums:
         return None
     return sum(int(v) if sinal == "+" else -int(v) for sinal, v in nums)
+
+
+def _delta_partes(txt):
+    """'+00 / -01' -> (0, 1). (None, None) se não der pra ler."""
+    if not txt:
+        return None, None
+    nums = re.findall(r"([+-])\s*(\d+)", txt)
+    ent = sum(int(v) for s, v in nums if s == "+") if nums else None
+    sai = sum(int(v) for s, v in nums if s == "-") if nums else None
+    return ent, sai
 
 
 def _ref_from_name(name: str) -> date | None:
