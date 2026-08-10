@@ -694,8 +694,9 @@ def _receptoras_arquivos() -> list:
     return sorted(cands, key=lambda f: f.stat().st_mtime, reverse=True)
 
 
-def _receptoras_locais(src: Path | None = None) -> dict:
-    """{ANIMAL: LOCAL} da aba ANIMAIS, só quem está num local nosso."""
+def _receptoras_info(src: Path | None = None) -> dict:
+    """{ANIMAL: {local, status, embriao, obs}} da aba ANIMAIS — TODAS as linhas,
+    inclusive fora dos nossos locais, pra saber pra onde o animal foi."""
     if src is None:
         src = _latest_by_yymmdd(RECEPTORAS_DIR, "*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
     wb = _load(src)
@@ -704,11 +705,16 @@ def _receptoras_locais(src: Path | None = None) -> dict:
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 4 or r[1] is None:
             continue
-        local = _norm(r[3])
-        if local in RECEPTORAS_LOCAIS_ATIVOS:
-            out[_norm(r[1])] = local
+        out[_norm(r[1])] = {"local": _norm(r[3]), "status": _s(r[2]),
+                            "embriao": _s(r[4]), "obs": _s(r[5])}
     wb.close()
     return out
+
+
+def _receptoras_locais(src: Path | None = None) -> dict:
+    """{ANIMAL: LOCAL} da aba ANIMAIS, só quem está num local nosso."""
+    return {k: v["local"] for k, v in _receptoras_info(src).items()
+            if v["local"] in RECEPTORAS_LOCAIS_ATIVOS}
 
 
 def _transferencias_internas(rep: Report) -> list | None:
@@ -1081,6 +1087,22 @@ def _populacao_contada(roster, receptoras_locais) -> list:
     return sorted(set(roster or []) | set(receptoras_locais or {}))
 
 
+def _descreve_mov(nome: str, info_ant: dict, info_atual: dict) -> dict:
+    """Uma saída/entrada com contexto: '309' virou 'receptora 309, prenha de JAVA x
+    QUEBRUTO, Pao Grande -> sócio'."""
+    ant, atual = info_ant.get(nome), info_atual.get(nome)
+    ref = atual or ant or {}
+    return {
+        "animal": nome,
+        "tipo": "RECEPTORA" if (ant or atual) else "ANIMAL",
+        "local_saida": (ant or {}).get("local"),
+        "local_entrada": (atual or {}).get("local"),
+        "status": ref.get("status"),
+        "embriao": ref.get("embriao"),
+        "obs": ref.get("obs"),
+    }
+
+
 def _compute_movimento(rep: Report):
     """Saídas/entradas na semana.
 
@@ -1134,8 +1156,12 @@ def _compute_movimento(rep: Report):
         entradas = sorted(cur - prev)
         rep.saidas["saidas_semana"] = len(saidas)
         rep.saidas["entradas_semana"] = len(entradas)
-        rep.detalhe["saidas_diff"] = [{"animal": n} for n in saidas]
-        rep.detalhe["entradas_diff"] = [{"animal": n} for n in entradas]
+        # nome sozinho não diz nada — receptora é número ("309"). Anexa o que ela é,
+        # de onde saiu, pra onde foi e a observação da planilha.
+        info_atual = _receptoras_info()
+        info_ant = _receptoras_info(_receptoras_arquivos()[1]) if len(_receptoras_arquivos()) > 1 else {}
+        rep.detalhe["saidas_diff"] = [_descreve_mov(n, info_ant, info_atual) for n in saidas]
+        rep.detalhe["entradas_diff"] = [_descreve_mov(n, info_ant, info_atual) for n in entradas]
     else:
         # BOOTSTRAP: 1ª captura, sem semana anterior p/ diff → semeia do relatório oficial
         dx = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("saidas", {})

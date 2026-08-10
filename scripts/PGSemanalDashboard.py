@@ -141,11 +141,34 @@ function g(getter){ try{ return getter(snap()); }catch(e){ return null; } }
 function deltaTxt(s){
   // formato +entradas / −saídas. Vem do diff da população (automático); override
   // manual em sai.en/sai.sa continua valendo se alguém corrigir na mão.
+  // Lê do snapshot, não de rawVal: os KPIs de saída/entrada devolvem HTML.
   const hc=s.headcount||{};
-  const e=Number(effVal("sai.en") ?? hc.delta_entradas)||0;
-  const x=Number(effVal("sai.sa") ?? hc.delta_saidas)||0;
+  const e=Number(hasOv("sai.en")?getOv("sai.en"):hc.delta_entradas)||0;
+  const x=Number(hasOv("sai.sa")?getOv("sai.sa"):hc.delta_saidas)||0;
   return `<span class="pos">+${e}</span> / <span class="neg">−${x}</span>`;
 }
+
+// nome de local em texto corrido
+const LOCNOME={"PAO GRANDE":"Pao Grande","ARRENDAMENTO CESAR FURTADO":"arrendamento",
+  "SOCIO":"sócio","SOCIO - VENDIDA":"sócio (vendida)","VENDIDA":"vendida",
+  "MATO GROSSO":"Mato Grosso","VOLTOU PARA A CENTRAL":"central"};
+function loc(v){ return v? (LOCNOME[v]||String(v).toLowerCase()) : v; }
+
+/* "309" sozinho não diz nada. Descreve quem é e o trajeto, no próprio card:
+   receptora 309 · Pao Grande → sócio. Até 3; acima disso a tabela de detalhe
+   entra (ver minRows no det) e aqui fica só a contagem. */
+function movNota(rows){
+  if(!rows||!rows.length) return "";
+  if(rows.length>3) return "";
+  const linha=r=>{
+    const quem=(r.tipo==="RECEPTORA"?"receptora ":"")+r.animal;
+    const de=loc(r.local_saida), pra=loc(r.local_entrada);
+    const rota=(de&&pra)?` · ${de} → ${pra}`:(pra?` · para ${pra}`:(de?` · de ${de}`:""));
+    return quem+rota;
+  };
+  return `<span class="nota">${rows.map(linha).join("<br>")}</span>`;
+}
+function movVal(s,n,rows){ return n==null? null : `${n}${movNota(rows)}`; }
 
 // estrutura espelha o docx. cada KPI: {p:chave override, l:label, get:fn(snap)->valor}
 const SECTIONS = [
@@ -179,7 +202,8 @@ const SECTIONS = [
  ], det:[["Terceiros na propriedade (vendidos pendentes)","terceiros_vendidos"],
          ["Animais em sociedade pendentes de saída","terceiros_sociedade"]]},
  {n:"5", t:"SAÍDAS", wide:true, kpis:[
-    {p:"sai.sa", l:"Saídas na semana", get:s=>s.movimento?.saidas},
+    {p:"sai.sa", l:"Saídas na semana", html:true,
+     get:s=>movVal(s,s.movimento?.saidas,(s.detalhe||{}).saidas)},
     {p:"sai.vp", l:"Vendidos pendentes de saída", get:s=>s.terceiros?.vendidos_pendentes},
     // mesma descrição do relatório oficial: "07 (2 animais e 5 embriões)". A quebra
     // vai em fonte menor, como comentário — o número é que é o KPI.
@@ -193,8 +217,9 @@ const SECTIONS = [
       return partes.length? `${n}<span class="nota">${partes.join(" e ")}</span>` : String(n);
     }},
     {p:"sai.tr", l:"Transferências internas", get:s=>s.movimento?.transferencias},
-    {p:"sai.en", l:"Entradas na semana", get:s=>s.movimento?.entradas},
- ], det:[["Saídas na semana","saidas"],["Entradas na semana","entradas"]]},
+    {p:"sai.en", l:"Entradas na semana", html:true,
+     get:s=>movVal(s,s.movimento?.entradas,(s.detalhe||{}).entradas)},
+ ], det:[["Saídas na semana","saidas",{minRows:4}],["Entradas na semana","entradas",{minRows:4}]]},
 ];
 
 function rawVal(k){
@@ -223,9 +248,11 @@ const DATECOLS=new Set(["data","data_ia","data_confirmacao","data_paricao","data
 const PCTCOLS=new Set(["cota","cotas_pg"]);
 function lab(c){ return LABELS[c] || c.replace(/_/g," "); }
 
-function detTable(title, key){
+function detTable(title, key, opts){
   let rows = (snap().detalhe||{})[key];
   if(!rows || !rows.length) return "";
+  // minRows: detalhe que já cabe descrito no card só vira tabela quando é muito
+  if(opts && opts.minRows && rows.length < opts.minRows) return "";
   let head, body, nCols=1, unica=null;
   if(typeof rows[0]==="string"){
     head="<th>Detalhe</th>";
@@ -266,7 +293,7 @@ function render(){
         <div class="val" contenteditable="${editMode && !k.html}" data-path="${k.p}">${fmtVal(k)}</div>
         ${tag}<span class="rst" data-path="${k.p}">reset</span></div>`;
     }).join("");
-    const det=(sec.det||[]).map(([t,key])=>detTable(t,key)).join("");
+    const det=(sec.det||[]).map(([t,key,opts])=>detTable(t,key,opts)).join("");
     const sub=sec.sub?`<div class="sub">${sec.sub(snap())}</div>`:"";
     const cols=sec.wide?Math.min(sec.kpis.length,6):3;   // half=3 (receptoras/headcount iguais)
     return `<div class="panel${sec.wide?' full':''}"><h2><span class="n">${sec.n})</span>${sec.t}</h2>${sub}
