@@ -26,8 +26,11 @@ OUT = OUTDIR / "dashboard.html"
 EMBED = """
 <style>
 /* ===== ajustes de embed (o tema é o mesmo do hub, nada de re-skin) ===== */
-/* a topbar do hub já mostra "Atualização Semanal" — o header interno duplicaria */
-header{display:none !important}
+/* a topbar do hub já mostra "Atualização Semanal" — só a MARCA duplicaria.
+   O header fica: é onde vivem o seletor de semana, Editar e Exportar imagem.
+   Esconder o header inteiro tirava o seletor de semana do painel embutido. */
+header .brand{display:none !important}
+header{padding:14px 28px !important;justify-content:flex-end !important}
 body{padding-top:0 !important}
 /* aproveita a largura toda do iframe */
 .wrap{max-width:none !important}

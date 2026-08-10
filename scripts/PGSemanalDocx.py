@@ -27,8 +27,10 @@ DRIVE_DOCX = Path(
 )
 JSON_OUT = BASE_DIR / "bases" / "semanal_docx.json"
 
-# só os relatórios completos (não os "da movimentação de animais")
-NAME_RE = re.compile(r"^Atualização semanal (\d{2})-(\d{2})-(\d{2})\.docx$", re.IGNORECASE)
+# só os relatórios completos (não os "da movimentação de animais").
+# O ano vem com 2 ou 4 dígitos — o de 07-08-2026 veio com 4 e ficava de fora,
+# derrubando a validação da semana.
+NAME_RE = re.compile(r"^Atualização semanal (\d{2})-(\d{2})-(\d{2}|\d{4})\.docx$", re.IGNORECASE)
 
 
 def _int(s):
@@ -135,7 +137,7 @@ def _ref_from_name(name: str) -> date | None:
     if not m:
         return None
     dd, mm, yy = (int(x) for x in m.groups())
-    return date(2000 + yy, mm, dd)
+    return date(yy if yy >= 100 else 2000 + yy, mm, dd)
 
 
 def build_all() -> list:
