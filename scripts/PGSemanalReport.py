@@ -166,6 +166,7 @@ class Report:
     semana_atual: str = ""  # id (segunda) da semana selecionada por padrão
     snapshots: dict = field(default_factory=dict)  # snapshot por semana (histórico local)
     roster: list = field(default_factory=list)  # nomes do plantel (p/ diff saídas/entradas)
+    receptoras_locais: dict = field(default_factory=dict)  # {animal: LOCAL} p/ diff de transferência
     saidas_planilha: dict | None = None  # aba SAIDAS-ENTRADAS, quando o haras preencher
     confirmed: list = field(default_factory=list)  # embriões confirmados (+/-=OK) p/ diff semanal
     docx_ref: dict = field(default_factory=dict)  # números dos relatórios oficiais (SÓ p/ validar)
@@ -678,6 +679,62 @@ def _saidas_entradas_planilha(wb, ini: date, fim: date):
     return evs if achou else None
 
 
+# TRANSFERÊNCIA INTERNA = animal que trocou de LOCAL entre os dois locais próprios
+# (FPG <-> arrendamento) na aba ANIMAIS do PLANTEL ARRENDAMENTOS E RECEPTORAS.
+# A aba MOVIMENTAÇÕES do controle mensal NÃO serve: a última transferência lançada
+# lá é de setembro/2025. Em 07/08/2026 o relatório oficial disse 14 transferências e
+# o diff de LOCAL dá exatamente 14 (5 arrendamento->FPG, 9 FPG->arrendamento).
+# Igual a saídas/entradas, é diff: precisa do mapa da semana anterior. Sem ele
+# (primeira captura), fica em branco — nunca zero.
+def _receptoras_arquivos() -> list:
+    """Arquivos de receptoras, do mais recente pro mais antigo (por mtime)."""
+    cands = [f for f in RECEPTORAS_DIR.glob("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
+             if not f.name.startswith("~$")]
+    return sorted(cands, key=lambda f: f.stat().st_mtime, reverse=True)
+
+
+def _receptoras_locais(src: Path | None = None) -> dict:
+    """{ANIMAL: LOCAL} da aba ANIMAIS, só quem está num local nosso."""
+    if src is None:
+        src = _latest_by_yymmdd(RECEPTORAS_DIR, "*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
+    wb = _load(src)
+    ws = wb["ANIMAIS"]
+    out = {}
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i < 4 or r[1] is None:
+            continue
+        local = _norm(r[3])
+        if local in RECEPTORAS_LOCAIS_ATIVOS:
+            out[_norm(r[1])] = local
+    wb.close()
+    return out
+
+
+def _transferencias_internas(rep: Report) -> list | None:
+    """Diff do LOCAL vs o mapa da semana anterior. None = sem base de comparação."""
+    hist = _load_hist()
+    prev = None
+    for wid in sorted(hist):
+        if wid < rep.semana_atual and hist[wid].get("receptoras_locais"):
+            prev = hist[wid]["receptoras_locais"]
+    cur = rep.receptoras_locais or {}
+    if not cur:
+        return None
+    if not prev:
+        # Bootstrap: nenhuma semana anterior guardou o mapa (o campo é novo). Cai no
+        # arquivo de receptoras anterior, que é o retrato de onde os animais estavam.
+        anteriores = _receptoras_arquivos()[1:]
+        if not anteriores:
+            print("  [transferências] sem mapa de LOCAL da semana anterior e sem "
+                  "arquivo anterior de receptoras — fica EM BRANCO, não zero")
+            return None
+        prev = _receptoras_locais(anteriores[0])
+        print(f"  [transferências] primeira semana com mapa de LOCAL: comparando com "
+              f"{anteriores[0].name} (da próxima em diante, compara com o snapshot)")
+    return [{"animal": k, "local_saida": prev[k], "local_entrada": cur[k]}
+            for k in cur if k in prev and prev[k] != cur[k]]
+
+
 def build_movimentacao(rep: Report, ini: date, fim: date):
     src = _latest_by_yymmdd(CONTROLE_MENSAL_DIR, "*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx")
     rep.fontes["controle_plantel_mensal"] = src.name
@@ -705,15 +762,18 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
     rep.saidas = {
         "saidas_semana": sum(1 for x in evs["SAIDA"] if inw(x)),
         "entradas_semana": sum(1 for x in evs["ENTRADA"] if inw(x)),
-        "transferencias_semana": sum(1 for x in evs["TRANSFERENCIA"] if inw(x)),
     }
+    # transferências não vêm daqui (ver comentário acima de _receptoras_locais)
+    rep.receptoras_locais = _receptoras_locais()
+    transf = _transferencias_internas(rep)
+    rep.saidas["transferencias_semana"] = len(transf) if transf is not None else None
+    rep.detalhe["transferencias_internas"] = transf
     rep.saidas["movimentacao_ultimo_lancamento"] = ultimo.isoformat() if ultimo else None
     if ultimo is None or ultimo < ini:
-        rep.saidas["transferencias_semana"] = None
         rep.saidas["movimentacao_defasada"] = True
         print(f"  [movimentação] {src.name}: último lançamento datado é "
               f"{ultimo.strftime('%d/%m/%Y') if ultimo else 'nenhum'}, antes da janela "
-              f"({ini.strftime('%d/%m')}) — transferências ficam EM BRANCO, não zero")
+              f"({ini.strftime('%d/%m')}) — a aba MOVIMENTAÇÕES não mede esta semana")
     # listas COMPLETAS datadas p/ filtro client-side
     rep.eventos["saidas"] = evs["SAIDA"]
     rep.eventos["entradas"] = evs["ENTRADA"]
@@ -761,6 +821,47 @@ def _plantel_por_status() -> dict:
             "doadoras_terceiros": doadoras_terc}
 
 
+# Embrião comercial pendente de saída: aba ENTREGAR do "EMBRIOES A ENTREGAR - A
+# RECEBER". 'Status embrião' PRONTO-* = feito e ainda não entregue (os outros estados
+# — A FAZER, EM ANDAMENTO, ENTREGUE, NASCIDO, CANCELADO, REPOSIÇÃO — não são pendência
+# de saída). 'Cota PG' < 1 = sociedade; = 1 = venda 100%.
+# É essa a fonte dos "5 embriões" que o relatório de 07/08/2026 somou no card de
+# sociedade; a aba EMBRIOES VENDIDOS do "Animais para sair" está vazia e não é usada.
+EMB_PENDENTE_PREFIXO = "PRONTO"
+
+
+def _embrioes_pendentes() -> list:
+    """Embriões prontos e não entregues, com tipo SOCIEDADE (cota parcial) ou VENDA."""
+    wb = _load(EMB_COMERCIAIS)
+    ws = wb["ENTREGAR"]
+    out, cols = [], None
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i == 3:
+            cols = {n: _col_idx(r, n) for n in
+                    ("ID Embrião", "Doadora", "Garanhão", "Comprador", "Cota PG",
+                     "Status embrião", "Observação")}
+            continue
+        if cols is None or r[cols["ID Embrião"]] is None:
+            continue
+        if not _norm(r[cols["Status embrião"]]).startswith(EMB_PENDENTE_PREFIXO):
+            continue
+        cota = r[cols["Cota PG"]]
+        try:
+            parcial = cota is not None and float(cota) < 1
+        except (TypeError, ValueError):
+            parcial = False
+        out.append({
+            "nome": f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}',
+            "id": _s(r[cols["ID Embrião"]]), "local": None, "cota": cota,
+            "comprador": _s(r[cols["Comprador"]]),
+            "tipo": "SOCIEDADE" if parcial else "VENDA",
+            "obs": _s(r[cols["Status embrião"]]), "reposicao": False,
+            "especie": "EMBRIAO",
+        })
+    wb.close()
+    return out
+
+
 def build_pendentes(rep: Report):
     plantel = _plantel_por_status()
     rep.roster = plantel["roster"]
@@ -783,26 +884,13 @@ def build_pendentes(rep: Report):
             pend.append({"nome": _s(r[1]), "local": _s(r[2]), "cota": r[3],
                          "comprador": _s(r[4]), "tipo": tipo, "obs": _s(r[6]),
                          "reposicao": obs == "REPOSICAO"})
-        # EMBRIÕES pendentes: aba irmã, no mesmo arquivo. O relatório de 07/08/2026
-        # passou a somar embrião no card de sociedade ("07 (2 animais e 5 embriões)"),
-        # então ele entra na conta. Colunas: B doadora, C garanhão, D data IA,
-        # E receptora, F local, G comprador, H transação (VENDA/SOCIEDADE).
-        ws = wb["EMBRIOES VENDIDOS"]
-        for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-            if i < 4 or r[1] is None or not str(r[1]).strip():
-                continue
-            tipo = _norm(r[7])
-            if tipo not in ("VENDA", "SOCIEDADE"):
-                continue
-            pend_emb.append({"nome": f"{_s(r[1])} x {_s(r[2])}", "local": _s(r[5]),
-                             "cota": None, "comprador": _s(r[6]), "tipo": tipo,
-                             "obs": _s(r[4]), "reposicao": False, "especie": "EMBRIAO"})
         wb.close()
     except FileNotFoundError as exc:
         # NÃO engolir: sem esse arquivo, vendidos/sociedade pendentes e a lista da
         # seção 5 viram zero — e zero aqui é indistinguível de "não tem nenhum".
         print(f"  [pendentes] FONTE AUSENTE: {exc} -> vendidos/sociedade pendentes "
               f"e pendentes de saída ficam ZERADOS nesta semana")
+    pend_emb = _embrioes_pendentes()
 
     # VENDIDOS PENDENTES: fonte nova é o roster (STATUS PLANTEL). Enquanto o haras
     # não marcar ninguém lá, segue valendo o "Animais para sair".
@@ -820,9 +908,7 @@ def build_pendentes(rep: Report):
     soc_animais = [p for p in pend if p["tipo"] == "SOCIEDADE"]
     soc_embrioes = [p for p in pend_emb if p["tipo"] == "SOCIEDADE"]
     sociedade = soc_animais + soc_embrioes
-    if not pend_emb:
-        print("  [pendentes] aba EMBRIOES VENDIDOS está vazia (só cabeçalho) — "
-              "sociedade pendente conta só os animais; embrião do relatório não tem fonte")
+    rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
 
     # DOADORAS DE TERCEIROS: roster com CATEGORIA=DOADORA, STATUS PLANTEL de terceiro
     # e LOCAL=FAZENDA PAO GRANDE. Sem marcação na planilha, fica em branco (não zero:
@@ -1080,8 +1166,10 @@ def _snap_from_rep(rep: Report) -> dict:
             "pendentes_saida": rep.detalhe.get("pendentes_saida"),
             "terceiros_vendidos": rep.detalhe.get("terceiros_vendidos"),
             "terceiros_sociedade": rep.detalhe.get("terceiros_sociedade"),
+            "transferencias": rep.detalhe.get("transferencias_internas"),
         },
         "roster": rep.roster,
+        "receptoras_locais": rep.receptoras_locais,
         "confirmed_keys": [e["key"] for e in rep.confirmed],
     }
 
