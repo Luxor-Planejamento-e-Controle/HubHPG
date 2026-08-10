@@ -129,8 +129,11 @@ function curWeek(){ return CAL.find(w=>w.id===semana)||null; }
 function br(iso){ if(!iso)return""; const p=iso.split("-"); return p[2]+"/"+p[1]+"/"+p[0].slice(2); }
 function g(getter){ try{ return getter(snap()); }catch(e){ return null; } }
 function deltaTxt(s){
-  // formato +entradas / −saídas, puxando dos campos manuais (sai.en / sai.sa)
-  const e=Number(effVal("sai.en"))||0, x=Number(effVal("sai.sa"))||0;
+  // formato +entradas / −saídas. Vem do diff da população (automático); override
+  // manual em sai.en/sai.sa continua valendo se alguém corrigir na mão.
+  const hc=s.headcount||{};
+  const e=Number(effVal("sai.en") ?? hc.delta_entradas)||0;
+  const x=Number(effVal("sai.sa") ?? hc.delta_saidas)||0;
   return `<span class="pos">+${e}</span> / <span class="neg">−${x}</span>`;
 }
 
@@ -166,11 +169,21 @@ const SECTIONS = [
  ], det:[["Terceiros na propriedade (vendidos pendentes)","terceiros_vendidos"],
          ["Animais em sociedade pendentes de saída","terceiros_sociedade"]]},
  {n:"5", t:"SAÍDAS", wide:true, kpis:[
-    {p:"sai.sa", l:"Saídas na semana", manual:true, get:s=>s.movimento?.saidas},
+    {p:"sai.sa", l:"Saídas na semana", get:s=>s.movimento?.saidas},
     {p:"sai.vp", l:"Vendidos pendentes de saída", get:s=>s.terceiros?.vendidos_pendentes},
-    {p:"sai.sp", l:"Em sociedade pendentes de saída", get:s=>s.terceiros?.sociedade_pendentes},
+    // mesma descrição do relatório oficial: "07 (2 animais e 5 embriões)"
+    {p:"sai.sp", l:"Em sociedade pendentes de saída", get:s=>{
+      const t=s.terceiros||{}, n=t.sociedade_pendentes;
+      if(n==null) return null;
+      const a=t.sociedade_pendentes_animais, e=t.sociedade_pendentes_embrioes;
+      if(a==null&&e==null) return n;
+      const partes=[];
+      if(a) partes.push(`${a} ${a===1?"animal":"animais"}`);
+      if(e) partes.push(`${e} ${e===1?"embrião":"embriões"}`);
+      return partes.length? `${n} (${partes.join(" e ")})` : n;
+    }},
     {p:"sai.tr", l:"Transferências internas", get:s=>s.movimento?.transferencias},
-    {p:"sai.en", l:"Entradas na semana", manual:true, get:s=>s.movimento?.entradas},
+    {p:"sai.en", l:"Entradas na semana", get:s=>s.movimento?.entradas},
  ], det:[["Saídas na semana","saidas"],["Entradas na semana","entradas"]]},
 ];
 

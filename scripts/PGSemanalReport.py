@@ -167,6 +167,7 @@ class Report:
     snapshots: dict = field(default_factory=dict)  # snapshot por semana (histórico local)
     roster: list = field(default_factory=list)  # nomes do plantel (p/ diff saídas/entradas)
     receptoras_locais: dict = field(default_factory=dict)  # {animal: LOCAL} p/ diff de transferência
+    populacao: list = field(default_factory=list)  # plantel + receptoras contadas (p/ diff saídas/entradas)
     saidas_planilha: dict | None = None  # aba SAIDAS-ENTRADAS, quando o haras preencher
     confirmed: list = field(default_factory=list)  # embriões confirmados (+/-=OK) p/ diff semanal
     docx_ref: dict = field(default_factory=dict)  # números dos relatórios oficiais (SÓ p/ validar)
@@ -1057,8 +1058,7 @@ def build_report(ini: date, fim: date) -> Report:
     build_pendentes(rep)
     rep.semana_atual = fim.isoformat()           # semana de referência = data do fechamento
     rep.docx_ref = _load_docx_ref()               # relatórios oficiais (validação + seed do 1º caso)
-    # saídas/entradas ficam com o log MOVIMENTAÇÕES (build_movimentacao). NÃO uso diff de roster:
-    # animal vendido continua no plantel até entrega, e o diff confundia nascimento com entrada.
+    _compute_movimento(rep)                       # saídas/entradas = diff da população contada
     _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
     _persist_snapshot(rep)                        # congela snapshot CALCULADO desta semana
     rep.calendario = _calendario_dos_snapshots(rep.snapshots)
@@ -1074,14 +1074,27 @@ def _load_hist() -> dict:
     return {}
 
 
+def _populacao_contada(roster, receptoras_locais) -> list:
+    """Conjunto que o headcount conta: animais do plantel + receptoras nos NOSSOS
+    locais. Receptora que vai pro sócio sai da contagem (CONTAGEM só tem receptora
+    na fazenda e no arrendamento), então tem de contar como saída."""
+    return sorted(set(roster or []) | set(receptoras_locais or {}))
+
+
 def _compute_movimento(rep: Report):
     """Saídas/entradas na semana.
 
-    Ordem de preferência (reunião 2026-07-31):
+    Ordem de preferência:
       1. aba SAIDAS-ENTRADAS do controle mensal, classificada — entrada = nascimento
-         ou compra, saída = venda ou morte. É a fonte oficial daqui pra frente.
-      2. diff do roster do plantel vs o snapshot anterior (o que valia até agora).
+         ou compra, saída = venda ou morte. É a fonte oficial quando o haras preencher.
+      2. diff da POPULAÇÃO CONTADA vs o snapshot anterior.
       3. bootstrap do relatório oficial em Word, na primeira captura.
+
+    O diff era só do roster do plantel e por isso vivia dando 0: o plantel (aba
+    PLANTEL) não mexe quando a movimentação é de receptora. Em 07/08/2026 a única
+    saída da semana foi a receptora 309 indo pro sócio — diff de roster: 0; diff da
+    população contada: 1 saída, 0 entradas, que é o '+00 / -01' do relatório e fecha
+    com o Δ do headcount (204 -> 203).
     """
     if rep.saidas_planilha:
         ent, sai = rep.saidas_planilha["ENTRADA"], rep.saidas_planilha["SAIDA"]
@@ -1090,17 +1103,33 @@ def _compute_movimento(rep: Report):
         rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
         rep.detalhe["saidas_diff"] = sai
         rep.detalhe["entradas_diff"] = ent
+        _conferir_delta(rep)
         return
 
-    rep.saidas["fonte"] = "diff_roster"
+    rep.populacao = _populacao_contada(rep.roster, rep.receptoras_locais)
     hist = _load_hist()
-    prev_roster = None
+    prev_pop = None
     for wid in sorted(hist):
-        if wid < rep.semana_atual and hist[wid].get("roster"):
-            prev_roster = hist[wid]["roster"]
-    cur = set(rep.roster or [])
-    if prev_roster is not None and cur:
-        prev = set(prev_roster)
+        if wid < rep.semana_atual and hist[wid].get("populacao"):
+            prev_pop = hist[wid]["populacao"]
+    if prev_pop is None:
+        # Bootstrap: nenhuma semana anterior guardou a população (campo novo). Monta a
+        # anterior com o roster daquele snapshot + o arquivo de receptoras anterior.
+        prev_snap = None
+        for wid in sorted(hist):
+            if wid < rep.semana_atual and hist[wid].get("roster"):
+                prev_snap = hist[wid]
+        anteriores = _receptoras_arquivos()[1:]
+        if prev_snap and anteriores:
+            prev_pop = _populacao_contada(prev_snap["roster"],
+                                          _receptoras_locais(anteriores[0]))
+            print(f"  [saídas/entradas] primeira semana com população guardada: "
+                  f"receptoras da semana anterior vindas de {anteriores[0].name}")
+
+    cur = set(rep.populacao)
+    if prev_pop and cur:
+        rep.saidas["fonte"] = "diff_populacao"
+        prev = set(prev_pop)
         saidas = sorted(prev - cur)
         entradas = sorted(cur - prev)
         rep.saidas["saidas_semana"] = len(saidas)
@@ -1112,7 +1141,25 @@ def _compute_movimento(rep: Report):
         dx = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("saidas", {})
         rep.saidas["saidas_semana"] = dx.get("saidas_semana")
         rep.saidas["entradas_semana"] = dx.get("entradas")
+        rep.saidas["fonte"] = "docx"
         rep.saidas["_seed"] = "docx" if dx else None
+    _conferir_delta(rep)
+
+
+def _conferir_delta(rep: Report):
+    """Δ do headcount = entradas - saídas. As duas contas vêm de fontes diferentes
+    (CONTAGEM vs diff da população), então uma confere a outra. Divergir significa
+    movimentação que não passou pelas planilhas — tem de aparecer, não sumir."""
+    ent, sai = rep.saidas.get("entradas_semana"), rep.saidas.get("saidas_semana")
+    rep.headcount["delta_entradas"] = ent
+    rep.headcount["delta_saidas"] = sai
+    delta = rep.headcount.get("delta")
+    if None in (ent, sai) or delta is None:
+        return
+    if ent - sai != delta:
+        print(f"  [Δ] headcount variou {delta:+d} mas o diff da população dá "
+              f"+{ent}/-{sai} (líquido {ent - sai:+d}) — conferir: uma das duas "
+              f"fontes não registrou alguma movimentação")
 
 
 def _compute_confirmados_diff(rep: Report):
@@ -1178,6 +1225,7 @@ def _snap_from_rep(rep: Report) -> dict:
         },
         "roster": rep.roster,
         "receptoras_locais": rep.receptoras_locais,
+        "populacao": rep.populacao,
         "confirmed_keys": [e["key"] for e in rep.confirmed],
     }
 
