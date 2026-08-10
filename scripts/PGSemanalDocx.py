@@ -41,6 +41,18 @@ def _int(s):
     return int(m.group(0)) if m else None
 
 
+def _int_valor(s):
+    """Inteiro do VALOR do bullet, não do rótulo.
+
+    O rótulo passou a carregar a safra — 'Acumulado na estação 25/26: 61' — e aí o
+    primeiro inteiro do resto da linha é 25 (a safra), não 61. O valor vem depois
+    do último ':'. Foi o que fez o alvo de validação virar 25 em 07/08/2026.
+    """
+    if s is None:
+        return None
+    return _int(s.rsplit(":", 1)[-1] if ":" in s else s)
+
+
 def _num(s):
     """Número decimal PT ('2,7' -> 2.7)."""
     if s is None:
@@ -91,8 +103,8 @@ def parse_docx(path: Path, ref: date) -> dict:
         "semana_txt": find("Semana"),
         "producao": {
             "confirmados_semana": _int(find("Embriões confirmados na semana")),
-            "acumulado_estacao": _int(find("Acumulado na estação")),
-            "acumulado_mes": _int(find("Acumulado no mês")),
+            "acumulado_estacao": _int_valor(find("Acumulado na estação")),
+            "acumulado_mes": _int_valor(find("Acumulado no mês")),
             "nascimentos": _int(find("Nascimentos")),
             "abortos_obitos": _int(find("Abortos")),
         },

@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -61,8 +62,13 @@ RECEPTORAS_DIR = DRIVE_ROOT / "PLANTEL" / "Estação 2025-2026"
 MAPA_VENDAS_DIR = DRIVE_ROOT / "VENDAS" / "MAPAS DE VENDAS" / "Estação 2025-2026"
 # CONTROLE_DE_PLANTEL mensal (aba MOVIMENTAÇÕES datada) — mesma pasta das receptoras
 CONTROLE_MENSAL_DIR = RECEPTORAS_DIR
-# Animais para sair (vendidos/sociedade pendentes) — aba ANIMAIS VENDIDOS
-ANIMAIS_SAIR_DIR = DRIVE_ROOT / "PLANILHAS PARA O EDUARDO"
+# Animais para sair (vendidos/sociedade pendentes) — aba ANIMAIS VENDIDOS.
+# O arquivo mudou de pasta (saiu de PLANILHAS PARA O EDUARDO, hoje mora em
+# ATUALIZACAO SEMANAL), então procuramos nas duas e ficamos com o mais recente.
+ANIMAIS_SAIR_DIRS = (
+    DRIVE_ROOT / "ATUALIZACAO SEMANAL",
+    DRIVE_ROOT / "PLANILHAS PARA O EDUARDO",
+)
 
 HIST_HEADCOUNT = BASE_DIR / "_cache" / "headcount_history.json"
 HIST_SNAPSHOTS = BASE_DIR / "_cache" / "semanal_snapshots.json"
@@ -168,14 +174,34 @@ class Report:
 # ------------------------------------------------------------------
 # Seção 1 — PRODUÇÃO (master da estação de monta)
 # ------------------------------------------------------------------
-# Abas da planilha do grupo que compõem o acumulado, e onde ficam as colunas nelas.
-# As duas têm layout parecido, mas a de sócios tem uma coluna a menos antes de
-# ESTAÇÃO (não tem PREV PARTO), por isso os índices diferem.
-#   (aba, idx ESTAÇÃO, idx STATUS, fatia fixa ou None = deduzir do STATUS)
+# Abas da planilha do grupo que compõem o acumulado.
+#   (aba, fatia fixa ou None = deduzir do STATUS)
+# As COLUNAS são resolvidas pelo CABEÇALHO (linha 3), nunca por índice fixo. Em
+# 07/08/2026 a coluna STATUS foi apagada da aba de PAO GRANDE, tudo à direita
+# andou uma casa e o índice de ESTAÇÃO passou a cair em COTA PG: nenhuma linha
+# batia a safra, a fatia "pg" zerou e o acumulado caiu de 61 pra 27 sem erro
+# nenhum. Cabeçalho por nome faz a planilha poder mexer coluna sem quebrar.
 ABAS_ACUMULADO = (
-    ("EMBRIÕES PAO GRANDE", 8, 6, "pg"),
-    ("EMBRIOES SOCIOS - VENDIDOS", 7, 5, None),
+    ("EMBRIÕES PAO GRANDE", "pg"),
+    ("EMBRIOES SOCIOS - VENDIDOS", None),
 )
+HDR_ROW_ACUMULADO = 3  # linha do cabeçalho nas duas abas
+
+
+def _sem_acento(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", str(s))
+                   if unicodedata.category(c) != "Mn")
+
+
+def _col_idx(hdr, *nomes) -> int:
+    """Índice da coluna pelo nome do cabeçalho (sem acento, case-insensitive).
+    Explode se não achar — coluna que sumiu tem de virar erro, não zero calado."""
+    alvo = {_sem_acento(n).strip().upper() for n in nomes}
+    for i, h in enumerate(hdr):
+        if h is not None and _sem_acento(h).strip().upper() in alvo:
+            return i
+    achados = [str(h) for h in hdr if h is not None]
+    raise KeyError(f"coluna {nomes[0]!r} não está no cabeçalho: {achados}")
 
 
 def _latest_emb_matrizes() -> Path:
@@ -200,11 +226,17 @@ def _acumulado_grupo() -> dict:
     src = _latest_emb_matrizes()
     wb = _load(src)
     out = {"pg": 0, "socio": 0, "vendido": 0, "fonte": src.name}
-    for aba, iest, ist, fatia_fixa in ABAS_ACUMULADO:
+    for aba, fatia_fixa in ABAS_ACUMULADO:
         if aba not in wb.sheetnames:
+            print(f"  [acumulado] aba {aba!r} não existe em {src.name} — fatia zerada")
             continue
+        iest = ist = None
         for i, r in enumerate(wb[aba].iter_rows(values_only=True), start=1):
-            if i < 4 or r[1] is None or not str(r[1]).strip():
+            if i == HDR_ROW_ACUMULADO:
+                iest = _col_idx(r, "ESTACAO")
+                ist = None if fatia_fixa else _col_idx(r, "STATUS")
+                continue
+            if i <= HDR_ROW_ACUMULADO or r[1] is None or not str(r[1]).strip():
                 continue
             if _s(r[iest]) != SAFRA_ATUAL:
                 continue
@@ -736,8 +768,11 @@ def build_pendentes(rep: Report):
                          "comprador": _s(r[4]), "tipo": tipo, "obs": _s(r[6]),
                          "reposicao": obs == "REPOSICAO"})
         wb.close()
-    except FileNotFoundError:
-        pass
+    except FileNotFoundError as exc:
+        # NÃO engolir: sem esse arquivo, vendidos/sociedade pendentes e a lista da
+        # seção 5 viram zero — e zero aqui é indistinguível de "não tem nenhum".
+        print(f"  [pendentes] FONTE AUSENTE: {exc} -> vendidos/sociedade pendentes "
+              f"e pendentes de saída ficam ZERADOS nesta semana")
 
     # VENDIDOS PENDENTES: fonte nova é o roster (STATUS PLANTEL). Enquanto o haras
     # não marcar ninguém lá, segue valendo o "Animais para sair".
@@ -776,11 +811,14 @@ def build_pendentes(rep: Report):
 
 
 def _latest_animais_sair() -> Path:
-    """Arquivo 'Animais para sair*.xlsx' mais recente (por mtime — nome tem o ano)."""
-    cands = [f for f in ANIMAIS_SAIR_DIR.glob("Animais para sair*.xlsx")
+    """Arquivo 'Animais para sair*.xlsx' mais recente (por mtime — nome tem o ano).
+    Procura em todas as pastas de ANIMAIS_SAIR_DIRS: o arquivo já andou de pasta."""
+    cands = [f for d in ANIMAIS_SAIR_DIRS for f in d.glob("Animais para sair*.xlsx")
              if not f.name.startswith("~$")]
     if not cands:
-        raise FileNotFoundError(f"Nenhum 'Animais para sair' em {ANIMAIS_SAIR_DIR}")
+        raise FileNotFoundError(
+            "Nenhum 'Animais para sair*.xlsx' em: "
+            + " | ".join(str(d) for d in ANIMAIS_SAIR_DIRS))
     return max(cands, key=lambda f: f.stat().st_mtime)
 
 
