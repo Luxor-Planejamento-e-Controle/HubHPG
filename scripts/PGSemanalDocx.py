@@ -141,7 +141,26 @@ def parse_docx(path: Path, ref: date) -> dict:
             "confirmados": det_after("Embriões confirmados na semana", ["Acumulado"]),
         },
     }
+    h = rep["headcount"]
+    h["delta_net"] = _delta_net(h["delta_txt"])
+    # O relatório é digitado à mão e já saiu com erro de digitação: em 31/07/2026 o
+    # arrendamento foi escrito como 31 (era 41) e o total como 204, e a conta não
+    # fecha. Quem valida contra ele precisa saber disso, senão persegue divergência
+    # que não é do cálculo — foi o que fez o Δ da semana seguinte parecer errado.
+    locais = [h["fazenda_pg"], h["arrendamento"], h["cte"], h["socio"]]
+    h["soma_locais"] = sum(x for x in locais if x) if any(locais) else None
+    h["coerente"] = (h["soma_locais"] == h["total"]) if (h["soma_locais"] and h["total"]) else None
     return rep
+
+
+def _delta_net(txt):
+    """Δ líquido do texto '+01 / -07)' -> -6. None se não der pra ler."""
+    if not txt:
+        return None
+    nums = re.findall(r"([+-])\s*(\d+)", txt)
+    if not nums:
+        return None
+    return sum(int(v) if sinal == "+" else -int(v) for sinal, v in nums)
 
 
 def _ref_from_name(name: str) -> date | None:

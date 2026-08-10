@@ -447,30 +447,33 @@ def build_receptoras(rep: Report):
         elif st.startswith("VAZIA"):
             vaz += 1
     wb.close()
-    doadoras = DOADORAS_INDICE                       # parâmetro fixo (ver constante)
-    doadoras_plantel = _count_doadoras()             # 12 hoje — só referência
-    doadoras_fpg = _count_doadoras("FAZENDA PAO GRANDE")   # 7 hoje — só referência
+    doadoras_plantel = _count_doadoras()             # CATEGORIA='DOADORA' no plantel
+    doadoras_fpg = _count_doadoras("FAZENDA PAO GRANDE")   # só referência
+    doadoras = DOADORAS_INDICE or doadoras_plantel
     rep.receptoras = {
         "total": pren + vaz,
         "prenhas": pren,
         "vazias": vaz,
         "doadoras": doadoras,
-        "doadoras_fonte": "fixo",
+        "doadoras_fonte": "fixo" if DOADORAS_INDICE else "plantel",
         "doadoras_plantel": doadoras_plantel,
         "doadoras_plantel_fpg": doadoras_fpg,
         "indice_eficiencia": round(vaz / doadoras, 1) if doadoras else None,
     }
-    if doadoras_fpg != doadoras:
-        print(f"  [receptoras] índice usa {doadoras} doadoras (fixo); "
+    if DOADORAS_INDICE and DOADORAS_INDICE != doadoras_plantel:
+        print(f"  [receptoras] índice usa {DOADORAS_INDICE} doadoras (fixo); "
               f"no plantel há {doadoras_fpg} na FPG e {doadoras_plantel} no total")
 
 
-# Denominador do índice de eficiência. FIXO por decisão da reunião com o haras
-# (2026-07-31): considerar 10 doadoras. O plantel não produz esse número por
-# nenhuma leitura — CATEGORIA='DOADORA' dá 12 no total e 7 filtrando LOCAL='FAZENDA
-# PAO GRANDE' (6 se excluir a vendida) —, então o valor é parâmetro, não cálculo.
-# O contado continua sendo apurado e vai no JSON ao lado, pra divergência aparecer.
-DOADORAS_INDICE = 10
+# Denominador do índice de eficiência.
+# Era FIXO em 10 pela reunião de 2026-07-31, porque nenhuma leitura do plantel dava
+# esse número. Em 07/08/2026 o relatório oficial trocou o divisor: 29 vazias com
+# índice 2,4 = 29/12, e 12 é exatamente CATEGORIA='DOADORA' no plantel (nas 4 semanas
+# anteriores o divisor implícito no docx era 10). Ou seja, o haras passou a usar o
+# contado — então paramos de fixar e contamos.
+# None = usar as doadoras contadas no plantel. Só voltar a pôr número aqui se o
+# haras decidir travar o divisor de novo.
+DOADORAS_INDICE = None
 
 
 def _count_doadoras(local: str | None = None) -> int:
@@ -682,22 +685,35 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
     rep.saidas_planilha = _saidas_entradas_planilha(wb, ini, fim)
     ws = wb["MOVIMENTAÇÕES"]
     evs = {"SAIDA": [], "ENTRADA": [], "TRANSFERENCIA": []}
+    ultimo = None  # último lançamento DATADO da aba, de qualquer tipo
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 3 or r[3] is None:
             continue
         d = _dt(r[3])
         if not d:
             continue
+        if ultimo is None or d > ultimo:
+            ultimo = d
         tipo = _categorize_mov(str(r[4] or "").upper())
         if tipo is None:
             continue
         evs[tipo].append({"animal": _s(r[2]), "data": d.isoformat(), "ocorrencia": _s(r[4])})
     inw = lambda x: ini <= date.fromisoformat(x["data"]) <= fim
+    # A aba só mede a semana se ela chegou na semana. Parada antes da janela, contar
+    # zero afirmaria "não houve movimentação" quando o que existe é falta de
+    # lançamento — foi o que fez transferências virar 0 com 14 no relatório oficial.
     rep.saidas = {
         "saidas_semana": sum(1 for x in evs["SAIDA"] if inw(x)),
         "entradas_semana": sum(1 for x in evs["ENTRADA"] if inw(x)),
         "transferencias_semana": sum(1 for x in evs["TRANSFERENCIA"] if inw(x)),
     }
+    rep.saidas["movimentacao_ultimo_lancamento"] = ultimo.isoformat() if ultimo else None
+    if ultimo is None or ultimo < ini:
+        rep.saidas["transferencias_semana"] = None
+        rep.saidas["movimentacao_defasada"] = True
+        print(f"  [movimentação] {src.name}: último lançamento datado é "
+              f"{ultimo.strftime('%d/%m/%Y') if ultimo else 'nenhum'}, antes da janela "
+              f"({ini.strftime('%d/%m')}) — transferências ficam EM BRANCO, não zero")
     # listas COMPLETAS datadas p/ filtro client-side
     rep.eventos["saidas"] = evs["SAIDA"]
     rep.eventos["entradas"] = evs["ENTRADA"]
@@ -751,7 +767,7 @@ def build_pendentes(rep: Report):
 
     # VENDIDOS / SOCIEDADE pendentes = aba ANIMAIS VENDIDOS do "Animais para sair"
     # (validado vs docx 17/07: VENDA≠REPOSIÇÃO=2 vendidos; SOCIEDADE=2). col5=tipo, col6=obs.
-    pend = []
+    pend, pend_emb = [], []
     try:
         src = _latest_animais_sair()
         wb = _load(src)
@@ -767,6 +783,20 @@ def build_pendentes(rep: Report):
             pend.append({"nome": _s(r[1]), "local": _s(r[2]), "cota": r[3],
                          "comprador": _s(r[4]), "tipo": tipo, "obs": _s(r[6]),
                          "reposicao": obs == "REPOSICAO"})
+        # EMBRIÕES pendentes: aba irmã, no mesmo arquivo. O relatório de 07/08/2026
+        # passou a somar embrião no card de sociedade ("07 (2 animais e 5 embriões)"),
+        # então ele entra na conta. Colunas: B doadora, C garanhão, D data IA,
+        # E receptora, F local, G comprador, H transação (VENDA/SOCIEDADE).
+        ws = wb["EMBRIOES VENDIDOS"]
+        for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+            if i < 4 or r[1] is None or not str(r[1]).strip():
+                continue
+            tipo = _norm(r[7])
+            if tipo not in ("VENDA", "SOCIEDADE"):
+                continue
+            pend_emb.append({"nome": f"{_s(r[1])} x {_s(r[2])}", "local": _s(r[5]),
+                             "cota": None, "comprador": _s(r[6]), "tipo": tipo,
+                             "obs": _s(r[4]), "reposicao": False, "especie": "EMBRIAO"})
         wb.close()
     except FileNotFoundError as exc:
         # NÃO engolir: sem esse arquivo, vendidos/sociedade pendentes e a lista da
@@ -786,7 +816,13 @@ def build_pendentes(rep: Report):
         print(f"  [terceiros] nenhum '{STATUS_VENDIDO_PENDENTE}' no STATUS PLANTEL; "
               f"vendidos pendentes ainda saindo do Animais para sair")
 
-    sociedade = [p for p in pend if p["tipo"] == "SOCIEDADE"]
+    # SOCIEDADE pendente = animais + embriões (regra do relatório desde 07/08/2026)
+    soc_animais = [p for p in pend if p["tipo"] == "SOCIEDADE"]
+    soc_embrioes = [p for p in pend_emb if p["tipo"] == "SOCIEDADE"]
+    sociedade = soc_animais + soc_embrioes
+    if not pend_emb:
+        print("  [pendentes] aba EMBRIOES VENDIDOS está vazia (só cabeçalho) — "
+              "sociedade pendente conta só os animais; embrião do relatório não tem fonte")
 
     # DOADORAS DE TERCEIROS: roster com CATEGORIA=DOADORA, STATUS PLANTEL de terceiro
     # e LOCAL=FAZENDA PAO GRANDE. Sem marcação na planilha, fica em branco (não zero:
@@ -800,6 +836,8 @@ def build_pendentes(rep: Report):
         "vendidos_pendentes": len(vendidos),
         "vendidos_pendentes_fonte": fonte_vendidos,
         "sociedade_pendentes": len(sociedade),
+        "sociedade_pendentes_animais": len(soc_animais),
+        "sociedade_pendentes_embrioes": len(soc_embrioes),
         "terceiros_propriedade": len(vendidos),   # terceiros na propriedade = vendidos (docx)
         "doadoras_terceiros": len(doadoras_terc) if doadoras_terc else None,
         "outros_terceiros": None,
@@ -807,7 +845,7 @@ def build_pendentes(rep: Report):
     rep.detalhe["doadoras_terceiros"] = doadoras_terc
     rep.detalhe["terceiros_vendidos"] = vendidos          # só os 2 vendidos (bate KPI seção 4)
     rep.detalhe["terceiros_sociedade"] = sociedade        # sociedade pendente de saída, listada igual
-    rep.detalhe["pendentes_saida"] = pend                 # lista completa (seção 5)
+    rep.detalhe["pendentes_saida"] = pend + pend_emb       # lista completa (seção 5)
 
 
 def _latest_animais_sair() -> Path:

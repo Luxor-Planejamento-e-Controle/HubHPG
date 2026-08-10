@@ -71,12 +71,21 @@ def _validacao(rep):
         ("Receptoras total", r["total"], dr["total"]),
         ("Receptoras prenhas", r["prenhas"], dr["prenhas"]),
         ("Receptoras vazias", r["vazias"], dr["vazias"]),
+        ("Índice eficiência", r.get("indice_eficiencia"), dr.get("indice")),
         ("Headcount total", h["total"], dh["total"]),
         ("Fazenda Pao Grande", h["fazenda_pg"], dh["fazenda_pg"]),
         ("Arrendamento", h["arrendamento"], dh["arrendamento"]),
+        ("Centro de Treinamento", h.get("cte"), dh.get("cte")),
         ("Sócios", h["socio"], dh["socio"]),
+        ("Δ headcount", h.get("delta"), dh.get("delta_net")),
         ("Saídas semana", s["saidas_semana"], ds["saidas_semana"]),
+        ("Entradas semana", s.get("entradas_semana"), ds.get("entradas")),
+        ("Transferências internas", s.get("transferencias_semana"), ds.get("transferencias")),
         ("Vendidos pendentes", rep.terceiros.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
+        ("Sociedade pendentes", rep.terceiros.get("sociedade_pendentes"),
+         ds.get("sociedade_pendentes")),
+        ("Total terceiros", rep.terceiros.get("terceiros_propriedade"),
+         dx["terceiros"].get("total")),
     ]
     def _eq(a, b):
         # docx "-" vira None = zero/nada; trata None e 0 como iguais
