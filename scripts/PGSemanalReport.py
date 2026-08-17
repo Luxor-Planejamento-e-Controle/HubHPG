@@ -901,7 +901,8 @@ def _plantel_por_status() -> dict:
     saídas, e NÃO migrou pro mensal: os dois rosters não reconciliam (148 animais vs
     224 no mensal, 58 sócios vs 62 mesmo descontando os 65 embriões). Trocar aqui
     mudaria o headcount publicado, que hoje bate exato com o relatório."""
-    wb = _load(_controle_plantel())
+    src = _controle_plantel()
+    wb = _load(src)
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_SEMANAL
     roster = []
@@ -912,7 +913,7 @@ def _plantel_por_status() -> dict:
         if nome:
             roster.append(nome)
     wb.close()
-    return {"roster": sorted(set(roster))}
+    return {"roster": sorted(set(roster)), "fonte": src.name}
 
 
 def _status_plantel_mensal() -> dict:
@@ -992,6 +993,7 @@ def _embrioes_pendentes() -> list:
 def build_pendentes(rep: Report):
     plantel = _plantel_por_status()
     rep.roster = plantel["roster"]
+    rep.fontes["roster_plantel"] = plantel["fonte"]
 
     # VENDIDOS / SOCIEDADE pendentes = aba ANIMAIS VENDIDOS do "Animais para sair"
     # (validado vs docx 17/07: VENDA≠REPOSIÇÃO=2 vendidos; SOCIEDADE=2). col5=tipo, col6=obs.
@@ -1077,15 +1079,9 @@ def build_pendentes(rep: Report):
 
 
 def _latest_animais_sair() -> Path:
-    """Arquivo 'Animais para sair*.xlsx' mais recente (por mtime — nome tem o ano).
-    Procura em todas as pastas de ANIMAIS_SAIR_DIRS: o arquivo já andou de pasta."""
-    cands = [f for d in ANIMAIS_SAIR_DIRS for f in d.glob("Animais para sair*.xlsx")
-             if not f.name.startswith("~$")]
-    if not cands:
-        raise FileNotFoundError(
-            "Nenhum 'Animais para sair*.xlsx' em: "
-            + " | ".join(str(d) for d in ANIMAIS_SAIR_DIRS))
-    return max(cands, key=lambda f: f.stat().st_mtime)
+    """'Animais para sair*.xlsx' — hoje só sociedade pendente (vendidos migraram pro
+    STATUS PLANTEL). Pasta canônica é VENDAS/SAIDA DE ANIMAIS VENDIDOS."""
+    return _resolver(ANIMAIS_SAIR_GLOB, ANIMAIS_SAIR_DIRS, "sociedade pendente")
 
 
 # ------------------------------------------------------------------
@@ -1208,6 +1204,7 @@ def build_report(ini: date, fim: date) -> Report:
     _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
     _persist_snapshot(rep)                        # congela snapshot CALCULADO desta semana
     rep.calendario = _calendario_dos_snapshots(rep.snapshots)
+    _avisar_pasta_de_saida()
     return rep
 
 
