@@ -1088,6 +1088,12 @@ def _is_iso(s: str) -> bool:
 
 def build_report(ini: date, fim: date) -> Report:
     rep = Report(semana_inicio=ini.isoformat(), semana_fim=fim.isoformat())
+    # ANTES dos builds: build_movimentacao -> _transferencias_internas compara com o
+    # snapshot da semana anterior usando `wid < rep.semana_atual`. Atribuído depois,
+    # semana_atual era "" ali, nenhuma semana passava no teste e o diff caía sempre no
+    # bootstrap contra o arquivo anterior de receptoras — em 14/08/2026 isso recontou
+    # as 14 transferências de 07/08 (o diff real dos snapshots é 0).
+    rep.semana_atual = fim.isoformat()           # semana de referência = data do fechamento
     build_producao(rep, ini, fim)
     build_receptoras(rep)
     build_headcount(rep)
@@ -1095,7 +1101,6 @@ def build_report(ini: date, fim: date) -> Report:
     build_movimentacao(rep, ini, fim)
     build_comerciais(rep)
     build_pendentes(rep)
-    rep.semana_atual = fim.isoformat()           # semana de referência = data do fechamento
     rep.docx_ref = _load_docx_ref()               # relatórios oficiais (validação + seed do 1º caso)
     _compute_movimento(rep)                       # saídas/entradas = diff da população contada
     _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
