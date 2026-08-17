@@ -195,7 +195,10 @@ def _resolver(pattern: str, dirs, rotulo: str, requer_aba: str | None = None) ->
                 continue
             if recusados:
                 print(f"  [fontes] {rotulo}: ignorado(s) {'; '.join(recusados)}")
-            if d == FALLBACK_DIR:
+            # o roster é resolvido 5x no run (headcount, doadoras, conferência...);
+            # o aviso é sobre o ARQUIVO, então registra uma vez só
+            if d == FALLBACK_DIR and (rotulo, f.name) not in {
+                    (r, n) for r, n, _ in _NA_PASTA_DE_SAIDA}:
                 _NA_PASTA_DE_SAIDA.append((rotulo, f.name, dirs[0]))
             return f
     detalhe = (" | recusados: " + "; ".join(recusados)) if recusados else ""
@@ -215,7 +218,8 @@ def _avisar_pasta_de_saida():
 
 
 def _controle_plantel() -> Path:
-    return _resolver(CONTROLE_PLANTEL_GLOB, CONTROLE_PLANTEL_DIRS, "roster do plantel")
+    return _resolver(CONTROLE_PLANTEL_GLOB, CONTROLE_PLANTEL_DIRS, "roster do plantel",
+                     requer_aba="PLANTEL")
 
 
 def _latest_estacao_master() -> Path:
@@ -286,7 +290,8 @@ def _col_idx(hdr, *nomes) -> int:
 
 
 def _latest_emb_matrizes() -> Path:
-    return _resolver(EMB_MATRIZES_GLOB, EMB_MATRIZES_DIRS, "acumulado na estação")
+    return _resolver(EMB_MATRIZES_GLOB, EMB_MATRIZES_DIRS, "acumulado na estação",
+                     requer_aba="EMBRIÕES PAO GRANDE")
 
 
 def _acumulado_grupo() -> dict:
@@ -1106,7 +1111,8 @@ def build_pendentes(rep: Report):
 def _latest_animais_sair() -> Path:
     """'Animais para sair*.xlsx' — hoje só sociedade pendente (vendidos migraram pro
     STATUS PLANTEL). Pasta canônica é VENDAS/SAIDA DE ANIMAIS VENDIDOS."""
-    return _resolver(ANIMAIS_SAIR_GLOB, ANIMAIS_SAIR_DIRS, "sociedade pendente")
+    return _resolver(ANIMAIS_SAIR_GLOB, ANIMAIS_SAIR_DIRS, "sociedade pendente",
+                     requer_aba="ANIMAIS VENDIDOS")
 
 
 # ------------------------------------------------------------------
