@@ -824,41 +824,78 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
 # ------------------------------------------------------------------
 # Seção 4b — PENDENTES DE SAÍDA / TERCEIROS  (CONTROLE PLANTEL aba PLANTEL)
 # ------------------------------------------------------------------
-# Reunião com o haras (2026-07-31): vendidos pendentes e doadoras de terceiros
-# passam a sair do roster, pela coluna STATUS PLANTEL. Os valores abaixo ainda NÃO
-# existem na planilha — o haras vai preencher. Enquanto não houver nenhuma linha
-# marcada, cada indicador cai na fonte antiga (vendidos) ou fica em branco
-# (doadoras de terceiros), e o run avisa qual fonte usou.
+# Reunião com o haras (2026-07-31): vendidos pendentes e terceiros passam a sair do
+# roster, pela coluna STATUS PLANTEL.
+#
+# O haras CUMPRIU — só que no CONTROLE_DE_PLANTEL_PAO_GRANDE mensal (pasta PLANTEL),
+# não na cópia semanal. Vocabulário de STATUS PLANTEL em 14/08/2026:
+#   semanal (CONTROLE PLANTEL.xlsx) : PLANTEL 143, VENDIDO 6
+#   mensal  (CONTROLE_DE_PLANTEL...) : PLANTEL 224, VENDIDO E ENTREGUE 108, OBITO 26,
+#                                      DOADO 16, DE TERCEIRO 8, VENDIDO PENDENTE SAIDA 6,
+#                                      VENDIDO 3
+# Lendo o arquivo errado, os dois indicadores morriam em silêncio: vendidos caía no
+# 'Animais para sair', congelado em 24/07 (2 em vez de 6, faltando PATRIMONIO, PODIO e
+# PAETE) e terceiros saía 2 em vez de 8. O relatório oficial de 14/08 traz 08 terceiros
+# e 06 animais vendidos pendentes — os números do MENSAL.
 STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"
 STATUS_TERCEIRO = "TERCEIRO"
+# Layout da aba PLANTEL nos dois arquivos (0-based). O mensal é o mesmo roster com 3
+# colunas a mais na frente e cabeçalho 3 linhas abaixo — por isso não dá pra apontar
+# o mesmo leitor pros dois sem parametrizar.
+PLANTEL_LAYOUT_SEMANAL = {"linha1": 2, "nome": 0, "categoria": 2, "status": 3, "local": 4}
+PLANTEL_LAYOUT_MENSAL = {"linha1": 5, "nome": 3, "categoria": 5, "status": 6, "local": 7}
 
 
 def _plantel_por_status() -> dict:
-    """Lê o roster uma vez e devolve o que depende de STATUS PLANTEL / CATEGORIA.
-    Colunas: A nome, C categoria, D status plantel, E local, F status."""
+    """Roster do plantel (nomes) da cópia semanal — é a base do headcount e do diff de
+    saídas, e NÃO migrou pro mensal: os dois rosters não reconciliam (148 animais vs
+    224 no mensal, 58 sócios vs 62 mesmo descontando os 65 embriões). Trocar aqui
+    mudaria o headcount publicado, que hoje bate exato com o relatório."""
     wb = _load(CONTROLE_PLANTEL_SEMANAL)
     ws = wb["PLANTEL"]
-    roster, vendidos_pend, doadoras_terc = [], [], []
+    L = PLANTEL_LAYOUT_SEMANAL
+    roster = []
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-        if i < 2 or r[0] is None:
+        if i < L["linha1"] or r[L["nome"]] is None:
             continue
-        nome = _s(r[0])
+        nome = _s(r[L["nome"]])
+        if nome:
+            roster.append(nome)
+    wb.close()
+    return {"roster": sorted(set(roster))}
+
+
+def _status_plantel_mensal() -> dict:
+    """Vendidos pendentes e terceiros pela coluna STATUS PLANTEL do CONTROLE_DE_PLANTEL
+    mensal. Devolve as listas cruas; quem chama decide o que é zero e o que é ausência."""
+    src = _latest_by_yymmdd(CONTROLE_MENSAL_DIR, "*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx")
+    wb = _load(src)
+    ws = wb["PLANTEL"]
+    L = PLANTEL_LAYOUT_MENSAL
+    vendidos_pend, terceiros, marcado = [], [], False
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i < L["linha1"] or r[L["nome"]] is None:
+            continue
+        nome = _s(r[L["nome"]])
         if not nome:
             continue
-        roster.append(nome)
-        status_plantel = _norm(r[3])
-        categoria, local = _norm(r[2]), _norm(r[4])
+        status_plantel = _norm(r[L["status"]])
+        categoria, local = _norm(r[L["categoria"]]), _s(r[L["local"]])
         if STATUS_VENDIDO_PENDENTE in status_plantel:
-            vendidos_pend.append({"nome": nome, "local": _s(r[4]), "cota": None,
-                                  "comprador": None, "tipo": "VENDA", "obs": _s(r[5]),
-                                  "reposicao": False})
-        if (categoria == "DOADORA" and STATUS_TERCEIRO in status_plantel
-                and local == "FAZENDA PAO GRANDE"):
-            doadoras_terc.append({"nome": nome, "local": _s(r[4]), "categoria": categoria})
+            marcado = True
+            vendidos_pend.append({"nome": nome, "local": local, "cota": None,
+                                  "comprador": None, "tipo": "VENDA",
+                                  "obs": _s(r[L["status"]]), "reposicao": False,
+                                  "categoria": categoria,
+                                  "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
+        if STATUS_TERCEIRO in status_plantel:
+            marcado = True
+            terceiros.append({"nome": nome, "local": local, "categoria": categoria,
+                              "status_plantel": _s(r[L["status"]]),
+                              "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
     wb.close()
-    return {"roster": sorted(set(roster)),
-            "vendidos_pendentes": vendidos_pend,
-            "doadoras_terceiros": doadoras_terc}
+    return {"fonte": src.name, "marcado": marcado,
+            "vendidos_pendentes": vendidos_pend, "terceiros": terceiros}
 
 
 # Embrião comercial pendente de saída: aba ENTREGAR do "EMBRIOES A ENTREGAR - A
@@ -932,31 +969,41 @@ def build_pendentes(rep: Report):
               f"e pendentes de saída ficam ZERADOS nesta semana")
     pend_emb = _embrioes_pendentes()
 
-    # VENDIDOS PENDENTES: fonte nova é o roster (STATUS PLANTEL). Enquanto o haras
-    # não marcar ninguém lá, segue valendo o "Animais para sair".
-    vendidos_plantel = plantel["vendidos_pendentes"]
-    if vendidos_plantel:
-        vendidos = vendidos_plantel
-        fonte_vendidos = "plantel"
+    # VENDIDOS PENDENTES: fonte é o STATUS PLANTEL do controle mensal. O "Animais para
+    # sair" só entra se ninguém estiver marcado lá — e aí com aviso, porque ele está
+    # congelado desde 24/07/2026 e perde os marcados depois disso.
+    mensal = _status_plantel_mensal()
+    rep.fontes["status_plantel"] = mensal["fonte"]
+    if mensal["vendidos_pendentes"]:
+        vendidos = mensal["vendidos_pendentes"]
+        fonte_vendidos = "status_plantel"
     else:
         vendidos = [p for p in pend if p["tipo"] == "VENDA" and not p["reposicao"]]
         fonte_vendidos = "animais_para_sair"
-        print(f"  [terceiros] nenhum '{STATUS_VENDIDO_PENDENTE}' no STATUS PLANTEL; "
-              f"vendidos pendentes ainda saindo do Animais para sair")
+        print(f"  [terceiros] nenhum '{STATUS_VENDIDO_PENDENTE}' no STATUS PLANTEL de "
+              f"{mensal['fonte']}; vendidos pendentes caindo no Animais para sair "
+              f"(congelado em 24/07/2026)")
 
-    # SOCIEDADE pendente = animais + embriões (regra do relatório desde 07/08/2026)
+    # SOCIEDADE pendente = animais + embriões (regra do relatório desde 07/08/2026).
+    # Continua no "Animais para sair" porque o STATUS PLANTEL não marca sociedade —
+    # MUSICA e NOBRE estão lá como 'PLANTEL' puro.
     soc_animais = [p for p in pend if p["tipo"] == "SOCIEDADE"]
     soc_embrioes = [p for p in pend_emb if p["tipo"] == "SOCIEDADE"]
     sociedade = soc_animais + soc_embrioes
     rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
 
-    # DOADORAS DE TERCEIROS: roster com CATEGORIA=DOADORA, STATUS PLANTEL de terceiro
-    # e LOCAL=FAZENDA PAO GRANDE. Sem marcação na planilha, fica em branco (não zero:
-    # zero afirmaria que não há nenhuma, e o que temos é ausência de informação).
-    doadoras_terc = plantel["doadoras_terceiros"]
-    if not doadoras_terc:
-        print(f"  [terceiros] nenhuma doadora com STATUS PLANTEL de {STATUS_TERCEIRO} "
-              f"na FPG; card fica em branco")
+    # TERCEIROS NA PROPRIEDADE = STATUS PLANTEL 'DE TERCEIRO', animais + embriões. Era
+    # `len(vendidos)`, que só por acaso dava o mesmo número enquanto as duas coisas
+    # tinham 2 linhas; em 14/08/2026 são 6 vendidos e 8 terceiros, coisas diferentes.
+    terceiros = mensal["terceiros"]
+    terc_embrioes = [t for t in terceiros if t.get("especie") == "EMBRIAO"]
+    terc_animais = [t for t in terceiros if t.get("especie") != "EMBRIAO"]
+    # DOADORAS DE TERCEIROS: recorte do acima por CATEGORIA. Sem marcação, fica em
+    # branco (não zero: zero afirmaria que não há nenhuma, e o que temos é ausência).
+    doadoras_terc = [t for t in terceiros if t["categoria"] == "DOADORA"]
+    if not mensal["marcado"]:
+        print(f"  [terceiros] nenhuma linha marcada com {STATUS_TERCEIRO} ou "
+              f"{STATUS_VENDIDO_PENDENTE} em {mensal['fonte']}")
 
     rep.terceiros.update({
         "vendidos_pendentes": len(vendidos),
@@ -964,14 +1011,19 @@ def build_pendentes(rep: Report):
         "sociedade_pendentes": len(sociedade),
         "sociedade_pendentes_animais": len(soc_animais),
         "sociedade_pendentes_embrioes": len(soc_embrioes),
-        "terceiros_propriedade": len(vendidos),   # terceiros na propriedade = vendidos (docx)
+        "terceiros_propriedade": len(terceiros),
+        "terceiros_animais": len(terc_animais),
+        "terceiros_embrioes": len(terc_embrioes),
         "doadoras_terceiros": len(doadoras_terc) if doadoras_terc else None,
         "outros_terceiros": None,
     })
     rep.detalhe["doadoras_terceiros"] = doadoras_terc
-    rep.detalhe["terceiros_vendidos"] = vendidos          # só os 2 vendidos (bate KPI seção 4)
+    rep.detalhe["terceiros_propriedade"] = terceiros
+    rep.detalhe["terceiros_vendidos"] = vendidos          # vendidos pendentes (KPI seção 5)
     rep.detalhe["terceiros_sociedade"] = sociedade        # sociedade pendente de saída, listada igual
-    rep.detalhe["pendentes_saida"] = pend + pend_emb       # lista completa (seção 5)
+    # lista completa da seção 5 = o que os dois KPIs contam. Era `pend + pend_emb` (só
+    # o "Animais para sair"), então os marcados no STATUS PLANTEL não apareciam.
+    rep.detalhe["pendentes_saida"] = vendidos + sociedade
 
 
 def _latest_animais_sair() -> Path:
