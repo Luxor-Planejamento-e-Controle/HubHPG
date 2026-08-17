@@ -42,33 +42,49 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # raiz do projeto (scripts/ f
 # ------------------------------------------------------------------
 # Localização das fontes (layout novo do Drive)
 # ------------------------------------------------------------------
-CONTROLE_PLANTEL_SEMANAL = DRIVE_ROOT / "ATUALIZACAO SEMANAL" / "CONTROLE PLANTEL.xlsx"
-SAIDA_ENTRADA = (
-    DRIVE_ROOT / "PLANILHAS SEMANAIS"
-    / "SAIDA E ENTRADA DE ANIMAIS - MODELO ENVIAR NO GRUPO.xlsx"
+# ATUALIZACAO SEMANAL é a pasta de SAÍDA do fechamento — é onde o relatório em Word é
+# publicado. Puxar dado de lá é ler do lugar errado: as três planilhas que moram ali
+# pertencem, por assunto, a PLANTEL, REPRODUÇÃO e VENDAS.
+#
+# Foi feita a varredura por substituto de CONTEÚDO e não existe: o acumulado de 61 não
+# aparece em nenhuma aba da estação de monta (PLANEJAMENTO e REC. EMBR. dão 56, RESUMO
+# está com as fórmulas em #REF!) nem no controle mensal (aba EMBRIOES PG é financeira;
+# os 65 embriões do roster estão com a coluna SAFRA vazia); e pendência de sociedade
+# não é marcada em lugar nenhum — o MAPA VENDAS é histórico de vendas, sem status.
+#
+# Então o que falta é MUDAR OS ARQUIVOS DE PASTA, não trocar de fonte. Cada caminho
+# abaixo é uma LISTA em ordem de preferência: a pasta canônica primeiro, ATUALIZACAO
+# SEMANAL só como último recurso e com aviso no run. No dia em que o haras mover os
+# arquivos, o pipeline segue sozinho — e enquanto não mover, o run diz o que falta.
+FALLBACK_DIR = DRIVE_ROOT / "ATUALIZACAO SEMANAL"
+
+# Roster do plantel: assunto é PLANTEL.
+CONTROLE_PLANTEL_DIRS = (DRIVE_ROOT / "PLANTEL", FALLBACK_DIR)
+CONTROLE_PLANTEL_GLOB = "CONTROLE PLANTEL.xlsx"
+# "EMBRIÕES E MATRIZES - MODELO ENVIAR NO GRUPO 3 <DD-MM>.xlsx" — fonte do acumulado na
+# estação. Assunto é REPRODUÇÃO; já morou em PLANILHAS SEMANAIS. Sufixo de data muda
+# (e mente: a cópia viva se chama "30-05" e é de agosto), então resolve por glob+mtime.
+EMB_MATRIZES_DIRS = (
+    DRIVE_ROOT / "REPRODUÇÃO" / "ESTAÇÃO DE MONTA",
+    DRIVE_ROOT / "REPRODUÇÃO",
+    FALLBACK_DIR,
 )
-# "EMBRIÕES E MATRIZES - MODELO ENVIAR NO GRUPO 3 <DD-MM>.xlsx" — a planilha que o
-# haras manda no grupo e que É a fonte do acumulado na estação. O sufixo de data
-# muda, então resolvemos por glob (mais recente por mtime). Mora em ATUALIZACAO
-# SEMANAL desde a reorganização do Drive (antes era PLANILHAS SEMANAIS).
-EMB_MATRIZES_DIR = DRIVE_ROOT / "ATUALIZACAO SEMANAL"
 EMB_MATRIZES_GLOB = "EMBRI*E MATRIZES*.xlsx"
+# Animais para sair (hoje só sociedade pendente) — assunto é VENDAS. A pasta
+# PLANILHAS PARA O EDUARDO saiu da lista: não tem nenhum arquivo desse nome.
+ANIMAIS_SAIR_DIRS = (
+    DRIVE_ROOT / "VENDAS" / "SAIDA DE ANIMAIS VENDIDOS",
+    FALLBACK_DIR,
+)
+ANIMAIS_SAIR_GLOB = "Animais para sair*.xlsx"
+
 EMB_COMERCIAIS = DRIVE_ROOT / "REPRODUÇÃO" / "EMBRIOES A ENTREGAR - A RECEBER.xlsx"
 ESTACAO_MASTER_DIR = (
     DRIVE_ROOT / "REPRODUÇÃO" / "ESTAÇÃO DE MONTA" / "Estação 2025-2026"
 )
-# Receptoras (aba ATUALIZAÇÃO SEMANAL pré-agregada) e Mapa de Vendas — por data no prefixo
 RECEPTORAS_DIR = DRIVE_ROOT / "PLANTEL" / "Estação 2025-2026"
-MAPA_VENDAS_DIR = DRIVE_ROOT / "VENDAS" / "MAPAS DE VENDAS" / "Estação 2025-2026"
-# CONTROLE_DE_PLANTEL mensal (aba MOVIMENTAÇÕES datada) — mesma pasta das receptoras
+# CONTROLE_DE_PLANTEL mensal (STATUS PLANTEL, SAIDAS-ENTRADAS, MOVIMENTAÇÕES)
 CONTROLE_MENSAL_DIR = RECEPTORAS_DIR
-# Animais para sair (vendidos/sociedade pendentes) — aba ANIMAIS VENDIDOS.
-# O arquivo mudou de pasta (saiu de PLANILHAS PARA O EDUARDO, hoje mora em
-# ATUALIZACAO SEMANAL), então procuramos nas duas e ficamos com o mais recente.
-ANIMAIS_SAIR_DIRS = (
-    DRIVE_ROOT / "ATUALIZACAO SEMANAL",
-    DRIVE_ROOT / "PLANILHAS PARA O EDUARDO",
-)
 
 HIST_HEADCOUNT = BASE_DIR / "_cache" / "headcount_history.json"
 HIST_SNAPSHOTS = BASE_DIR / "_cache" / "semanal_snapshots.json"
@@ -139,6 +155,44 @@ def _latest_by_mtime(folder: Path, pattern: str) -> Path:
     return max(cands, key=lambda f: f.stat().st_mtime)
 
 
+# Arquivos ainda resolvidos na pasta de saída — o run avisa no fim.
+_NA_PASTA_DE_SAIDA: list = []
+
+
+def _resolver(pattern: str, dirs, rotulo: str) -> Path:
+    """Primeiro diretório da lista que tenha o arquivo; dentro dele, o mais recente por
+    mtime. A ordem é intencional (pasta canônica antes do fallback), então NÃO compare
+    mtime entre diretórios: a cópia velha no lugar certo ganha da nova no lugar errado
+    — é assim que a migração acontece sozinha quando alguém move o arquivo."""
+    tentadas = []
+    for d in dirs:
+        tentadas.append(str(d))
+        if not d.exists():
+            continue
+        cands = [f for f in d.glob(pattern) if not f.name.startswith("~$")]
+        if cands:
+            achado = max(cands, key=lambda f: f.stat().st_mtime)
+            if d == FALLBACK_DIR:
+                _NA_PASTA_DE_SAIDA.append((rotulo, achado.name, dirs[0]))
+            return achado
+    raise FileNotFoundError(f"Nenhum {pattern!r} ({rotulo}) em: " + " | ".join(tentadas))
+
+
+def _avisar_pasta_de_saida():
+    """Fecha o run listando o que ainda sai da pasta de publicação e pra onde deveria
+    ir. Sem isso a dependência some de vista e ninguém move o arquivo."""
+    if not _NA_PASTA_DE_SAIDA:
+        return
+    print(f"  [fontes] {len(_NA_PASTA_DE_SAIDA)} arquivo(s) ainda lidos de "
+          f"{FALLBACK_DIR.name} (pasta de publicação, não de dado):")
+    for rotulo, nome, destino in _NA_PASTA_DE_SAIDA:
+        print(f"    - {rotulo}: {nome}  ->  mover para {destino.name}")
+
+
+def _controle_plantel() -> Path:
+    return _resolver(CONTROLE_PLANTEL_GLOB, CONTROLE_PLANTEL_DIRS, "roster do plantel")
+
+
 def _latest_estacao_master() -> Path:
     return _latest_by_mtime(ESTACAO_MASTER_DIR, "*ESTACAO DE MONTA.xlsx")
 
@@ -207,11 +261,7 @@ def _col_idx(hdr, *nomes) -> int:
 
 
 def _latest_emb_matrizes() -> Path:
-    cands = [f for f in EMB_MATRIZES_DIR.glob(EMB_MATRIZES_GLOB)
-             if not f.name.startswith("~$")]
-    if not cands:
-        raise FileNotFoundError(f"Nenhuma planilha {EMB_MATRIZES_GLOB} em {EMB_MATRIZES_DIR}")
-    return max(cands, key=lambda f: f.stat().st_mtime)
+    return _resolver(EMB_MATRIZES_GLOB, EMB_MATRIZES_DIRS, "acumulado na estação")
 
 
 def _acumulado_grupo() -> dict:
@@ -482,7 +532,7 @@ def _count_doadoras(local: str | None = None) -> int:
     """Doadoras no plantel = CATEGORIA 'DOADORA' na aba PLANTEL do CONTROLE PLANTEL
     semanal. Com `local`, conta só as daquele LOCAL. Referência/conferência —
     o índice usa DOADORAS_INDICE."""
-    wb = _load(CONTROLE_PLANTEL_SEMANAL)
+    wb = _load(_controle_plantel())
     ws = wb["PLANTEL"]
     n = 0
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
@@ -541,7 +591,7 @@ def _slug_local(local: str) -> str:
 
 def _contagem_declarada() -> dict:
     """Valores da aba CONTAGEM — só para conferência, não é fonte."""
-    wb = _load(CONTROLE_PLANTEL_SEMANAL)
+    wb = _load(_controle_plantel())
     ws = wb["CONTAGEM"]
     out = {}
     for r in ws.iter_rows(values_only=True):
@@ -573,7 +623,7 @@ def _receptoras_por_local() -> dict:
 
 def build_headcount(rep: Report):
     # 1) animais: COUNTIF por LOCAL no roster
-    wb = _load(CONTROLE_PLANTEL_SEMANAL)
+    wb = _load(_controle_plantel())
     ws = wb["PLANTEL"]
     animais: dict[str, int] = {}
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
@@ -851,7 +901,7 @@ def _plantel_por_status() -> dict:
     saídas, e NÃO migrou pro mensal: os dois rosters não reconciliam (148 animais vs
     224 no mensal, 58 sócios vs 62 mesmo descontando os 65 embriões). Trocar aqui
     mudaria o headcount publicado, que hoje bate exato com o relatório."""
-    wb = _load(CONTROLE_PLANTEL_SEMANAL)
+    wb = _load(_controle_plantel())
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_SEMANAL
     roster = []
