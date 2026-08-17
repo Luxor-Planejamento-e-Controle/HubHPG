@@ -1156,6 +1156,10 @@ def _compute_movimento(rep: Report):
         rep.saidas["saidas_semana"] = len(sai)
         rep.saidas["entradas_semana"] = len(ent)
         rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
+        # O Δ do headcount só pode ser conferido contra quem entra/sai da CONTAGEM:
+        # saída pro sócio deixa a fazenda e continua contada (ver CLASSIF_FORA_DO_DELTA).
+        rep.saidas["saidas_no_headcount"] = sum(1 for x in sai if x.get("afeta_headcount"))
+        rep.saidas["entradas_no_headcount"] = sum(1 for x in ent if x.get("afeta_headcount"))
         rep.detalhe["saidas_diff"] = sai
         rep.detalhe["entradas_diff"] = ent
         _conferir_delta(rep)
@@ -1210,6 +1214,11 @@ def _conferir_delta(rep: Report):
     (CONTAGEM vs diff da população), então uma confere a outra. Divergir significa
     movimentação que não passou pelas planilhas — tem de aparecer, não sumir."""
     ent, sai = rep.saidas.get("entradas_semana"), rep.saidas.get("saidas_semana")
+    # O Δ mostrado (badge '+00 / -00' do dashboard) é o movimento que MEXE na
+    # CONTAGEM, não o total de saídas: quem vai pro sócio sai da fazenda e continua no
+    # headcount. Sem essa separação o badge diria -1 com o total parado em 203.
+    ent = rep.saidas.get("entradas_no_headcount", ent)
+    sai = rep.saidas.get("saidas_no_headcount", sai)
     rep.headcount["delta_entradas"] = ent
     rep.headcount["delta_saidas"] = sai
     delta = rep.headcount.get("delta")
