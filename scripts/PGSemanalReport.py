@@ -649,11 +649,37 @@ def _categorize_mov(obs: str):
 
 
 # Aba SAIDAS-ENTRADAS do controle mensal (reunião 2026-07-31): fonte oficial de
-# saída/entrada quando o haras começar a preencher. Hoje só tem o cabeçalho.
+# saída/entrada. O haras começou a preencher em 12/08/2026.
 # Colunas: B animal, C local saída, D local entrada, E data, F classificação.
 # Δ combinado: entrada = nascimento + compra; saída = venda + morte.
+#
+# A classificação vem digitada com o sentido colado no motivo — a primeira linha real
+# foi 'SAIDA-SOCIO'. Só as palavras de motivo abaixo não bastavam: 'SAIDA-SOCIO' não
+# casava com nada, caía no `else None` e era descartada em silêncio. Como a aba já
+# tinha linha, ela vencia como fonte oficial e a saída da semana virava 0 — foi assim
+# que LINDEZA DA PAO GRANDE (12/08/2026) sumiu do fechamento de 14/08.
 CLASSIF_ENTRADA = ("NASCIMENTO", "COMPRA")
-CLASSIF_SAIDA = ("VENDA", "MORTE")
+CLASSIF_SAIDA = ("VENDA", "MORTE", "SOCIO")
+# Saída da FAZENDA que continua no PLANTEL: a aba CONTAGEM conta o sócio, então o
+# animal que vai pro sócio é saída na seção 5 e NÃO mexe no Δ do headcount. É o que o
+# relatório oficial faz em 14/08/2026: 'Saídas na semana: 01' com 'Δ +00 / -00'.
+CLASSIF_FORA_DO_DELTA = ("SOCIO",)
+
+
+def _classificar_se(classif: str):
+    """(sentido, afeta_headcount) da classificação da aba SAIDAS-ENTRADAS.
+    (None, None) = vocabulário desconhecido; quem chama tem de avisar, não engolir."""
+    def _sai():
+        return "SAIDA", not any(c in classif for c in CLASSIF_FORA_DO_DELTA)
+    if classif.startswith("ENTRADA"):
+        return "ENTRADA", True
+    if classif.startswith("SAIDA"):
+        return _sai()
+    if any(c in classif for c in CLASSIF_ENTRADA):
+        return "ENTRADA", True
+    if any(c in classif for c in CLASSIF_SAIDA):
+        return _sai()
+    return None, None
 
 
 def _saidas_entradas_planilha(wb, ini: date, fim: date):
@@ -663,6 +689,7 @@ def _saidas_entradas_planilha(wb, ini: date, fim: date):
         return None
     evs = {"SAIDA": [], "ENTRADA": []}
     achou = False
+    desconhecidas = []
     for i, r in enumerate(wb["SAIDAS-ENTRADAS"].iter_rows(values_only=True), start=1):
         if i < 3 or r[1] is None or not str(r[1]).strip():
             continue
@@ -671,12 +698,18 @@ def _saidas_entradas_planilha(wb, ini: date, fim: date):
         if not d or not (ini <= d <= fim):
             continue
         classif = _norm(r[5])
-        alvo = ("ENTRADA" if any(c in classif for c in CLASSIF_ENTRADA)
-                else "SAIDA" if any(c in classif for c in CLASSIF_SAIDA) else None)
-        if alvo:
-            evs[alvo].append({"animal": _s(r[1]), "data": d.isoformat(),
-                              "classificacao": _s(r[5]),
-                              "local_saida": _s(r[2]), "local_entrada": _s(r[3])})
+        alvo, afeta = _classificar_se(classif)
+        if alvo is None:
+            # classificação nova na planilha: avisar, nunca virar zero calado
+            desconhecidas.append(f"linha {i} ({_s(r[1])}): {_s(r[5])!r}")
+            continue
+        evs[alvo].append({"animal": _s(r[1]), "data": d.isoformat(),
+                          "classificacao": _s(r[5]), "afeta_headcount": afeta,
+                          "local_saida": _s(r[2]), "local_entrada": _s(r[3])})
+    if desconhecidas:
+        print(f"  [SAIDAS-ENTRADAS] classificação não reconhecida em "
+              f"{len(desconhecidas)} linha(s) da janela — NÃO entraram na conta: "
+              + "; ".join(desconhecidas))
     return evs if achou else None
 
 
