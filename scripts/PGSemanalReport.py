@@ -159,23 +159,48 @@ def _latest_by_mtime(folder: Path, pattern: str) -> Path:
 _NA_PASTA_DE_SAIDA: list = []
 
 
-def _resolver(pattern: str, dirs, rotulo: str) -> Path:
+def _tem_aba(f: Path, aba: str) -> bool:
+    """Só os nomes das abas — não carrega célula nenhuma nem passa pelo cache."""
+    try:
+        wb = openpyxl.load_workbook(f, read_only=True)
+    except Exception:
+        return False
+    try:
+        return aba in wb.sheetnames
+    finally:
+        wb.close()
+
+
+def _resolver(pattern: str, dirs, rotulo: str, requer_aba: str | None = None) -> Path:
     """Primeiro diretório da lista que tenha o arquivo; dentro dele, o mais recente por
     mtime. A ordem é intencional (pasta canônica antes do fallback), então NÃO compare
     mtime entre diretórios: a cópia velha no lugar certo ganha da nova no lugar errado
-    — é assim que a migração acontece sozinha quando alguém move o arquivo."""
-    tentadas = []
+    — é assim que a migração acontece sozinha quando alguém move o arquivo.
+
+    `requer_aba` existe porque casar o nome não basta. O glob do Windows é
+    case-insensitive e 'Animais para sair*.xlsx' casa o legado 'ANIMAIS PARA SAIR OU
+    BUSCAR - ATUALIZADA 02-01-25.xlsx', de 2025 e com outro layout — a pasta canônica
+    tinha um homônimo velho. Candidato sem a aba esperada é descartado, com aviso: um
+    arquivo com o nome certo e a estrutura errada não pode virar fonte em silêncio."""
+    tentadas, recusados = [], []
     for d in dirs:
         tentadas.append(str(d))
         if not d.exists():
             continue
-        cands = [f for f in d.glob(pattern) if not f.name.startswith("~$")]
-        if cands:
-            achado = max(cands, key=lambda f: f.stat().st_mtime)
+        cands = sorted((f for f in d.glob(pattern) if not f.name.startswith("~$")),
+                       key=lambda f: f.stat().st_mtime, reverse=True)
+        for f in cands:
+            if requer_aba and not _tem_aba(f, requer_aba):
+                recusados.append(f"{f.name} (sem aba {requer_aba!r})")
+                continue
+            if recusados:
+                print(f"  [fontes] {rotulo}: ignorado(s) {'; '.join(recusados)}")
             if d == FALLBACK_DIR:
-                _NA_PASTA_DE_SAIDA.append((rotulo, achado.name, dirs[0]))
-            return achado
-    raise FileNotFoundError(f"Nenhum {pattern!r} ({rotulo}) em: " + " | ".join(tentadas))
+                _NA_PASTA_DE_SAIDA.append((rotulo, f.name, dirs[0]))
+            return f
+    detalhe = (" | recusados: " + "; ".join(recusados)) if recusados else ""
+    raise FileNotFoundError(
+        f"Nenhum {pattern!r} ({rotulo}) em: " + " | ".join(tentadas) + detalhe)
 
 
 def _avisar_pasta_de_saida():
