@@ -307,16 +307,20 @@ def _acumulado_grupo() -> dict:
     A aba ICSI fica de fora: hoje só tem safra 2023/2024."""
     src = _latest_emb_matrizes()
     wb = _load(src)
-    out = {"pg": 0, "socio": 0, "vendido": 0, "fonte": src.name}
+    out = {"pg": 0, "socio": 0, "vendido": 0, "fonte": src.name, "chaves": set()}
     for aba, fatia_fixa in ABAS_ACUMULADO:
         if aba not in wb.sheetnames:
             print(f"  [acumulado] aba {aba!r} não existe em {src.name} — fatia zerada")
             continue
-        iest = ist = None
+        iest = ist = idoa = igar = irec = None
         for i, r in enumerate(wb[aba].iter_rows(values_only=True), start=1):
             if i == HDR_ROW_ACUMULADO:
                 iest = _col_idx(r, "ESTACAO")
                 ist = None if fatia_fixa else _col_idx(r, "STATUS")
+                # as duas abas têm as mesmas colunas em posições diferentes
+                # (RECEPTORA é a 5ª numa e a 4ª na outra) — resolver por nome
+                idoa, igar, irec = (_col_idx(r, "DOADORA"), _col_idx(r, "GARANHÃO"),
+                                    _col_idx(r, "RECEPTORA"))
                 continue
             if i <= HDR_ROW_ACUMULADO or r[1] is None or not str(r[1]).strip():
                 continue
@@ -324,9 +328,21 @@ def _acumulado_grupo() -> dict:
                 continue
             fatia = fatia_fixa or ("vendido" if _norm(r[ist]) == "VENDIDO" else "socio")
             out[fatia] += 1
+            out["chaves"].add(_chave_embriao(r[idoa], r[igar], r[irec]))
     wb.close()
     out["total"] = out["pg"] + out["socio"] + out["vendido"]
     return out
+
+
+def _chave_embriao(doadora, garanhao, receptora) -> tuple:
+    """Identidade do embrião entre a planilha do grupo e a aba ESTAÇÃO. Receptora
+    normalizada porque vem '309' numa e 309.0 na outra."""
+    def _rec(v):
+        try:
+            return str(int(float(v)))
+        except (TypeError, ValueError):
+            return _norm(v)
+    return (_norm(doadora), _norm(garanhao), _rec(receptora))
 
 
 def _mortes_do_plantel(ini: date, fim: date) -> list:
@@ -460,11 +476,27 @@ def build_producao(rep: Report, ini: date, fim: date):
         print(f"  [produção] +{len(mortes_plantel)} óbito(s) da aba "
               f"'CONFIRMAÇÕES, ABORTOS, MORTES' do controle mensal")
 
-    # parições da safra inteira (não só da semana) — voltam pro acumulado
+    # Parições da safra inteira (não só da semana) — voltam pro acumulado, PORQUE a
+    # planilha do grupo apaga a linha de quem pariu. Quando ela ainda não foi apagada,
+    # somar as duas conta o mesmo embrião duas vezes: em 17/08/2026 a parição de JAVA
+    # DA PAO GRANDE x QUEBRUTO (recep 309) foi lançada na estação às 17:05 e a planilha
+    # do grupo estava salva desde 14/08 com a linha viva — o acumulado pulou de 61 pra
+    # 62 numa semana sem nenhuma produção nova. Descontar é o certo: enquanto o embrião
+    # está nas duas listas, ele é UM.
     paridos_safra = [e for e in embrioes if e["data_paricao"]]
-    acumulado = grupo["total"] + len(paridos_safra)
+    ainda_no_grupo = [e for e in paridos_safra
+                      if _chave_embriao(e["doadora"], e["garanhao"], e["receptora"])
+                      in grupo["chaves"]]
+    paridos_novos = [e for e in paridos_safra if e not in ainda_no_grupo]
+    if ainda_no_grupo:
+        print(f"  [acumulado] {len(ainda_no_grupo)} parição(ões) ainda listadas como "
+              f"vivas em {grupo['fonte']} — contadas UMA vez, não duas:")
+        for e in ainda_no_grupo:
+            print(f"    - {e['doadora']} x {e['garanhao']} (recep {e['receptora']}), "
+                  f"pariu {e['data_paricao']}")
+    acumulado = grupo["total"] + len(paridos_novos)
     split = {"pg": grupo["pg"], "socio": grupo["socio"], "vendido": grupo["vendido"]}
-    for e in paridos_safra:
+    for e in paridos_novos:
         split[e["fatia"]] = split.get(e["fatia"], 0) + 1
     if acumulado != acumulado_planejamento:
         print(f"  [produção] acumulado {acumulado} "
@@ -476,7 +508,8 @@ def build_producao(rep: Report, ini: date, fim: date):
         "acumulado_estacao_split": split,
         "acumulado_estacao_monta": acumulado_planejamento,   # conferência
         "acumulado_grupo_vivos": grupo["total"],
-        "acumulado_paricoes_safra": len(paridos_safra),
+        "acumulado_paricoes_safra": len(paridos_novos),
+        "acumulado_paricoes_ainda_no_grupo": len(ainda_no_grupo),
         "acumulado_estacao_split_confirmados": _split(confirmados),  # split antigo (estação)
         "confirmados_semana": None,   # _compute_confirmados_diff
         "acumulado_mes": None,        # _compute_confirmados_diff
