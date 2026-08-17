@@ -196,10 +196,21 @@ const SECTIONS = [
     {p:"hc.soc", l:"Sócios", get:s=>s.headcount?.socio},
  ]},
  {n:"4", t:"TERCEIROS NA PROPRIEDADE", wide:true, kpis:[
-    {p:"ter.tot", l:"Total terceiros (vendidos pendentes)", get:s=>s.terceiros?.terceiros_propriedade},
+    // terceiros != vendidos pendentes: são duas marcações distintas no STATUS PLANTEL
+    // ('DE TERCEIRO' e 'VENDIDO PENDENTE SAIDA'). O rótulo antigo dizia que eram a
+    // mesma coisa porque o cálculo copiava um no outro.
+    {p:"ter.tot", l:"Total terceiros", html:true, get:s=>{
+      const t=s.terceiros||{}, n=t.terceiros_propriedade;
+      if(n==null) return null;
+      const a=t.terceiros_animais, e=t.terceiros_embrioes;
+      const partes=[];
+      if(a) partes.push(`${a} ${a===1?"animal":"animais"}`);
+      if(e) partes.push(`${e} ${e===1?"embrião":"embriões"}`);
+      return partes.length? `${n}<span class="nota">${partes.join(" e ")}</span>` : String(n);
+    }},
     {p:"ter.doa", l:"Doadoras terceiros", get:s=>s.terceiros?.doadoras_terceiros},
     {p:"ter.out", l:"Outros terceiros (cavalgada / treino)", get:s=>s.terceiros?.outros_terceiros},
- ], det:[["Terceiros na propriedade (vendidos pendentes)","terceiros_vendidos"],
+ ], det:[["Terceiros na propriedade","terceiros_propriedade"],
          ["Animais em sociedade pendentes de saída","terceiros_sociedade"]]},
  {n:"5", t:"SAÍDAS", wide:true, kpis:[
     {p:"sai.sa", l:"Saídas na semana", html:true,
@@ -219,7 +230,8 @@ const SECTIONS = [
     {p:"sai.tr", l:"Transferências internas", get:s=>s.movimento?.transferencias},
     {p:"sai.en", l:"Entradas na semana", html:true,
      get:s=>movVal(s,s.movimento?.entradas,(s.detalhe||{}).entradas)},
- ], det:[["Saídas na semana","saidas",{minRows:4}],["Entradas na semana","entradas",{minRows:4}]]},
+ ], det:[["Saídas na semana","saidas",{minRows:4}],["Entradas na semana","entradas",{minRows:4}],
+         ["Vendidos pendentes de saída","terceiros_vendidos"]]},
 ];
 
 function rawVal(k){
