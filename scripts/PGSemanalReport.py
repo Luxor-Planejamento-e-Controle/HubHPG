@@ -500,7 +500,7 @@ def build_producao(rep: Report, ini: date, fim: date):
         split[e["fatia"]] = split.get(e["fatia"], 0) + 1
     if acumulado != acumulado_planejamento:
         print(f"  [produção] acumulado {acumulado} "
-              f"(planilha do grupo {grupo['total']} + {len(paridos_safra)} parições) "
+              f"(planilha do grupo {grupo['total']} + {len(paridos_novos)} parições) "
               f"vs {acumulado_planejamento} na estação de monta")
 
     rep.producao = {
