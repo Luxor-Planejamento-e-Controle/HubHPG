@@ -952,6 +952,11 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
 # e 06 animais vendidos pendentes — os números do MENSAL.
 STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"
 STATUS_TERCEIRO = "TERCEIRO"
+# LOCAL que significa "está aqui". 'OUTROS' fica de fora de propósito: apesar de a
+# CONTAGEM usar esse rótulo para o Centro de Treinamento, na prática ele é o destino
+# de quem sai ("MUDOU O LOCAL PARA OUTROS" na aba MOVIMENTAÇÕES). Se o haras confirmar
+# que OUTROS é só o CTE, é aqui que se acrescenta.
+LOCAIS_NA_PROPRIEDADE = ("FAZENDA PAO GRANDE", "ARRENDAMENTO CESAR FURTADO")
 # Layout da aba PLANTEL nos dois arquivos (0-based). O mensal é o mesmo roster com 3
 # colunas a mais na frente e cabeçalho 3 linhas abaixo — por isso não dá pra apontar
 # o mesmo leitor pros dois sem parametrizar.
@@ -1013,19 +1018,22 @@ def _status_plantel_mensal() -> dict:
 
 
 # Embrião comercial pendente de saída: aba ENTREGAR do "EMBRIOES A ENTREGAR - A
-# RECEBER". 'Status embrião' PRONTO-* = feito e ainda não entregue (os outros estados
-# — A FAZER, EM ANDAMENTO, ENTREGUE, NASCIDO, CANCELADO, REPOSIÇÃO — não são pendência
-# de saída). 'Cota PG' < 1 = sociedade; = 1 = venda 100%.
-# É essa a fonte dos "5 embriões" que o relatório de 07/08/2026 somou no card de
-# sociedade; a aba EMBRIOES VENDIDOS do "Animais para sair" está vazia e não é usada.
-EMB_PENDENTE_PREFIXO = "PRONTO"
+# RECEBER". 'Cota PG' < 1 = sociedade; = 1 = venda 100%.
+#
+# PRONTO tem DOIS estados e só um deles é pendência de saída:
+#   PRONTO - AGUARDANDO ENTREGA  (4)  o embrião vai embora  -> PENDENTE
+#   PRONTO - NASCE NA PG         (3)  o produto nasce aqui  -> NÃO é pendência
+# Casar só o prefixo 'PRONTO' misturava os dois e inflava o card de sociedade em 3.
+# Os demais estados — A FAZER, ENTREGUE, NASCIDO, CANCELADO, REPOSIÇÃO — já ficavam
+# de fora. A aba EMBRIOES VENDIDOS do "Animais para sair" está vazia e não é usada.
+EMB_STATUS_PENDENTE = "AGUARDANDO ENTREGA"
 
 
 def _embrioes_pendentes() -> list:
-    """Embriões prontos e não entregues, com tipo SOCIEDADE (cota parcial) ou VENDA."""
+    """Embriões prontos e aguardando entrega, tipo SOCIEDADE (cota parcial) ou VENDA."""
     wb = _load(EMB_COMERCIAIS)
     ws = wb["ENTREGAR"]
-    out, cols = [], None
+    out, cols, ficam = [], None, []
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i == 3:
             cols = {n: _col_idx(r, n) for n in
@@ -1034,7 +1042,10 @@ def _embrioes_pendentes() -> list:
             continue
         if cols is None or r[cols["ID Embrião"]] is None:
             continue
-        if not _norm(r[cols["Status embrião"]]).startswith(EMB_PENDENTE_PREFIXO):
+        status = _norm(r[cols["Status embrião"]])
+        if EMB_STATUS_PENDENTE not in status:
+            if status.startswith("PRONTO"):
+                ficam.append(f'{_s(r[cols["ID Embrião"]])} ({_s(r[cols["Status embrião"]])})')
             continue
         cota = r[cols["Cota PG"]]
         try:
@@ -1049,6 +1060,9 @@ def _embrioes_pendentes() -> list:
             "obs": _s(r[cols["Status embrião"]]), "reposicao": False,
             "especie": "EMBRIAO",
         })
+    if ficam:
+        print(f"  [embriões] {len(ficam)} pronto(s) que NÃO saem, fora da pendência: "
+              + "; ".join(ficam))
     wb.close()
     return out
 
@@ -1089,8 +1103,12 @@ def build_pendentes(rep: Report):
     # congelado desde 24/07/2026 e perde os marcados depois disso.
     mensal = _status_plantel_mensal()
     rep.fontes["status_plantel"] = mensal["fonte"]
+    # o card conta animal E embrião — o relatório abre assim: "08 (06 animais e 02
+    # embriões)". Contar só animal era assimétrico com o card de sociedade, que sempre
+    # somou os dois.
+    vend_embrioes = [p for p in pend_emb if p["tipo"] == "VENDA"]
     if mensal["vendidos_pendentes"]:
-        vendidos = mensal["vendidos_pendentes"]
+        vendidos = mensal["vendidos_pendentes"] + vend_embrioes
         fonte_vendidos = "status_plantel"
     else:
         vendidos = [p for p in pend if p["tipo"] == "VENDA" and not p["reposicao"]]
@@ -1107,21 +1125,40 @@ def build_pendentes(rep: Report):
     sociedade = soc_animais + soc_embrioes
     rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
 
-    # TERCEIROS NA PROPRIEDADE = STATUS PLANTEL 'DE TERCEIRO', animais + embriões. Era
-    # `len(vendidos)`, que só por acaso dava o mesmo número enquanto as duas coisas
-    # tinham 2 linhas; em 14/08/2026 são 6 vendidos e 8 terceiros, coisas diferentes.
-    terceiros = mensal["terceiros"]
+    # TERCEIROS NA PROPRIEDADE = o que é de terceiro e ainda está aqui, ou seja, os
+    # PENDENTES DE SAÍDA — é o que o próprio relatório diz no rótulo da linha:
+    # "Total terceiros: 08 (vendidos pendentes)".
+    #
+    # NÃO é a contagem de STATUS PLANTEL 'DE TERCEIRO'. Aquilo são doadoras, matriz,
+    # receptora e embriões de terceiro que passaram pela estação: em 14/08/2026 dava 8
+    # e batia com o relatório por coincidência de número, não por ser a mesma coisa.
+    # Nenhuma das 8 linhas está no roster do plantel, e 7 das 8 estão fora da fazenda.
+    terceiros = vendidos
     terc_embrioes = [t for t in terceiros if t.get("especie") == "EMBRIAO"]
     terc_animais = [t for t in terceiros if t.get("especie") != "EMBRIAO"]
-    # DOADORAS DE TERCEIROS: recorte do acima por CATEGORIA. Sem marcação, fica em
-    # branco (não zero: zero afirmaria que não há nenhuma, e o que temos é ausência).
-    doadoras_terc = [t for t in terceiros if t["categoria"] == "DOADORA"]
+
+    # DOADORAS DE TERCEIROS: doadora de terceiro que está NA PROPRIEDADE — fazenda ou
+    # arrendamento. As marcadas em LOCAL 'OUTROS' não contam: 'OUTROS' é para onde o
+    # animal vai quando deixa o haras (a aba MOVIMENTAÇÕES registra "MUDOU O LOCAL PARA
+    # OUTROS" nas saídas), e nenhuma delas aparece no roster do plantel. Contá-las dava
+    # 4 onde o relatório escreve "--".
+    de_terceiro = mensal["terceiros"]
+    doadoras_terc = [t for t in de_terceiro
+                     if t["categoria"] == "DOADORA"
+                     and _norm(t["local"]) in LOCAIS_NA_PROPRIEDADE]
+    fora = [t for t in de_terceiro
+            if t["categoria"] == "DOADORA" and _norm(t["local"]) not in LOCAIS_NA_PROPRIEDADE]
+    if fora:
+        print(f"  [terceiros] {len(fora)} doadora(s) de terceiro fora da propriedade, "
+              f"não contadas: " + "; ".join(f"{t['nome']} ({t['local']})" for t in fora))
     if not mensal["marcado"]:
         print(f"  [terceiros] nenhuma linha marcada com {STATUS_TERCEIRO} ou "
               f"{STATUS_VENDIDO_PENDENTE} em {mensal['fonte']}")
 
     rep.terceiros.update({
         "vendidos_pendentes": len(vendidos),
+        "vendidos_pendentes_animais": len(terc_animais),
+        "vendidos_pendentes_embrioes": len(terc_embrioes),
         "vendidos_pendentes_fonte": fonte_vendidos,
         "sociedade_pendentes": len(sociedade),
         "sociedade_pendentes_animais": len(soc_animais),
