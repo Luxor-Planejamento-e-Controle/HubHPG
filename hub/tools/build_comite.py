@@ -97,15 +97,44 @@ def brl_curto(v):
 #     em 03/08/2026 estava em fevereiro, com a coluna Orçado zerada;
 #   - o histórico traz os 12 meses, Haras (HPG) e Casa (FPG), Competência e
 #     Caixa, com Orçado e Realizado de verdade (jun/26 bate com o deck oficial).
-DRE_HIST = DRE_DIR / "DRE_Historico.xlsx"
+# O DRE_Historico é DERIVADO: quem o gera é o LxDREdataExtractor, e ele grava o
+# resultado AO LADO DE SI MESMO (OUTPUT_PATH = pasta do próprio script). Existem duas
+# cópias do extractor — uma no repo de rotinas mensais, outra na pasta do Drive —, então
+# existem duas saídas, e quem rodar a do repo não atualiza a do Drive.
+# Foi o que aconteceu: em 18/08/2026 a cópia do repo estava em 11/08 com julho fechado
+# (R$ 4,7M) e a do Drive em 15/07 com julho zerado. O comitê lia a do Drive e parava em
+# junho, sem nada indicando que existia versão mais nova.
+# Aqui vale a MAIS RECENTE, não uma pasta canônica: as duas são o mesmo artefato
+# derivado e o que importa é o fechamento mais novo.
+DRE_HIST_CANDIDATOS = (
+    PLANTEL_DIR.parent / "DRE Data" / "DRE_Historico.xlsx",   # repo de rotinas mensais
+    DRE_DIR / "DRE_Historico.xlsx",                            # Drive da Controladoria
+)
 _hist_cache = {}
+
+
+def _dre_hist():
+    """Cópia mais recente do DRE_Historico. Avisa quando as duas divergem, senão a
+    defasagem fica invisível — é a diferença entre o deck fechar junho ou julho."""
+    existentes = [p for p in DRE_HIST_CANDIDATOS if p.exists()]
+    if not existentes:
+        return None
+    escolhido = max(existentes, key=lambda p: p.stat().st_mtime)
+    for outro in existentes:
+        if outro != escolhido:
+            d = lambda p: datetime.fromtimestamp(p.stat().st_mtime).strftime("%d/%m/%Y")
+            print(f"  [dre] usando {escolhido.parent.name}/{escolhido.name} ({d(escolhido)}); "
+                  f"a cópia em {outro.parent.parent.name} está em {d(outro)} — "
+                  f"rode o LxDREdataExtractor de lá para as duas baterem")
+    return escolhido
 
 
 def le_historico():
     """Base DRE Geral (mês) + Base YTD (acumulado), já filtradas para 2026."""
     if _hist_cache:
         return _hist_cache
-    if not DRE_HIST.exists():
+    DRE_HIST = _dre_hist()
+    if DRE_HIST is None:
         return {}
     geral = pd.read_excel(DRE_HIST, sheet_name="Base DRE Geral")
     ytd = pd.read_excel(DRE_HIST, sheet_name="Base YTD")
@@ -973,7 +1002,7 @@ def monta_deck(m, ano, ctx):
     mesano = f"{ABR[m-1].upper()}/{str(ano)[2:]}"
     dre = lambda n, t, sub, lin, fonte=None: (
         {"t": "dre", "n": n, "titulo": t, "sub": f"{sub} · {fonte or FONTE}", "linhas": lin}
-        if lin else pend(n, t, sub, DRE_HIST.name, "sem linha para esse recorte no histórico"))
+        if lin else pend(n, t, sub, "DRE_Historico.xlsx", "sem linha para esse recorte no histórico"))
 
     s += divide(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
                     "DRE 2026 | HPG · competência mensal",
@@ -1027,8 +1056,10 @@ def monta_deck(m, ano, ctx):
 def build(so_mes=None):
     ano = so_mes.year if so_mes else 2026
     ctx = {}
-    if not DRE_HIST.exists():
-        aviso(f"DRE_Historico.xlsx não encontrado em {DRE_DIR} — seção financeira fica pendente")
+    if _dre_hist() is None:
+        aviso("DRE_Historico.xlsx não encontrado em nenhuma das cópias conhecidas "
+              f"({' | '.join(str(c.parent) for c in DRE_HIST_CANDIDATOS)}) "
+              "— seção financeira fica pendente")
         meses = []
     else:
         meses = meses_fechados(ano=ano)
