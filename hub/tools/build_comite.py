@@ -39,7 +39,10 @@ from PGSemanalReport import (                                    # noqa: E402
 
 DRE_DIR = Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/DRE Data")
 DRE_HARAS = DRE_DIR / "DRE 2026 HPG - HARAS.xlsx"
-DRE_CASA = DRE_DIR / "DRE 2026 FPG - CASA.xlsx"
+# NÃO é fonte do comitê — a seção CASA/FPG sai do DRE_Historico, igual ao resto do
+# financeiro (ver _docs/COMITE_MAPEAMENTO.md, pendência 3). Fica declarada só para
+# quem for procurar o arquivo do ano não concluir que ele foi esquecido.
+DRE_CASA = DRE_DIR / "DRE 2026 FPG - CASA.xlsx"  # noqa: F401
 PLANTEL_DIR = Path(r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines/PlantelHPG")
 BASE_BI = REPO / "bases" / "base_bi.parquet"
 
