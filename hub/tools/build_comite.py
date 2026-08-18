@@ -33,7 +33,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 # Caminhos do Drive e helpers vêm do pipeline que já roda — não duplicar.
 from PGSemanalReport import (                                    # noqa: E402
-    CONTROLE_PLANTEL_SEMANAL, EMB_COMERCIAIS, MAPA_VENDAS_DIR, SAFRA_ATUAL,
+    EMB_COMERCIAIS, MAPA_VENDAS_DIR, SAFRA_ATUAL, _controle_plantel,
     _latest_by_yymmdd, _latest_estacao_master, _load, _norm, _s, _to_num,
 )
 
@@ -331,7 +331,7 @@ def slide_movimentacao(m, ano):
 def slide_contagem(m, ano):
     """S37 — a aba CONTAGEM é pré-agregada (o PGSemanalReport já lê ela)."""
     try:
-        wb = _load(CONTROLE_PLANTEL_SEMANAL)
+        wb = _load(_controle_plantel())
     except Exception as e:
         return pend(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS", "",
                     "CONTROLE PLANTEL.xlsx, aba CONTAGEM", f"não consegui abrir: {e}")

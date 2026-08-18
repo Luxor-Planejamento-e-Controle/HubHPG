@@ -83,6 +83,10 @@ ESTACAO_MASTER_DIR = (
     DRIVE_ROOT / "REPRODUÇÃO" / "ESTAÇÃO DE MONTA" / "Estação 2025-2026"
 )
 RECEPTORAS_DIR = DRIVE_ROOT / "PLANTEL" / "Estação 2025-2026"
+# Mapa de Vendas — quem consome é o deck do comitê (hub/tools/build_comite.py),
+# não o fechamento semanal. Cheguei a tratar como constante morta por não achar
+# uso neste módulo; o uso está no outro.
+MAPA_VENDAS_DIR = DRIVE_ROOT / "VENDAS" / "MAPAS DE VENDAS" / "Estação 2025-2026"
 # CONTROLE_DE_PLANTEL mensal (STATUS PLANTEL, SAIDAS-ENTRADAS, MOVIMENTAÇÕES)
 CONTROLE_MENSAL_DIR = RECEPTORAS_DIR
 
