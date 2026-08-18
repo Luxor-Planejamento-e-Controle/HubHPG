@@ -329,30 +329,71 @@ def slide_movimentacao(m, ano):
 
 
 def slide_contagem(m, ano):
-    """S37 — a aba CONTAGEM é pré-agregada (o PGSemanalReport já lê ela)."""
-    try:
-        wb = _load(_controle_plantel())
-    except Exception as e:
-        return pend(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS", "",
-                    "CONTROLE PLANTEL.xlsx, aba CONTAGEM", f"não consegui abrir: {e}")
-    ws = wb["CONTAGEM"]
-    rows, total = [], None
-    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
-        if i < 3 or r[1] is None:
-            continue
-        nome = _s(r[1])
-        if _norm(r[1]).startswith("TOTAL"):
-            total = _to_num(r[4]); continue
-        rows.append([nome.title(), _to_num(r[2]) or 0, _to_num(r[3]) or 0, _to_num(r[4]) or 0])
-    wb.close()
-    total = total or sum(r[3] for r in rows)
-    kp = [{"v": f"{int(r[3])}", "l": r[0].upper(), "s": f"{r[3]/total*100:.0f}% do total"} for r in rows[:3]]
-    kp.append({"v": f"{int(total)}", "l": "TOTAL GERAL", "s": "sob responsabilidade da PG"})
+    """S37 — contagem por local do MÊS do deck.
+
+    A aba CONTAGEM do CONTROLE PLANTEL não serve aqui: ela é um retrato AO VIVO, sem
+    dimensão de mês. Lendo direto dela, o deck de JUNHO/2026 exibia 203 animais
+    (100/44/1/58) — a contagem de 14/08 — enquanto junho fechou com 206 (104/43/1/58).
+    O rótulo dizia junho e o número era de agosto.
+
+    O `base_bi` também não resolve: ele vem do CONTROLE_DE_PLANTEL mensal, cujo roster
+    não reconcilia com a CONTAGEM (junho dá 221, com 88 sócios contra 58) e que quase
+    não tem receptora, porque receptora mora no arquivo de ARRENDAMENTOS E RECEPTORAS.
+
+    Quem tem o número certo E datado é o snapshot do fechamento semanal: usamos o
+    último snapshot do mês pedido. Antes de 06/2026 não existe snapshot — aí a
+    pendência é explícita, em vez de mostrar o número de outro mês."""
+    from PGSemanalReport import HIST_SNAPSHOTS, HIST_HEADCOUNT
+    prefixo = f"{ano}-{m:02d}"
+
+    def _ler(f):
+        try:
+            return json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    # snapshot completo primeiro (tem a abertura animais/receptoras); o
+    # headcount_history é mais magro mas cobre meses anteriores — junho/2026 só existe lá
+    snaps, leves = _ler(HIST_SNAPSHOTS), _ler(HIST_HEADCOUNT)
+    wids = sorted(w for w in snaps if w.startswith(prefixo))
+    if wids:
+        wid = wids[-1]
+        det = snaps[wid].get("headcount_detalhe") or {}
+        hc = snaps[wid].get("headcount") or {}
+    else:
+        wids = sorted(w for w in leves if w.startswith(prefixo))
+        if not wids:
+            todos = sorted(set(snaps) | set(leves))
+            return pend(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
+                        f"{MESES[m-1].upper()} {ano}", "snapshot do fechamento semanal",
+                        f"nenhum fechamento semanal guardado em {prefixo}; o histórico "
+                        f"começa em {todos[0] if todos else '—'}")
+        wid = wids[-1]
+        det = {}
+        # headcount_history usa nomes curtos
+        hc = {"total": leves[wid].get("total"), "fazenda_pg": leves[wid].get("fpg"),
+              "arrendamento": leves[wid].get("arr"), "cte": leves[wid].get("cte"),
+              "socio": leves[wid].get("soc")}
+    if det:
+        ordem = [k for k in ("FAZENDA", "ARRENDAMENTO", "CTE", "SOCIO") if k in det]
+        rows = [[k.title(), int(det[k]["animais"]), int(det[k]["receptoras"]),
+                 int(det[k]["total"])] for k in ordem]
+    else:
+        # snapshot antigo, sem a abertura animais/receptoras. Preencher essas colunas
+        # com zero afirmaria "nenhuma receptora"; melhor a tabela ter só o total.
+        rows = [[l, int(hc.get(k) or 0)] for l, k in
+                (("Fazenda", "fazenda_pg"), ("Arrendamento", "arrendamento"),
+                 ("Cte", "cte"), ("Socio", "socio")) if hc.get(k) is not None]
+    total = int(hc.get("total") or sum(r[-1] for r in rows))
+    kp = [{"v": f"{int(r[-1])}", "l": r[0].upper(), "s": f"{r[-1]/total*100:.0f}% do total"}
+          for r in rows[:3]]
+    kp.append({"v": f"{total}", "l": "TOTAL GERAL", "s": "sob responsabilidade da PG"})
+    cols = (["LOCAL", "ANIMAIS", "RECEPTORAS", "TOTAL"] if det else ["LOCAL", "TOTAL"])
+    d, mm, aa = wid[8:10], wid[5:7], wid[:4]
     return {"t": "kpis_tabela", "n": 37, "titulo": "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
-            "sub": f"{MESES[m-1].upper()} {ano} · aba CONTAGEM do CONTROLE PLANTEL",
+            "sub": f"{MESES[m-1].upper()} {ano} · fechamento semanal de {d}/{mm}/{aa}",
             "kpis": kp,
-            "tabela": {"cols": ["LOCAL", "ANIMAIS", "RECEPTORAS", "TOTAL"],
-                       "rows": [[r[0], int(r[1]), int(r[2]), int(r[3])] for r in rows]}}
+            "tabela": {"cols": cols, "rows": rows}}
 
 
 # ============================================================ Estação (S16–S20)
