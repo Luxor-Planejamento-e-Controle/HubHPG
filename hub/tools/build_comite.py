@@ -113,19 +113,25 @@ DRE_HIST_CANDIDATOS = (
 _hist_cache = {}
 
 
+_dre_hist_cache = []
+
+
 def _dre_hist():
-    """Cópia mais recente do DRE_Historico. Avisa quando as duas divergem, senão a
-    defasagem fica invisível — é a diferença entre o deck fechar junho ou julho."""
+    """Cópia mais recente do DRE_Historico, dizendo qual usou. O aviso sai UMA vez por
+    run: a função é chamada tanto na checagem de existência quanto na leitura."""
+    if _dre_hist_cache:
+        return _dre_hist_cache[0]
     existentes = [p for p in DRE_HIST_CANDIDATOS if p.exists()]
     if not existentes:
         return None
+    d = lambda p: datetime.fromtimestamp(p.stat().st_mtime).strftime("%d/%m/%Y")
     escolhido = max(existentes, key=lambda p: p.stat().st_mtime)
-    for outro in existentes:
-        if outro != escolhido:
-            d = lambda p: datetime.fromtimestamp(p.stat().st_mtime).strftime("%d/%m/%Y")
-            print(f"  [dre] usando {escolhido.parent.name}/{escolhido.name} ({d(escolhido)}); "
-                  f"a cópia em {outro.parent.parent.name} está em {d(outro)} — "
-                  f"rode o LxDREdataExtractor de lá para as duas baterem")
+    atrasadas = [o for o in existentes if o != escolhido]
+    msg = f"  [dre] lendo a cópia de {escolhido.parents[1].name} ({d(escolhido)})"
+    if atrasadas:
+        msg += " — mais nova que " + ", ".join(f"{o.parents[1].name} ({d(o)})" for o in atrasadas)
+    print(msg)
+    _dre_hist_cache.append(escolhido)
     return escolhido
 
 
