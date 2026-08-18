@@ -1485,6 +1485,10 @@ def _snap_from_rep(rep: Report) -> dict:
         "acumulado_estacao_split": rep.producao.get("acumulado_estacao_split"),
         "receptoras": rep.receptoras,
         "headcount": {k: v for k, v in rep.headcount.items() if k != "detalhe"},
+        # a abertura animais/receptoras por local ia fora do snapshot, então quem quisesse
+        # a contagem de um mês passado só tinha a aba CONTAGEM — que é retrato AO VIVO e
+        # fazia o slide de junho do comitê exibir a contagem de agosto.
+        "headcount_detalhe": rep.headcount.get("detalhe"),
         "terceiros": {k: v for k, v in rep.terceiros.items() if k != "painel"},
         "movimento": {"saidas": rep.saidas.get("saidas_semana"),
                       "entradas": rep.saidas.get("entradas_semana"),
