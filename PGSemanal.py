@@ -155,6 +155,29 @@ def main():
           f"(janela {ini.strftime('%d/%m')}–{fim.strftime('%d/%m')})")
     print("=" * 66)
 
+    # Rodar uma semana PASSADA reescreve o snapshot dela com o retrato de HOJE:
+    # headcount, receptoras e pendentes não são janela, são estado do momento. Em
+    # 21/08/2026 refazer 14/08 trocaria o headcount de 203 pelo atual. Quando a regra
+    # de contagem muda, o certo é reaplicá-la sobre o que já está congelado —
+    # scripts/PGSemanalRecompor.py faz isso sem abrir planilha.
+    posteriores = [w for w in R._load_hist() if R._is_iso(w) and w > fim.isoformat()]
+    if posteriores:
+        print()
+        print('!! ATENCAO: ja existe(m) semana(s) congelada(s) depois desta '
+              '(' + ', '.join(sorted(posteriores)) + ').')
+        print('   headcount, receptoras e pendentes serao gravados com o estado de HOJE,')
+        print('   nao com o de ' + fim.strftime('%d/%m/%Y') + '.')
+        print('   Para so reaplicar regras novas no historico, use:')
+        print('     python scripts/PGSemanalRecompor.py --aplicar')
+        print()
+        # BLOQUEIA. Avisar nao bastou: em 21/08/2026 este mesmo aviso apareceu, o run
+        # seguiu, e o snapshot de 14/08 foi sobrescrito com o estado do dia (203 -> 202,
+        # roster e mapa de receptoras perdidos). Refazer semana passada tem de ser
+        # decisao explicita.
+        if '--forcar' not in args:
+            print('   ABORTADO. Se e realmente isso que voce quer, repita com --forcar.')
+            return
+
     # 1) relatórios oficiais (validação)
     if do_docx:
         _log("1/4 DOCX", "parseando relatórios oficiais...")

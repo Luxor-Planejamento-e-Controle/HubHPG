@@ -338,6 +338,25 @@ def _acumulado_grupo() -> dict:
     return out
 
 
+# Animal bloqueado por pendência documental continua "pendente de saída" no sentido
+# literal, mas o relatório NÃO o conta — 14/08 e 21/08 dizem "01 animal" onde temos
+# MUSICA e NOBRE, e NOBRE é o único com essa observação nas duas semanas.
+OBS_BLOQUEIA_SAIDA = ("FALTANDO EXAME",)
+
+
+def _nucleo_nome(n) -> str:
+    """Nome comparável entre planilhas. O roster chama o mesmo animal de
+    'POTRA MORENA L2 X DAMASCO DA PAO GRANDE - 07/03/2025 RECEP 07 V' e o Animais para
+    sair de 'FEMEA MORENA L2 X DAMASCO DA PAO GRANDE': muda o prefixo de sexo e sobra
+    a data/receptora no fim. Sem normalizar, a reposição não é reconhecida e entra na
+    conta de vendidos."""
+    t = _norm(n)
+    t = re.sub(r"^(POTRA|POTRO|FEMEA|FEMA|MACHO)\s+", "", t)
+    t = re.sub(r"\s*-\s*\d.*$", "", t)
+    t = re.sub(r"\s+RECEP.*$", "", t)
+    return t.strip()
+
+
 def _chave_embriao(doadora, garanhao, receptora) -> tuple:
     """Identidade do embrião entre a planilha do grupo e a aba ESTAÇÃO. Receptora
     normalizada porque vem '309' numa e 309.0 na outra."""
@@ -1111,8 +1130,19 @@ def build_pendentes(rep: Report):
     # embriões)". Contar só animal era assimétrico com o card de sociedade, que sempre
     # somou os dois.
     vend_embrioes = [p for p in pend_emb if p["tipo"] == "VENDA"]
+    # REPOSIÇÃO não é venda pendente: o animal está saindo para repor outro, não para
+    # um comprador. O STATUS PLANTEL não tem essa marca — ela vive na coluna de obs do
+    # Animais para sair —, então cruzamos os dois pelo núcleo do nome. Essa regra
+    # existia antes da migração para o STATUS PLANTEL e se perdeu no caminho: era o que
+    # separava os nossos 5 dos 4 do relatório.
+    reposicoes = {_nucleo_nome(x["nome"]) for x in pend if x["reposicao"]}
     if mensal["vendidos_pendentes"]:
-        vendidos = mensal["vendidos_pendentes"] + vend_embrioes
+        marcados = mensal["vendidos_pendentes"]
+        repostos = [x for x in marcados if _nucleo_nome(x["nome"]) in reposicoes]
+        if repostos:
+            print("  [pendentes] reposição fora dos vendidos pendentes: "
+                  + "; ".join(x["nome"] for x in repostos))
+        vendidos = [x for x in marcados if x not in repostos] + vend_embrioes
         fonte_vendidos = "status_plantel"
     else:
         vendidos = [p for p in pend if p["tipo"] == "VENDA" and not p["reposicao"]]
@@ -1124,7 +1154,13 @@ def build_pendentes(rep: Report):
     # SOCIEDADE pendente = animais + embriões (regra do relatório desde 07/08/2026).
     # Continua no "Animais para sair" porque o STATUS PLANTEL não marca sociedade —
     # MUSICA e NOBRE estão lá como 'PLANTEL' puro.
-    soc_animais = [p for p in pend if p["tipo"] == "SOCIEDADE"]
+    soc_todos = [p for p in pend if p["tipo"] == "SOCIEDADE"]
+    bloqueados = [p for p in soc_todos
+                  if any(b in _norm(p.get("obs")) for b in OBS_BLOQUEIA_SAIDA)]
+    if bloqueados:
+        print("  [pendentes] em sociedade com pendência documental, fora da conta: "
+              + "; ".join(f'{p["nome"]} ({p["obs"]})' for p in bloqueados))
+    soc_animais = [p for p in soc_todos if p not in bloqueados]
     soc_embrioes = [p for p in pend_emb if p["tipo"] == "SOCIEDADE"]
     sociedade = soc_animais + soc_embrioes
     rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
@@ -1306,6 +1342,7 @@ def build_report(ini: date, fim: date) -> Report:
     build_pendentes(rep)
     rep.docx_ref = _load_docx_ref()               # relatórios oficiais (validação + seed do 1º caso)
     _compute_movimento(rep)                       # saídas/entradas = diff da população contada
+    _conferir_nascimentos(rep)                    # roster ganhou potro sem parição lançada?
     _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
     _persist_snapshot(rep)                        # congela snapshot CALCULADO desta semana
     rep.calendario = _calendario_dos_snapshots(rep.snapshots)
@@ -1416,6 +1453,42 @@ def _compute_movimento(rep: Report):
         rep.saidas["fonte"] = "docx"
         rep.saidas["_seed"] = "docx" if dx else None
     _conferir_delta(rep)
+
+
+def _conferir_nascimentos(rep: Report):
+    """O roster é a prova final de que um potro nasceu: ele aparece lá com nome de
+    produto. A aba ESTAÇÃO é a fonte dos nascimentos, mas só enxerga o que passou pela
+    estação de monta — em 21/08/2026 entraram DOIS potros no roster e só um tinha
+    parição lançada, então o cálculo publicou 1 onde o relatório dizia 2.
+
+    Não corrige o número (a fonte é a ESTAÇÃO); acusa a diferença, porque potro que
+    entra no plantel sem parição lançada é lançamento faltando, não ausência de fato.
+    """
+    hist = _load_hist()
+    prev = None
+    for wid in sorted(hist):
+        if wid < rep.semana_atual and hist[wid].get("roster"):
+            prev = hist[wid]["roster"]
+    if not prev or not rep.roster:
+        return
+    novos = sorted(set(rep.roster) - set(prev))
+    if not novos:
+        return
+    achados = {_norm(e.get("receptora")) for e in rep.detalhe.get("nascimentos_semana", [])}
+    # nome de produto no roster carrega a receptora ("... RECEP 309"); é o que casa
+    # com a parição da aba ESTAÇÃO
+    sem_paricao = []
+    for n in novos:
+        m = re.search(r"RECEP\w*\s*([A-Z0-9]+)\s*$", _norm(n))
+        if not (m and m.group(1) in achados):
+            sem_paricao.append(n)
+    if sem_paricao:
+        print(f"  [nascimentos] {len(sem_paricao)} animal(is) novo(s) no roster sem "
+              f"parição correspondente na aba ESTAÇÃO — o número publicado "
+              f"({rep.producao.get('nascimentos')}) pode estar abaixo do real:")
+        for n in sem_paricao:
+            print(f"    - {n}")
+    rep.producao["roster_novos_sem_paricao"] = len(sem_paricao)
 
 
 def _conferir_delta(rep: Report):
