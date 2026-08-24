@@ -1655,8 +1655,6 @@ def _paricoes_do_roster(rep: Report):
     for k in sorted(da_safra):
         marca = "  <- nesta semana" if k in desta else ""
         print(f"    - {k} (recep {da_safra[k]['receptora']}){marca}")
-    print(f"  [nascimentos] o split PG/sócio/vendido fica {len(da_safra)} abaixo do "
-          f"acumulado: a fatia dessas parições não existe em nenhuma fonte")
 
 
 def _conferir_delta(rep: Report):
