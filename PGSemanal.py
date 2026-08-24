@@ -79,7 +79,9 @@ def _validacao(rep):
         ("Arrendamento", h["arrendamento"], dh["arrendamento"]),
         ("Centro de Treinamento", h.get("cte"), dh.get("cte")),
         ("Sócios", h["socio"], dh["socio"]),
-        ("Δ headcount", h.get("delta"), dh.get("delta_net")),
+        # o Δ do relatorio conta so animais (+02/-01 = 2 potros, 1 vendido);
+        # o do total inclui receptora, que segue em linha propria
+        ("Δ headcount", h.get("delta_animais"), dh.get("delta_net")),
         # bullet vazio ('--') cai no Δ do relatório, que diz a mesma coisa
         ("Saídas semana", s["saidas_semana"],
          ds["saidas_semana"] if ds["saidas_semana"] is not None else dh.get("delta_saidas")),
@@ -149,16 +151,11 @@ def _coerencia_interna(rep, dx):
     não serve de alvo, e culpar o cálculo por isso queima tempo toda sexta."""
     h = dx["headcount"]
 
-    # 1) Δ declarado tem de ser o total desta semana menos o total declarado na anterior
-    ant = max((w for w in rep.docx_ref if w < rep.semana_atual), default=None)
-    if ant and h.get("delta_net") is not None:
-        t_ant = rep.docx_ref[ant]["headcount"].get("total")
-        if t_ant and h.get("total"):
-            esperado = h["total"] - t_ant
-            if esperado != h["delta_net"]:
-                print(f"    !  Δ do relatório não fecha com o próprio total: declara "
-                      f"{h['delta_net']:+d}, mas {t_ant} -> {h['total']} é "
-                      f"{esperado:+d}")
+    # NAO existe mais checagem "Δ declarado vs variacao do total". Ela partia de
+    # uma premissa errada minha: o Δ do relatorio conta ANIMAIS (+02/-01 = 2 potros
+    # nascidos, 1 vendido), nao o total. Receptora que sai da contagem nao aparece
+    # ali. Em 21/08/2026 o total foi 203 -> 202 (-1) e o Δ dele era +1, e as duas
+    # coisas estavam certas — a checagem so gerava alarme falso.
 
     # 2) abertura entre parênteses tem de somar o número da linha
     for rot, ab in (dx.get("aberturas") or {}).items():

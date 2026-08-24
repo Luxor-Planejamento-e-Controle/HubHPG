@@ -42,7 +42,7 @@ def _linhas(snap: dict, dx: dict) -> list:
         ("Arrendamento", hc.get("arrendamento"), dh["arrendamento"]),
         ("Centro de Treinamento", hc.get("cte"), dh.get("cte")),
         ("Sócios", hc.get("socio"), dh["socio"]),
-        ("Δ headcount", hc.get("delta"), dh.get("delta_net")),
+        ("Δ headcount", hc.get("delta_animais"), dh.get("delta_net")),
         ("Saídas semana", mv.get("saidas"),
          ds["saidas_semana"] if ds["saidas_semana"] is not None else dh.get("delta_saidas")),
         ("Entradas semana", mv.get("entradas"),

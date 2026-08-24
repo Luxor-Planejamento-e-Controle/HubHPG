@@ -64,7 +64,7 @@ FONTES = {
         "LOCAL OUTROS no roster. Mato Grosso fica fora da contagem por decisão de negócio."),
     "Sócios": ("3 · Headcount", "CONTROLE PLANTEL · PLANTEL", "LOCAL SOCIO no roster."),
     "Δ headcount": ("3 · Headcount", "snapshot local · headcount_history.json",
-        "Total atual menos o do fechamento anterior. Só conta quem entra ou sai da CONTAGEM: animal que vai pro sócio fica, receptora que vai pro sócio sai."),
+        "Variação do número de ANIMAIS, que é o que o relatório publica no '+02 / -01'. Receptora não entra aqui: ela é contada à parte, e receptora que vai pro sócio sai da contagem sem aparecer nesse Δ. A variação do total (animais + receptoras) fica em delta, separada."),
     "Saídas semana": ("5 · Saídas", "CONTROLE_DE_PLANTEL mensal · SAIDAS-ENTRADAS",
         "Sentido pelo prefixo da classificação. Classificação desconhecida avisa, nunca vira zero calado."),
     "Entradas semana": ("5 · Saídas",
@@ -118,6 +118,44 @@ def _chip(ok):
             else '<span class="chip bad">não bate</span>')
 
 
+def _porque(lab, calc, alvo, snap, dx, hist, semana):
+    """Frase que EXPLICA a divergencia, montada com os numeros reais.
+
+    Sem isto a auditoria diz 'nao bate' e para ali — quem le tem de refazer a
+    investigacao toda vez. O texto de regra e estavel; este e o desta semana.
+    """
+    if lab == "Δ headcount":
+        hc = snap.get("headcount") or {}
+        ant = max((w for w in sorted(hist) if R._is_iso(w) and w < semana), default=None)
+        nosso_ant = (hist[ant].get("headcount") or {}).get("total") if ant else None
+        return (f"O Δ do relatório conta ANIMAIS ({dx['headcount'].get('delta_txt')}), não o "
+                f"total: receptora que vai pro sócio sai da contagem e não aparece ali. "
+                f"Nesta semana os animais foram {hc.get('delta_animais'):+d} e as receptoras "
+                f"{hc.get('delta_receptoras'):+d}, então o total foi de {nosso_ant} para "
+                f"{hc.get('total')} ({hc.get('delta'):+d}). As duas contas estão certas — "
+                f"medem coisas diferentes.")
+
+    t = snap.get("terceiros") or {}
+    if lab == "Vendidos pendentes":
+        return (f"Nosso {calc} = {t.get('vendidos_pendentes_animais')} animais e "
+                f"{t.get('vendidos_pendentes_embrioes')} embrião(ões).")
+    if lab == "Sociedade pendentes":
+        return (f"Nosso {calc} = {t.get('sociedade_pendentes_animais')} animal(is) e "
+                f"{t.get('sociedade_pendentes_embrioes')} embriões.")
+    if lab == "Total terceiros":
+        return (f"É o mesmo conjunto dos vendidos pendentes: "
+                f"{t.get('terceiros_animais')} animais e {t.get('terceiros_embrioes')} embrião(ões).")
+    if lab in ("Vendidos pendentes", "Sociedade pendentes", "Total terceiros"):
+        return ""
+    if lab == "Índice eficiência":
+        r = snap.get("receptoras") or {}
+        return (f"Nosso {calc} = {r.get('vazias')} vazias ÷ {r.get('doadoras')} doadoras contadas.")
+    if lab == "Entradas semana":
+        n = (snap.get("saidas") or {}).get("entradas_nascimento")
+        return f"Inclui {n} nascimento(s)." if n else ""
+    return ""
+
+
 def _linhas_da_semana(semana):
     hist, docx = R._load_hist(), R._load_docx_ref()
     if semana not in hist:
@@ -143,7 +181,12 @@ def build(semana=None):
         ok = _eq(calc, alvo)
         n_tot += 1
         n_ok += 1 if ok else 0
-        por_secao[secao].append((lab, _fmt(calc), _fmt(alvo), _chip(ok), fonte, regra))
+        texto = regra
+        if not ok:
+            porque = _porque(lab, calc, alvo, snap, dx, hist, semana)
+            if porque:
+                texto = f'<b>{html.escape(porque)}</b><br>{regra}'
+        por_secao[secao].append((lab, _fmt(calc), _fmt(alvo), _chip(ok), fonte, texto))
     for secao, lab, fn, fonte, regra in SEM_CONTRAPARTE:
         por_secao[secao].append((lab, _fmt(fn(snap)), "—",
                                  '<span class="chip neu">sem linha</span>', fonte, regra))

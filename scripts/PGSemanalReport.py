@@ -1362,9 +1362,27 @@ def build_headcount_delta(rep: Report, fim: date):
         rep.headcount["delta"] = total - prev.get("total", total)
     else:
         rep.headcount["delta"] = None
+
+    # Δ do TOTAL nao e o mesmo que o Δ do relatorio.
+    # O relatorio escreve '+02 / -01' contando so ANIMAIS: 2 potros nascidos, 1
+    # vendido. As receptoras que foram pro socio sairam da contagem (-2) e nao
+    # aparecem ali. Resultado em 21/08/2026: total 203 -> 202 = -1, animais
+    # 143 -> 144 = +1. As duas contas estao certas, medem coisas diferentes — e
+    # comparar a nossa do total contra a dele de animais dava divergencia falsa.
+    # Nas semanas sem movimento de receptora as duas coincidem, e por isso o
+    # problema so apareceu quando duas receptoras sairam na mesma semana.
+    det = rep.headcount.get("detalhe") or {}
+    tg = det.get("TOTAL GERAL") or {}
+    ani, rec = tg.get("animais"), tg.get("receptoras")
+    pa, pr = prev.get("animais") if prev else None, prev.get("receptoras") if prev else None
+    rep.headcount["delta_animais"] = (ani - pa) if None not in (ani, pa) else None
+    rep.headcount["delta_receptoras"] = (rec - pr) if None not in (rec, pr) else None
     atual = {"total": total, "fpg": rep.headcount.get("fazenda_pg"),
              "arr": rep.headcount.get("arrendamento"),
-             "cte": rep.headcount.get("cte"), "soc": rep.headcount.get("socio")}
+             "cte": rep.headcount.get("cte"), "soc": rep.headcount.get("socio"),
+             # abertura animais/receptoras: base do Δ de animais, que e o que o
+             # relatorio publica
+             "animais": tg.get("animais"), "receptoras": tg.get("receptoras")}
     # CONTAGEM idêntica à da semana passada, local por local, quase sempre significa
     # que a aba não foi atualizada — não que nada mudou. Em 31/07/2026 isso aconteceu:
     # o snapshot repetiu 205 de 24/07, Δ saiu 0, e o relatório oficial dizia 204 / -01.
@@ -1460,6 +1478,9 @@ def build_report(ini: date, fim: date) -> Report:
     _compute_movimento(rep)                       # saídas/entradas = diff da população contada
     _paricoes_do_roster(rep)                      # potro no roster sem parição na ESTAÇÃO
     _acumulado_nunca_cai(rep)                     # agregador da safra, nao cai
+    # UMA vez, no fim: chamado no meio do caminho ele via as entradas ainda sem os
+    # nascimentos e acusava movimentacao fantasma que se resolvia duas linhas depois
+    _conferir_delta(rep)
     _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
     _avisar_pasta_de_saida()
     _avisar_fontes_velhas(ini, fim)                # BLOQUEIA se a fonte for velha
@@ -1560,7 +1581,6 @@ def _compute_movimento(rep: Report):
         rep.detalhe["saidas_diff"] = sai
         rep.detalhe["entradas_diff"] = ent
         _refina_afeta_headcount(rep)
-        _conferir_delta(rep)
         return
 
     rep.populacao = _populacao_contada(rep.roster, rep.receptoras_locais)
@@ -1795,7 +1815,6 @@ def _paricoes_do_roster(rep: Report):
             {"animal": k, "data": None, "classificacao": "NASCIMENTO (roster)",
              "afeta_headcount": True, "local_saida": None,
              "local_entrada": "FAZENDA PAO GRANDE"} for k in desta]
-        _conferir_delta(rep)
     print(f"  [nascimentos] {len(da_safra)} parição(ões) da safra conhecidas só pelo "
           f"roster, somadas ao acumulado (a aba ESTAÇÃO não as tem):")
     for k in sorted(da_safra):
