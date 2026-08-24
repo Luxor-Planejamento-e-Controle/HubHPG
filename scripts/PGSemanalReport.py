@@ -82,7 +82,16 @@ EMB_COMERCIAIS = DRIVE_ROOT / "REPRODUÇÃO" / "EMBRIOES A ENTREGAR - A RECEBER.
 ESTACAO_MASTER_DIR = (
     DRIVE_ROOT / "REPRODUÇÃO" / "ESTAÇÃO DE MONTA" / "Estação 2025-2026"
 )
-RECEPTORAS_DIR = DRIVE_ROOT / "PLANTEL" / "Estação 2025-2026"
+# O plantel e as receptoras vivem em PLANTEL/Estação <ano>-<ano>, e a copia de
+# trabalho MUDA DE PASTA quando a estacao vira: em 21/08/2026 os arquivos "EDITAR
+# SETEMBRO" passaram para "Estação 2026-2027", porque setembro abre estacao nova.
+# Olhar so a pasta da estacao corrente fez o pipeline concluir que os arquivos tinham
+# sido apagados e cair numa copia congelada de 05/08. Varremos TODAS as pastas de
+# estacao e ficamos com o mais recente — aqui frescor e o que importa, e a guarda de
+# fonte velha cobre o resto.
+PLANTEL_DIR_BASE = DRIVE_ROOT / "PLANTEL"
+PLANTEL_ESTACAO_GLOB = "Estação *"
+RECEPTORAS_DIR = PLANTEL_DIR_BASE / "Estação 2025-2026"   # so p/ mensagens de erro
 # Mapa de Vendas — quem consome é o deck do comitê (hub/tools/build_comite.py),
 # não o fechamento semanal. Cheguei a tratar como constante morta por não achar
 # uso neste módulo; o uso está no outro.
@@ -164,6 +173,14 @@ def _registra_fonte(rotulo: str, f: Path) -> Path:
 
 # so o orquestrador libera, via --forcar
 PERMITIR_FONTE_VELHA = False
+# Fontes que TEM de ser da semana: descrevem estado que muda toda semana (quem esta
+# onde, quem saiu, quantos embrioes em pe). Parada, a fonte esta perdida.
+# As demais — 'Animais para sair', embrioes a entregar — sao de baixa rotatividade:
+# so mudam quando ha venda ou entrega nova, e ficar parado e o normal. Para essas o
+# aviso sai, mas nao bloqueia: tratar "nada aconteceu" como "fonte perdida" travava o
+# fechamento sem motivo.
+FONTES_SEMANAIS = ("receptoras", "controle mensal", "roster do plantel",
+                   "estacao de monta", "acumulado na estação")
 
 
 def _avisar_fontes_velhas(ini: date, fim: date):
@@ -181,16 +198,21 @@ def _avisar_fontes_velhas(ini: date, fim: date):
             velhas.append((rotulo, f.name, m))
     if not velhas:
         return
+    bloqueiam = [v for v in velhas if v[0] in FONTES_SEMANAIS]
     print(f"  [fontes] !! {len(velhas)} fonte(s) mais VELHAS que a janela "
           f"({ini.strftime('%d/%m')}-{fim.strftime('%d/%m')}) — o que sai delas nao "
           f"descreve esta semana:")
     for rotulo, nome, m in velhas:
-        print(f"    - {rotulo}: {nome} (salvo em {m.strftime('%d/%m/%Y')})")
-    print("    Conferir se a copia de trabalho foi apagada ou renomeada.")
+        marca = "  <- semanal, BLOQUEIA" if rotulo in FONTES_SEMANAIS else "  (baixa rotatividade)"
+        print(f"    - {rotulo}: {nome} (salvo em {m.strftime('%d/%m/%Y')}){marca}")
+    if not bloqueiam:
+        print("    Nenhuma delas deveria mudar toda semana — segue.")
+        return
+    print("    Conferir se a copia de trabalho mudou de pasta, foi apagada ou renomeada.")
     if not PERMITIR_FONTE_VELHA:
         raise RuntimeError(
-            "fonte(s) mais velha(s) que a janela: "
-            + "; ".join(f"{r} ({n}, {m:%d/%m})" for r, n, m in velhas)
+            "fonte(s) semanal(is) mais velha(s) que a janela: "
+            + "; ".join(f"{r} ({n}, {m:%d/%m})" for r, n, m in bloqueiam)
             + " — snapshot NAO congelado. Use --forcar para gravar assim mesmo.")
 
 
@@ -269,6 +291,25 @@ def _avisar_pasta_de_saida():
 def _controle_plantel() -> Path:
     return _resolver(CONTROLE_PLANTEL_GLOB, CONTROLE_PLANTEL_DIRS, "roster do plantel",
                      requer_aba="PLANTEL")
+
+
+def _estacao_dirs() -> list:
+    """Pastas de estacao do PLANTEL, da mais nova para a mais velha."""
+    if not PLANTEL_DIR_BASE.exists():
+        return []
+    return sorted((d for d in PLANTEL_DIR_BASE.glob(PLANTEL_ESTACAO_GLOB) if d.is_dir()),
+                  reverse=True)
+
+
+def _latest_no_plantel(pattern: str, rotulo: str) -> Path:
+    """Arquivo mais recente que casa o padrao em QUALQUER pasta de estacao."""
+    cands = [f for d in _estacao_dirs() for f in d.glob(pattern)
+             if not f.name.startswith("~$")]
+    if not cands:
+        raise FileNotFoundError(
+            f"Nenhum {pattern!r} ({rotulo}) em: "
+            + " | ".join(str(d) for d in _estacao_dirs()))
+    return _registra_fonte(rotulo, max(cands, key=lambda f: f.stat().st_mtime))
 
 
 def _latest_estacao_master() -> Path:
@@ -441,7 +482,7 @@ def _mortes_do_plantel(ini: date, fim: date) -> list:
     por isso a classificação é por palavra-chave).
     """
     try:
-        src = _latest_by_yymmdd(CONTROLE_MENSAL_DIR, "*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx")
+        src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
     except FileNotFoundError:
         return []
     wb = _load(src)
@@ -634,7 +675,7 @@ def build_receptoras(rep: Report):
     NÃO usa mais a aba 'ATUALIZAÇÃO SEMANAL' (aba a ser aposentada). Validado vs
     docx 24/07: prenhas 34 / vazias 28 / total 62 — bate EXATO.
     Colunas ANIMAIS (linha 3 header, dados r4+): 1 ANIMAL, 2 STATUS, 3 LOCAL."""
-    src = _latest_by_yymmdd(RECEPTORAS_DIR, "*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
+    src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
     rep.fontes["receptoras"] = src.name
     wb = _load(src)
     ws = wb["ANIMAIS"]
@@ -755,7 +796,7 @@ def _contagem_declarada() -> dict:
 
 def _receptoras_por_local() -> dict:
     """{LOCAL do roster: nº de receptoras}. Mesma regra da seção 2 (prenha/vazia)."""
-    src = _latest_by_yymmdd(RECEPTORAS_DIR, "*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
+    src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
     wb = _load(src)
     ws = wb["ANIMAIS"]
     out = {}
@@ -923,7 +964,8 @@ def _saidas_entradas_planilha(wb, ini: date, fim: date):
 # (primeira captura), fica em branco — nunca zero.
 def _receptoras_arquivos() -> list:
     """Arquivos de receptoras, do mais recente pro mais antigo (por mtime)."""
-    cands = [f for f in RECEPTORAS_DIR.glob("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
+    cands = [f for d in _estacao_dirs()
+             for f in d.glob("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
              if not f.name.startswith("~$")]
     return sorted(cands, key=lambda f: f.stat().st_mtime, reverse=True)
 
@@ -932,7 +974,7 @@ def _receptoras_info(src: Path | None = None) -> dict:
     """{ANIMAL: {local, status, embriao, obs}} da aba ANIMAIS — TODAS as linhas,
     inclusive fora dos nossos locais, pra saber pra onde o animal foi."""
     if src is None:
-        src = _latest_by_yymmdd(RECEPTORAS_DIR, "*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx")
+        src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
     wb = _load(src)
     ws = wb["ANIMAIS"]
     out = {}
@@ -977,7 +1019,7 @@ def _transferencias_internas(rep: Report) -> list | None:
 
 
 def build_movimentacao(rep: Report, ini: date, fim: date):
-    src = _latest_by_yymmdd(CONTROLE_MENSAL_DIR, "*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx")
+    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
     rep.fontes["controle_plantel_mensal"] = src.name
     wb = _load(src)
     rep.saidas_planilha = _saidas_entradas_planilha(wb, ini, fim)
@@ -1078,7 +1120,7 @@ def _plantel_por_status() -> dict:
 def _status_plantel_mensal() -> dict:
     """Vendidos pendentes e terceiros pela coluna STATUS PLANTEL do CONTROLE_DE_PLANTEL
     mensal. Devolve as listas cruas; quem chama decide o que é zero e o que é ausência."""
-    src = _latest_by_yymmdd(CONTROLE_MENSAL_DIR, "*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx")
+    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
     wb = _load(src)
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
