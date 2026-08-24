@@ -14,7 +14,7 @@
    tools/build_*.py geraram na máquina. */
 
 window.SUPABASE_URL = "https://opiihihhfucmzbnpkfmu.supabase.co";
-window.SUPABASE_ANON_KEY = "";   // Supabase > Settings > API > "anon public"
+window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9waWloaWhoZnVjbXpibnBrZm11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc1NzI5NDYsImV4cCI6MjEwMzE0ODk0Nn0.upowNaWlyZHGeS3xzyhht2yJW8SmuWyoZcKjos9XR7k";  // Settings > API > "anon public"
                                  // NUNCA a service_role: ela ignora RLS, e este
                                  // arquivo vai pro repo publico.
 
