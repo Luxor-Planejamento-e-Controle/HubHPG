@@ -683,7 +683,15 @@ def build_producao(rep: Report, ini: date, fim: date):
         sx = {"M": "Macho", "F": "Fêmea"}.get((e.get("sexo_potro") or "").upper(), e.get("sexo_potro") or "")
         return e.get("nome_potro") or (f"{sx} — {base}" if base else sx) or "--"
     rep.detalhe["confirmados_semana"] = na_semana
-    rep.detalhe["nascimentos_semana"] = [dict(e, produto=_produto(e)) for e in nascimentos]
+    _SOCIO_POR_RECEP.clear()
+    for e in embrioes:
+        soc = _limpa_socio(e.get("comprador")) or _limpa_socio(e.get("socio"))
+        if soc and e.get("receptora"):
+            _SOCIO_POR_RECEP[_norm(e["receptora"])] = soc
+    rep.detalhe["nascimentos_semana"] = [
+        dict(e, produto=_produto(e),
+             socio=_limpa_socio(e.get("comprador")) or _limpa_socio(e.get("socio")))
+        for e in nascimentos]
     rep.detalhe["abortos_obitos_semana"] = abortos + obitos + mortes_plantel
     rep.detalhe["embrioes_confirmados"] = confirmados
     # listas COMPLETAS datadas (o dashboard filtra por semana no cliente)
@@ -1158,6 +1166,10 @@ def _status_plantel_mensal() -> dict:
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
     vendidos_pend, terceiros, marcado = [], [], False
+    # NOME SOCIO / COTAS (%) ficam fora do layout mínimo porque só este trecho usa.
+    # Indexado pela receptora do fim do nome: é o que o roster semanal e o mensal
+    # têm em comum (o mensal escreve a data no meio e acentua o garanhão).
+    socio_por_recep = {}
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < L["linha1"] or r[L["nome"]] is None:
             continue
@@ -1166,6 +1178,10 @@ def _status_plantel_mensal() -> dict:
             continue
         status_plantel = _norm(r[L["status"]])
         categoria, local = _norm(r[L["categoria"]]), _s(r[L["local"]])
+        m_rec = RE_PRODUTO.search(_norm(nome))
+        soc = _limpa_socio(r[COL_MENSAL_NOME_SOCIO]) if len(r) > COL_MENSAL_NOME_SOCIO else None
+        if m_rec and soc:
+            socio_por_recep[m_rec.group(1)] = soc
         if STATUS_VENDIDO_PENDENTE in status_plantel:
             marcado = True
             vendidos_pend.append({"nome": nome, "local": local, "cota": None,
@@ -1180,7 +1196,8 @@ def _status_plantel_mensal() -> dict:
                               "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
     wb.close()
     return {"fonte": src.name, "marcado": marcado,
-            "vendidos_pendentes": vendidos_pend, "terceiros": terceiros}
+            "vendidos_pendentes": vendidos_pend, "terceiros": terceiros,
+            "socio_por_recep": socio_por_recep}
 
 
 # Embrião comercial pendente de saída: aba ENTREGAR do "EMBRIOES A ENTREGAR - A
@@ -1270,6 +1287,8 @@ def build_pendentes(rep: Report):
     # congelado desde 24/07/2026 e perde os marcados depois disso.
     mensal = _status_plantel_mensal()
     rep.fontes["status_plantel"] = mensal["fonte"]
+    _SOCIO_ROSTER.clear()
+    _SOCIO_ROSTER.update(mensal.get("socio_por_recep") or {})
     mensal_terceiros_embrioes = [t for t in mensal["terceiros"]
                                  if t.get("especie") == "EMBRIAO"]
     # O embrião dos vendidos pendentes vem do ROSTER MENSAL, não do EMBRIOES A
@@ -1679,6 +1698,28 @@ def _compute_movimento(rep: Report):
     _conferir_delta(rep)
 
 
+# receptora -> "50% FULANO", montado em build_producao a partir da ESTACAO DE MONTA
+_SOCIO_POR_RECEP: dict = {}
+# receptora -> "50% FULANO" pela coluna NOME SOCIO do roster mensal (fonte primária:
+# todo potro nascido entra no roster, mesmo antes de a parição ir para a estação)
+_SOCIO_ROSTER: dict = {}
+
+
+def _limpa_socio(v) -> str | None:
+    """'50% ELIANE ANDRADE/vendido' -> '50% ELIANE ANDRADE'.
+
+    O sufixo '/vendido' e marca de controle da planilha, nao parte do nome."""
+    t = _s(v)
+    if not t:
+        return None
+    t = re.sub(r"\s*/\s*vendid[oa]\s*$", "", t, flags=re.IGNORECASE).strip()
+    return t or None
+
+
+# CONTROLE_DE_PLANTEL mensal, aba PLANTEL: 'NOME SOCIO' ('50% RENATA CAZZANI DE
+# CARVALHO'). Fora do PLANTEL_LAYOUT_MENSAL de proposito — só as parições usam.
+COL_MENSAL_NOME_SOCIO = 17
+
 PARICOES_EXTRA = BASE_DIR / "_cache" / "paricoes_extra.json"
 # assinatura de nome de produto no roster: "... RECEP 309", "MACHO ... RECEP 258"
 RE_PRODUTO = re.compile(r"RECEP\w*\s*([A-Z0-9]+)\s*$")
@@ -1795,6 +1836,13 @@ def _paricoes_do_roster(rep: Report):
     subiria nesta semana e cairia na próxima, quando o potro deixa de ser novidade no
     roster.
     """
+    # NOME SOCIO do roster mensal manda: e a coluna que o relatorio copia, e cobre
+    # tambem o potro cuja paricao ainda nao foi lancada na estacao (recep 258).
+    for row in rep.detalhe.get("nascimentos_semana") or []:
+        do_roster = _SOCIO_ROSTER.get(_norm(row.get("receptora")))
+        if do_roster:
+            row["socio"] = do_roster
+
     hist = _load_hist()
     prev = None
     for wid in sorted(hist):
@@ -1850,8 +1898,24 @@ def _paricoes_do_roster(rep: Report):
             print(f"    - {k}")
     if desta:
         rep.producao["nascimentos"] = (rep.producao.get("nascimentos") or 0) + len(desta)
+        def _socio_da_recep(rec):
+            r = _norm(rec)
+            if r in _SOCIO_ROSTER:
+                return _SOCIO_ROSTER[r]
+            if r in _SOCIO_POR_RECEP:
+                return _SOCIO_POR_RECEP[r]
+            linha = por_recep.get(r) or {}
+            return _limpa_socio(linha.get("socio"))
+
+        sem_socio = [k for k in desta if not _socio_da_recep(da_safra[k]["receptora"])]
+        if sem_socio:
+            print(f"  [nascimentos] sem sócio na estação nem no arquivo do grupo "
+                  f"({len(sem_socio)}) — o relatório publica esse nome, aqui fica vazio:")
+            for k in sem_socio:
+                print(f"    - {k} (recep {da_safra[k]['receptora']})")
         rep.detalhe["nascimentos_semana"] = rep.detalhe.get("nascimentos_semana", []) + [
             {"produto": _produto_do_roster(k), "receptora": da_safra[k]["receptora"],
+             "socio": _socio_da_recep(da_safra[k]["receptora"]),
              "origem": "roster"} for k in desta]
 
         # Potro que nasce ENTRA no plantel: o roster cresce e o headcount sobe. O
