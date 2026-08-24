@@ -77,7 +77,7 @@ FONTES = {
         "STATUS PLANTEL = VENDIDO PENDENTE SAIDA mais embrião de cota integral aguardando entrega. Reposição conta (sai para repor outro animal, mas está pendente)."),
     "Sociedade pendentes": ("5 · Saídas",
         "Animais para sair · ANIMAIS VENDIDOS\nEMBRIOES A ENTREGAR · ENTREGAR",
-        "Animais tipo SOCIEDADE mais embriões de cota parcial. Só PRONTO - AGUARDANDO ENTREGA conta; PRONTO - NASCE NA PG fica. Animal com pendência documental fica fora."),
+        "Animais tipo SOCIEDADE mais embriões de cota parcial. Só PRONTO - AGUARDANDO ENTREGA conta; PRONTO - NASCE NA PG fica. Animal com pendência documental fica fora. O Animais para sair está congelado em 24/07, então o animal só sai da conta quando some do roster mensal — sociedade nunca recebe marca de STATUS PLANTEL, exigir marca derrubava todos por construção."),
     "Total terceiros": ("4 · Terceiros",
         "CONTROLE_DE_PLANTEL mensal · PLANTEL\nEMBRIOES A ENTREGAR · ENTREGAR",
         "É o pendente de saída, como diz o rótulo do próprio relatório."),
@@ -140,8 +140,18 @@ def _porque(lab, calc, alvo, snap, dx, hist, semana):
         return (f"Nosso {calc} = {t.get('vendidos_pendentes_animais')} animais e "
                 f"{t.get('vendidos_pendentes_embrioes')} embrião(ões).")
     if lab == "Sociedade pendentes":
-        return (f"Nosso {calc} = {t.get('sociedade_pendentes_animais')} animal(is) e "
-                f"{t.get('sociedade_pendentes_embrioes')} embriões.")
+        a = t.get("sociedade_pendentes_animais")
+        e = t.get("sociedade_pendentes_embrioes")
+        base = f"Nosso {calc} = {a} animal(is) e {e} embriões."
+        # O relatorio oscila: em 14/08 publicou "04 (01 animal e 03 embriões)" e na
+        # semana seguinte publicou "01", com os mesmos 3 embrioes ainda em aberto.
+        # Quando o numero dele == nossos animais, a diferenca sao os embrioes.
+        if alvo is not None and a is not None and alvo == a and e:
+            return (base + f" O relatório publicou {alvo}, que é exatamente a contagem de "
+                    f"animais: ficaram de fora os {e} embriões — os mesmos que ele próprio "
+                    f"abriu em 14/08 ('04 = 01 animal e 03 embriões'). Divergência de "
+                    f"critério do relatório, não de fonte.")
+        return base
     if lab == "Total terceiros":
         return (f"É o mesmo conjunto dos vendidos pendentes: "
                 f"{t.get('terceiros_animais')} animais e {t.get('terceiros_embrioes')} embrião(ões).")

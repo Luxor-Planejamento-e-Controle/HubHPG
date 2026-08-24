@@ -60,9 +60,11 @@ TEMPLATE = r"""<!doctype html>
   .panel .sub{color:var(--mut);font-size:12.5px;margin:4px 0 0}
   .kpis{display:grid;gap:12px;margin-top:14px}
   .kpi{background:#072B49;border:1px solid var(--line);border-radius:10px;
-    padding:14px 16px;position:relative;display:flex;flex-direction:column;justify-content:center;min-height:96px}
-  .kpi .lab{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px;line-height:1.25;min-height:28px}
-  .kpi .val{font-size:30px;font-weight:700;margin-top:6px;outline:none;line-height:1}
+    padding:13px 15px 12px;position:relative;display:flex;flex-direction:column;
+    justify-content:flex-start;min-height:104px}
+  .kpi .lab{color:var(--mut);font-size:10.5px;text-transform:uppercase;letter-spacing:.45px;
+    line-height:1.3;min-height:28px}
+  .kpi .val{font-size:30px;font-weight:700;margin-top:7px;outline:none;line-height:1}
   .kpi.editing .val{border-bottom:2px dashed var(--amber);cursor:text}
   .kpi.edited{border-color:var(--amber)}
   .kpi.manual{border-style:dashed;border-color:var(--teal)}
@@ -73,8 +75,8 @@ TEMPLATE = r"""<!doctype html>
   .kpi .rst:hover{color:var(--neg)}
   .kpi .val .pos{color:var(--pos)} .kpi .val .neg{color:var(--neg)}
   /* comentário do KPI: a composição do número, não o número */
-  .kpi .val .nota{display:block;font-size:12px;font-weight:400;color:var(--mut);
-    line-height:1.3;margin-top:5px}
+  .kpi .val .nota{display:block;font-size:11.5px;font-weight:400;color:var(--mut);
+    line-height:1.35;margin-top:7px}
   /* detalhe de uma coluna só: lista, não tabela */
   .det-lista{color:var(--txt);font-size:12.5px;line-height:1.6;
     border:1px solid var(--line);border-radius:8px;padding:8px 11px}
@@ -157,18 +159,10 @@ function loc(v){ return v? (LOCNOME[v]||String(v).toLowerCase()) : v; }
 /* "309" sozinho não diz nada. Descreve quem é e o trajeto, no próprio card:
    receptora 309 · Pao Grande → sócio. Até 3; acima disso a tabela de detalhe
    entra (ver minRows no det) e aqui fica só a contagem. */
-function movNota(rows){
-  if(!rows||!rows.length) return "";
-  if(rows.length>3) return "";
-  const linha=r=>{
-    const quem=(r.tipo==="RECEPTORA"?"receptora ":"")+r.animal;
-    const de=loc(r.local_saida), pra=loc(r.local_entrada);
-    const rota=(de&&pra)?` · ${de} → ${pra}`:(pra?` · para ${pra}`:(de?` · de ${de}`:""));
-    return quem+rota;
-  };
-  return `<span class="nota">${rows.map(linha).join("<br>")}</span>`;
-}
-function movVal(s,n,rows){ return n==null? null : `${n}${movNota(rows)}`; }
+// Card e quadrado: rotulo + numero. Quem lista e a tabela da secao, no mesmo
+// formato das outras — despejar as movimentacoes dentro do card misturava os dois
+// padroes e ainda repetia o que a tabela 'Entradas na semana' ja mostra.
+function movVal(s,n,rows){ return n==null? null : String(n); }
 
 // estrutura espelha o docx. cada KPI: {p:chave override, l:label, get:fn(snap)->valor}
 const SECTIONS = [

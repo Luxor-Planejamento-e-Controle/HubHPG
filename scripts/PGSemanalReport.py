@@ -1282,16 +1282,18 @@ def build_pendentes(rep: Report):
     if bloqueados:
         print("  [pendentes] em sociedade com pendência documental, fora da conta: "
               + "; ".join(f'{p["nome"]} ({p["obs"]})' for p in bloqueados))
-    # O "Animais para sair" esta congelado desde 24/07/2026. Animal listado la que o
-    # roster mensal (fresco) mostra como PLANTEL puro nao esta mais pendente — foi o
-    # caso de MUSICA, que inflava a sociedade em 1.
-    marcados_no_roster = {_nucleo_nome(x["nome"]) for x in mensal["vendidos_pendentes"]}
-    marcados_no_roster |= {_nucleo_nome(t["nome"]) for t in mensal["terceiros"]}
+    # O "Animais para sair" esta congelado desde 24/07/2026, entao um animal listado la
+    # pode ja ter saido. O teste e a PRESENCA no roster mensal (fresco), nao a marca de
+    # status: sociedade nunca recebe marca — MUSICA e NOBRE estao la como 'PLANTEL'
+    # puro, e exigir marca derrubava os dois por construcao (foi o que zerou a sociedade
+    # de 21/08, onde o relatorio publica justamente 1 animal = MUSICA). Sumiu do roster
+    # = saiu da fazenda = nao esta mais pendente.
+    nomes_roster = {_nucleo_nome(n) for n in rep.roster}
     fantasmas = [p for p in soc_todos
-                 if p not in bloqueados and _nucleo_nome(p["nome"]) not in marcados_no_roster]
+                 if p not in bloqueados and _nucleo_nome(p["nome"]) not in nomes_roster]
     if fantasmas:
-        print("  [pendentes] em sociedade pelo 'Animais para sair' (24/07) mas SEM marca "
-              "no roster mensal — tratado como nao pendente: "
+        print("  [pendentes] em sociedade pelo 'Animais para sair' (24/07) mas fora do "
+              "roster mensal — ja saiu, tratado como nao pendente: "
               + "; ".join(p["nome"] for p in fantasmas))
     soc_animais = [p for p in soc_todos if p not in bloqueados and p not in fantasmas]
     soc_embrioes = [p for p in pend_emb if p["tipo"] == "SOCIEDADE"]
