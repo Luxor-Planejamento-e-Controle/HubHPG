@@ -37,6 +37,9 @@ FONTES = {
     "Acumulado estação": ("1 · Produção",
         "EMBRIÕES E MATRIZES · EMBRIÕES PAO GRANDE + SOCIOS\nESTACAO DE MONTA · ESTAÇÃO\nCONTROLE PLANTEL · PLANTEL",
         "Vivos no grupo + parições da safra. A soma funciona porque a planilha do grupo apaga a linha de quem pariu; parição não lançada em lugar nenhum some da conta. Parição conhecida só pelo roster entra aqui, com registro cumulativo. O valor nunca cai — há piso por safra."),
+    "Acumulado estação (safra nova)": ("1 · Produção",
+        "EMBRIÕES E MATRIZES · EMBRIÕES PAO GRANDE + SOCIOS\nESTACAO DE MONTA · ESTAÇÃO",
+        "Mesma regra da safra que fecha, aplicada na que começa — o relatório publica as duas durante a transição. Enquanto não há uma linha lançada para a safra nova em nenhuma das duas planilhas, o número é 0, que é o '--' do relatório."),
     "Confirmados semana": ("1 · Produção", "ESTACAO DE MONTA · ESTAÇÃO",
         "Coluna +/- = OK. A contagem da semana é a diferença do conjunto contra o snapshot anterior."),
     "Nascimentos": ("1 · Produção", "ESTACAO DE MONTA · ESTAÇÃO\nCONTROLE PLANTEL · PLANTEL",
@@ -76,8 +79,13 @@ FONTES = {
         "CONTROLE_DE_PLANTEL mensal · PLANTEL\nEMBRIOES A ENTREGAR · ENTREGAR",
         "STATUS PLANTEL = VENDIDO PENDENTE SAIDA mais embrião de cota integral aguardando entrega. Reposição conta (sai para repor outro animal, mas está pendente)."),
     "Sociedade pendentes": ("5 · Saídas",
-        "Animais para sair · ANIMAIS VENDIDOS\nEMBRIOES A ENTREGAR · ENTREGAR",
-        "Animais tipo SOCIEDADE mais embriões de cota parcial. Só PRONTO - AGUARDANDO ENTREGA conta; PRONTO - NASCE NA PG fica. Animal com pendência documental fica fora. O Animais para sair está congelado em 24/07, então o animal só sai da conta quando some do roster mensal — sociedade nunca recebe marca de STATUS PLANTEL, exigir marca derrubava todos por construção."),
+        "Animais para sair · ANIMAIS VENDIDOS",
+        "ANIMAIS tipo SOCIEDADE. Embrião de cota parcial não entra aqui: tem indicador "
+        "próprio, porque o relatório soma embrião nesta linha em algumas semanas e em "
+        "outras não. Animal com pendência documental fica fora. O Animais para sair está "
+        "congelado em 24/07, então o animal só sai da conta quando some do roster mensal — "
+        "sociedade nunca recebe marca de STATUS PLANTEL, exigir marca derrubava todos por "
+        "construção. A comparação usa a abertura do relatório quando ela existe."),
     "Total terceiros": ("4 · Terceiros",
         "CONTROLE_DE_PLANTEL mensal · PLANTEL\nEMBRIOES A ENTREGAR · ENTREGAR",
         "É o pendente de saída, como diz o rótulo do próprio relatório."),
@@ -96,6 +104,10 @@ SEM_CONTRAPARTE = [
      lambda s: (s.get("receptoras") or {}).get("doadoras"),
      "CONTROLE PLANTEL · PLANTEL",
      "CATEGORIA = DOADORA no roster. O relatório não publica o número, só o usa como divisor do índice."),
+    ("5 · Saídas", "Embriões em sociedade aguardando entrega",
+     lambda s: (s.get("terceiros") or {}).get("sociedade_pendentes_embrioes"),
+     "EMBRIOES A ENTREGAR · ENTREGAR",
+     "Cota PG parcial com status PRONTO - AGUARDANDO ENTREGA. PRONTO - NASCE NA PG fica de fora. O relatório não tem linha fixa para isto — às vezes soma na sociedade pendente, às vezes omite."),
     ("4 · Terceiros", "Doadoras terceiros",
      lambda s: (s.get("terceiros") or {}).get("doadoras_terceiros"),
      "CONTROLE_DE_PLANTEL mensal · PLANTEL",
@@ -140,18 +152,11 @@ def _porque(lab, calc, alvo, snap, dx, hist, semana):
         return (f"Nosso {calc} = {t.get('vendidos_pendentes_animais')} animais e "
                 f"{t.get('vendidos_pendentes_embrioes')} embrião(ões).")
     if lab == "Sociedade pendentes":
-        a = t.get("sociedade_pendentes_animais")
         e = t.get("sociedade_pendentes_embrioes")
-        base = f"Nosso {calc} = {a} animal(is) e {e} embriões."
-        # O relatorio oscila: em 14/08 publicou "04 (01 animal e 03 embriões)" e na
-        # semana seguinte publicou "01", com os mesmos 3 embrioes ainda em aberto.
-        # Quando o numero dele == nossos animais, a diferenca sao os embrioes.
-        if alvo is not None and a is not None and alvo == a and e:
-            return (base + f" O relatório publicou {alvo}, que é exatamente a contagem de "
-                    f"animais: ficaram de fora os {e} embriões — os mesmos que ele próprio "
-                    f"abriu em 14/08 ('04 = 01 animal e 03 embriões'). Divergência de "
-                    f"critério do relatório, não de fonte.")
-        return base
+        return (f"Contagem de ANIMAIS dos dois lados. Os {e} embrião(ões) em sociedade "
+                f"ficam no indicador ao lado — o relatório ora soma embrião nesta linha "
+                f"(14/08: '04 = 01 animal e 03 embriões'), ora não (21/08: '01'), com os "
+                f"mesmos embriões abertos nas duas semanas.")
     if lab == "Total terceiros":
         return (f"É o mesmo conjunto dos vendidos pendentes: "
                 f"{t.get('terceiros_animais')} animais e {t.get('terceiros_embrioes')} embrião(ões).")

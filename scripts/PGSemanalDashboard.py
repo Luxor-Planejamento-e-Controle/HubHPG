@@ -75,6 +75,8 @@ TEMPLATE = r"""<!doctype html>
   .kpi .rst:hover{color:var(--neg)}
   .kpi .val .pos{color:var(--pos)} .kpi .val .neg{color:var(--neg)}
   /* comentário do KPI: a composição do número, não o número */
+  /* comentário curto sob o número — só onde o próprio relatório escreve a
+     abertura. Lista continua sendo tabela, nunca texto dentro do card. */
   .kpi .val .nota{display:block;font-size:11.5px;font-weight:400;color:var(--mut);
     line-height:1.35;margin-top:7px}
   /* detalhe de uma coluna só: lista, não tabela */
@@ -168,7 +170,11 @@ function movVal(s,n,rows){ return n==null? null : String(n); }
 const SECTIONS = [
  {n:"1", t:"PRODUÇÃO", wide:true, kpis:[
     {p:"prod.conf", l:"Embriões confirmados na semana", get:s=>s.confirmados_semana},
-    {p:"prod.acum", l:"Acumulado na estação", get:s=>s.acumulado_estacao},
+    // transição de estação: o relatório publica as duas safras enquanto a nova não anda
+    {p:"prod.acum", l:s=>`Acumulado na estação ${s.safra_atual_rotulo||""}`.trim(),
+     get:s=>s.acumulado_estacao},
+    {p:"prod.acum2", l:s=>`Acumulado na estação ${s.safra_proxima_rotulo||""}`.trim(),
+     skip:s=>!s.safra_proxima_rotulo, get:s=>s.acumulado_estacao_proxima},
     {p:"prod.aberto", l:"Aberto (PG / sócio / vend.)", get:s=>{const sp=s.acumulado_estacao_split; return sp?`${sp.pg||0} · ${sp.socio||0} · ${sp.vendido||0}`:null;}},
     {p:"prod.mes", l:"Acumulado no mês", get:s=>s.acumulado_mes},
     {p:"prod.nasc", l:"Nascimentos na semana", get:s=>s.nascimentos},
@@ -193,39 +199,38 @@ const SECTIONS = [
     // terceiros != vendidos pendentes: são duas marcações distintas no STATUS PLANTEL
     // ('DE TERCEIRO' e 'VENDIDO PENDENTE SAIDA'). O rótulo antigo dizia que eram a
     // mesma coisa porque o cálculo copiava um no outro.
-    {p:"ter.tot", l:"Total terceiros", html:true, get:s=>{
-      const t=s.terceiros||{}, n=t.terceiros_propriedade;
-      if(n==null) return null;
-      const a=t.terceiros_animais, e=t.terceiros_embrioes;
-      const partes=[];
-      if(a) partes.push(`${a} ${a===1?"animal":"animais"}`);
-      if(e) partes.push(`${e} ${e===1?"embrião":"embriões"}`);
-      return partes.length? `${n}<span class="nota">${partes.join(" e ")}</span>` : String(n);
-    }},
+    // a abertura (animais x embrioes) fica na tabela de detalhe, nao dentro do card
+    {p:"ter.tot", l:"Total terceiros", get:s=>s.terceiros?.terceiros_propriedade},
     {p:"ter.doa", l:"Doadoras terceiros", get:s=>s.terceiros?.doadoras_terceiros},
     {p:"ter.out", l:"Outros terceiros (cavalgada / treino)", get:s=>s.terceiros?.outros_terceiros},
- ], det:[["Terceiros na propriedade","terceiros_propriedade"],
-         ["Animais em sociedade pendentes de saída","terceiros_sociedade"]]},
+ ], det:[["Terceiros na propriedade","terceiros_propriedade"]]},
  {n:"5", t:"SAÍDAS", wide:true, kpis:[
-    {p:"sai.sa", l:"Saídas na semana", html:true,
+    {p:"sai.sa", l:"Saídas na semana",
      get:s=>movVal(s,s.movimento?.saidas,(s.detalhe||{}).saidas)},
-    {p:"sai.vp", l:"Vendidos pendentes de saída", get:s=>s.terceiros?.vendidos_pendentes},
-    // mesma descrição do relatório oficial: "07 (2 animais e 5 embriões)". A quebra
-    // vai em fonte menor, como comentário — o número é que é o KPI.
-    {p:"sai.sp", l:"Em sociedade pendentes de saída", html:true, get:s=>{
-      const t=s.terceiros||{}, n=t.sociedade_pendentes;
+    // o relatório escreve a abertura nesta linha: "07 (05 animais e 02 embriões)"
+    {p:"sai.vp", l:"Vendidos pendentes de saída", html:true, get:s=>{
+      const t=s.terceiros||{}, n=t.vendidos_pendentes;
       if(n==null) return null;
-      const a=t.sociedade_pendentes_animais, e=t.sociedade_pendentes_embrioes;
+      const a=t.vendidos_pendentes_animais, e=t.vendidos_pendentes_embrioes;
       const partes=[];
       if(a) partes.push(`${a} ${a===1?"animal":"animais"}`);
       if(e) partes.push(`${e} ${e===1?"embrião":"embriões"}`);
       return partes.length? `${n}<span class="nota">${partes.join(" e ")}</span>` : String(n);
     }},
+    // mesma descrição do relatório oficial: "07 (2 animais e 5 embriões)". A quebra
+    // vai em fonte menor, como comentário — o número é que é o KPI.
+    // o relatório publica ANIMAIS nesta linha; embrião tem KPI próprio ao lado.
+    // Semana antiga (antes da abertura existir) cai no total, que era só animal.
+    {p:"sai.sp", l:"Em sociedade pendentes de saída",
+     get:s=>s.terceiros?.sociedade_pendentes_animais ?? s.terceiros?.sociedade_pendentes},
+    {p:"sai.se", l:"Embriões em sociedade aguardando entrega",
+     get:s=>s.terceiros?.sociedade_pendentes_embrioes},
     {p:"sai.tr", l:"Transferências internas", get:s=>s.movimento?.transferencias},
-    {p:"sai.en", l:"Entradas na semana", html:true,
+    {p:"sai.en", l:"Entradas na semana",
      get:s=>movVal(s,s.movimento?.entradas,(s.detalhe||{}).entradas)},
- ], det:[["Saídas na semana","saidas",{minRows:4}],["Entradas na semana","entradas",{minRows:4}],
-         ["Vendidos pendentes de saída","terceiros_vendidos"]]},
+ ], det:[["Saídas na semana","saidas"],["Entradas na semana","entradas"],
+         ["Vendidos pendentes de saída","terceiros_vendidos"],
+         ["Em sociedade pendentes de saída","terceiros_sociedade"]]},
 ];
 
 function rawVal(k){
@@ -292,17 +297,21 @@ function render(){
   const sel=document.getElementById("semana");
   sel.innerHTML=CAL.slice().reverse().map(w=>`<option value="${w.id}" ${w.id===semana?"selected":""}>${br(w.ini)}–${br(w.fim)}</option>`).join("");
   document.getElementById("sections").innerHTML = SECTIONS.map(sec=>{
-    const kpis=sec.kpis.map(k=>{
+    // KPI com skip() só aparece nas semanas em que faz sentido (ex.: a safra que
+    // começa, que não existia nas semanas congeladas antes da transição)
+    const kpis=sec.kpis.filter(k=>!(k.skip && k.skip(snap()))).map(k=>{
       const edited=hasOv(k.p);
       const cls="kpi"+(edited?" edited":"")+(editMode?" editing":"")+(k.manual?" manual":"");
       const tag=k.manual?`<span class="tag" title="dado manual — preencher toda semana (Alexandre / grupo)">manual</span>`:"";
-      return `<div class="${cls}"><div class="lab">${k.l}</div>
+      const lb = (typeof k.l==="function") ? k.l(snap()) : k.l;   // safra vem do dado
+      return `<div class="${cls}"><div class="lab">${lb}</div>
         <div class="val" contenteditable="${editMode && !k.html}" data-path="${k.p}">${fmtVal(k)}</div>
         ${tag}<span class="rst" data-path="${k.p}">reset</span></div>`;
     }).join("");
     const det=(sec.det||[]).map(([t,key,opts])=>detTable(t,key,opts)).join("");
     const sub=sec.sub?`<div class="sub">${sec.sub(snap())}</div>`:"";
-    const cols=sec.wide?Math.min(sec.kpis.length,6):3;   // half=3 (receptoras/headcount iguais)
+    const vis=sec.kpis.filter(k=>!(k.skip && k.skip(snap()))).length;
+    const cols=sec.wide?Math.min(vis,6):3;   // half=3 (receptoras/headcount iguais)
     return `<div class="panel${sec.wide?' full':''}"><h2><span class="n">${sec.n})</span>${sec.t}</h2>${sub}
       <div class="kpis" style="grid-template-columns:repeat(${cols},minmax(0,1fr))">${kpis}</div>${det}</div>`;
   }).join("");

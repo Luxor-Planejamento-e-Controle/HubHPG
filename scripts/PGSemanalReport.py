@@ -103,6 +103,16 @@ HIST_HEADCOUNT = BASE_DIR / "_cache" / "headcount_history.json"
 HIST_SNAPSHOTS = BASE_DIR / "_cache" / "semanal_snapshots.json"
 
 SAFRA_ATUAL = "2025/2026"
+# Transicao de estacao: o relatorio publica as duas linhas enquanto a safra nova
+# nao anda. Nao ha nada de 2026/2027 nas planilhas ainda — o numero nasce zerado e
+# comeca a andar sozinho quando o haras lancar a primeira IA.
+SAFRA_PROXIMA = "2026/2027"
+
+
+def _rotulo_safra(safra: str) -> str:
+    """'2025/2026' -> '25/26', que e como o relatorio escreve."""
+    a, b = safra.split("/")
+    return f"{a[-2:]}/{b[-2:]}"
 BASES_DIR = BASE_DIR / "bases"
 JSON_OUT = BASES_DIR / "semanal_data.json"
 
@@ -386,7 +396,7 @@ def _latest_emb_matrizes() -> Path:
                      requer_aba="EMBRIÕES PAO GRANDE")
 
 
-def _acumulado_grupo() -> dict:
+def _acumulado_grupo(safra: str = SAFRA_ATUAL) -> dict:
     """Embriões vivos da safra na planilha 'EMBRIÕES E MATRIZES' — a que o haras
     manda no grupo e usa como fonte oficial do acumulado.
 
@@ -424,7 +434,7 @@ def _acumulado_grupo() -> dict:
                 continue
             if i <= HDR_ROW_ACUMULADO or r[1] is None or not str(r[1]).strip():
                 continue
-            if _s(r[iest]) != SAFRA_ATUAL:
+            if _s(r[iest]) != safra:
                 continue
             fatia = fatia_fixa or ("vendido" if _norm(r[ist]) == "VENDIDO" else "socio")
             out[fatia] += 1
@@ -536,7 +546,8 @@ def build_producao(rep: Report, ini: date, fim: date):
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 3 or r[0] is None:
             continue
-        if _s(r[35]) != SAFRA_ATUAL:
+        safra_linha = _s(r[35])
+        if safra_linha not in (SAFRA_ATUAL, SAFRA_PROXIMA):
             continue
         ia = _dt(r[7])
         # confirmação oficial = coluna +/- (idx17) == 'OK' (validado: os embriões
@@ -564,7 +575,12 @@ def build_producao(rep: Report, ini: date, fim: date):
             "data_aborto": _dt(r[21]).isoformat() if _dt(r[21]) else None,
             "data_obito": _dt(r[28]).isoformat() if _dt(r[28]) else None,
             "status": _s(r[32]), "categoria": _s(r[33]), "comprador": comprador,
+            "safra": safra_linha,
         })
+
+    # o resto de build_producao e da safra corrente; a proxima entra so no acumulado
+    embrioes_proxima = [e for e in embrioes if e["safra"] == SAFRA_PROXIMA]
+    embrioes = [e for e in embrioes if e["safra"] == SAFRA_ATUAL]
 
     def _in_week(iso):
         return bool(iso and ini <= date.fromisoformat(iso) <= fim)
@@ -632,8 +648,25 @@ def build_producao(rep: Report, ini: date, fim: date):
               f"(planilha do grupo {grupo['total']} + {len(paridos_novos)} parições) "
               f"vs {acumulado_planejamento} na estação de monta")
 
+    # Mesma regra da safra corrente, aplicada na que comeca: vivos na planilha do
+    # grupo + paricoes que ja sairam de la. Enquanto nao ha lancamento, da 0 — e 0
+    # aqui e o '--' do relatorio, nao um numero perdido.
+    grupo_prox = _acumulado_grupo(SAFRA_PROXIMA)
+    paridos_prox = [e for e in embrioes_proxima if e["data_paricao"]
+                    and _chave_embriao(e["doadora"], e["garanhao"], e["receptora"])
+                    not in grupo_prox["chaves"]]
+    acumulado_prox = grupo_prox["total"] + len(paridos_prox)
+    if acumulado_prox:
+        print(f"  [acumulado] safra {SAFRA_PROXIMA} ja tem {acumulado_prox} "
+              f"(grupo {grupo_prox['total']} + {len(paridos_prox)} parições)")
+
     rep.producao = {
         "acumulado_estacao": acumulado,
+        "acumulado_estacao_proxima": acumulado_prox,
+        "safra_atual": SAFRA_ATUAL,
+        "safra_proxima": SAFRA_PROXIMA,
+        "safra_atual_rotulo": _rotulo_safra(SAFRA_ATUAL),
+        "safra_proxima_rotulo": _rotulo_safra(SAFRA_PROXIMA),
         "acumulado_estacao_split": split,
         "acumulado_estacao_monta": acumulado_planejamento,   # conferência
         "acumulado_grupo_vivos": grupo["total"],

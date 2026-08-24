@@ -29,6 +29,9 @@ def _linhas(snap: dict, dx: dict) -> list:
     dp, dr, dh, ds = dx["producao"], dx["receptoras"], dx["headcount"], dx["saidas"]
     return [
         ("Acumulado estação", snap.get("acumulado_estacao"), dp["acumulado_estacao"]),
+        # transição de estação: linha só existe quando o relatório publica as duas
+        ("Acumulado estação (safra nova)", snap.get("acumulado_estacao_proxima"),
+         dp.get("acumulado_estacao_proxima")),
         ("Confirmados semana", snap.get("confirmados_semana"), dp["confirmados_semana"]),
         ("Nascimentos", snap.get("nascimentos"), dp["nascimentos"]),
         ("Acumulado no mês", snap.get("acumulado_mes"), dp.get("acumulado_mes")),
@@ -49,11 +52,25 @@ def _linhas(snap: dict, dx: dict) -> list:
          ds["entradas"] if ds.get("entradas") is not None else dh.get("delta_entradas")),
         ("Transferências internas", mv.get("transferencias"), ds.get("transferencias")),
         ("Vendidos pendentes", tc.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
-        ("Sociedade pendentes", tc.get("sociedade_pendentes"), ds.get("sociedade_pendentes")),
+        # animais dos dois lados: o relatorio ora soma embriao no numero, ora nao,
+        # mas a parte de animais e estavel. Quando ele abre ("01 animal e 03
+        # embrioes"), a contraparte e a primeira parte da abertura.
+        ("Sociedade pendentes",
+         tc.get("sociedade_pendentes_animais") if tc.get("sociedade_pendentes_animais") is not None
+         else tc.get("sociedade_pendentes"),
+         _soc_docx(dx)),
         ("Total terceiros", tc.get("terceiros_propriedade"), dx["terceiros"].get("total")),
         ("Outros terceiros", tc.get("outros_terceiros"), dx["terceiros"].get("outros")),
     ]
 
+
+def _soc_docx(dx):
+    """Animais em sociedade segundo o relatorio: a primeira parte da abertura
+    quando ele abre, senao o numero publicado."""
+    partes = ((dx.get("aberturas") or {}).get("sociedade_pendentes") or {}).get("partes") or []
+    if partes:
+        return partes[0]
+    return (dx.get("saidas") or {}).get("sociedade_pendentes")
 
 def _eq(a, b) -> bool:
     na = 0 if a in (None, "") else a

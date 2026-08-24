@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
 import PGSemanalDocx
 import PGSemanalReport as R
 import PGSemanalDashboard as D
+from PGSemanalPrecisao import _soc_docx
 
 
 def _log(step, msg):
@@ -66,6 +67,8 @@ def _validacao(rep):
     dp, dr, dh, ds = dx["producao"], dx["receptoras"], dx["headcount"], dx["saidas"]
     linhas = [
         ("Acumulado estação", p["acumulado_estacao"], dp["acumulado_estacao"]),
+        ("Acumulado estação (safra nova)", p.get("acumulado_estacao_proxima"),
+         dp.get("acumulado_estacao_proxima")),
         ("Confirmados semana", p["confirmados_semana"], dp["confirmados_semana"]),
         ("Nascimentos", p["nascimentos"], dp["nascimentos"]),
         ("Acumulado no mês", p.get("acumulado_mes"), dp.get("acumulado_mes")),
@@ -89,8 +92,12 @@ def _validacao(rep):
          ds["entradas"] if ds.get("entradas") is not None else dh.get("delta_entradas")),
         ("Transferências internas", s.get("transferencias_semana"), ds.get("transferencias")),
         ("Vendidos pendentes", rep.terceiros.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
-        ("Sociedade pendentes", rep.terceiros.get("sociedade_pendentes"),
-         ds.get("sociedade_pendentes")),
+        # ANIMAIS dos dois lados — ver scripts/PGSemanalPrecisao._soc_docx
+        ("Sociedade pendentes",
+         rep.terceiros.get("sociedade_pendentes_animais")
+         if rep.terceiros.get("sociedade_pendentes_animais") is not None
+         else rep.terceiros.get("sociedade_pendentes"),
+         _soc_docx(dx)),
         ("Total terceiros", rep.terceiros.get("terceiros_propriedade"),
          dx["terceiros"].get("total")),
         ("Outros terceiros", rep.terceiros.get("outros_terceiros"),

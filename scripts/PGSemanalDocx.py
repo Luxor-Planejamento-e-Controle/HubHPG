@@ -69,6 +69,17 @@ def _after(line, label):
     return line[i + len(label):].lstrip(" :").strip()
 
 
+def _acum_safra_nova(paras):
+    """Acumulado da SEGUNDA linha de estacao, quando o relatorio publica duas.
+
+    Na transicao ele lista '25/26' e '26/27'. Sem safra no rotulo (ou com uma linha
+    so) nao ha safra nova a devolver."""
+    linhas = [ln for ln in paras if "acumulado na estação" in ln.lower()]
+    if len(linhas) < 2:
+        return None
+    return _int_valor(linhas[-1])
+
+
 def parse_docx(path: Path, ref: date) -> dict:
     d = docx.Document(str(path))
     paras = [p.text.strip() for p in d.paragraphs if p.text.strip()]
@@ -108,7 +119,11 @@ def parse_docx(path: Path, ref: date) -> dict:
         "semana_txt": semana_ln,
         "producao": {
             "confirmados_semana": _int(find("Embriões confirmados na semana")),
+            # Duas linhas na transicao de estacao ("Acumulado na estação 25/26" e
+            # "26/27"). find() devolve so a primeira; acumulado_estacao continua sendo
+            # a safra que fecha, e a que comeca vai em campo proprio.
             "acumulado_estacao": _int_valor(find("Acumulado na estação")),
+            "acumulado_estacao_proxima": _acum_safra_nova(paras),
             "acumulado_mes": _int_valor(find("Acumulado no mês")),
             "nascimentos": _int(find("Nascimentos")),
             "abortos_obitos": _int(find("Abortos")),
