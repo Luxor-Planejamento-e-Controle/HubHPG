@@ -21,7 +21,16 @@
   <button type="button" class="primary" id="pptx" title="Baixar como PowerPoint">Exportar PPTX</button>
 </div>
 <script src="assets/vendor/pptxgen.bundle.js"></script>
-<script src="assets/comite/spec.js"></script>
+<!-- spec.js e gerado e gitignored: existe na maquina (demo offline), nao no
+     site publico. Em producao o deck le o spec que o porteiro do hub baixou
+     do bucket privado — iframe de mesmo origin, entao window.parent resolve. -->
+<script src="assets/comite/spec.js" onerror="void 0"></script>
+<script>
+  if(!window.COMITE_SPEC){
+    try { window.COMITE_SPEC = window.parent.HUB && window.parent.HUB.comiteSpec; }
+    catch(e) { console.warn("[deck] sem spec: nem local nem do hub", e); }
+  }
+</script>
 <script src="assets/comite/deck.js"></script>
 </body>
 </html>

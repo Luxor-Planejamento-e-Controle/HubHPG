@@ -150,7 +150,9 @@ const R = {
 
   /* S39+ — fotos do mês */
   fotos: s => head(s) + `<div class="s-body"><div class="fotos">` +
-    s.fotos.map(f => `<div class="f" style="background-image:url('assets/comite/${f}')"></div>`).join('') +
+    // f ja vem como data URI: as fotos nao existem como arquivo no site (repo e
+    // site sao publicos), vem embutidas no spec, que sai do bucket privado.
+    s.fotos.map(f => `<div class="f" style="background-image:url('${f}')"></div>`).join('') +
     `</div></div>`,
 
   pendente: s => head(s) + `<div class="s-body">` +
@@ -256,7 +258,8 @@ async function exportarPptx(btn){
     // fotos precisam virar base64 antes: o pptxgen não busca arquivo sozinho
     const imgs = {};
     for (const s of slides) for (const f of (s.fotos || [])) {
-      if (!(f in imgs)) imgs[f] = await dataURI('assets/comite/' + f);
+      // f JA e data URI (fotos vem embutidas no spec, nao como arquivo)
+      if (!(f in imgs)) imgs[f] = f;
     }
     slides.forEach((s, i) => pptSlide(p, s, i, logo, imgs));
     await p.writeFile({fileName: `RELATORIO MENSAL_PG_${mesAtual}.pptx`});

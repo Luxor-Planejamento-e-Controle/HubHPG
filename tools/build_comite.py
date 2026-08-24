@@ -18,6 +18,8 @@ Uso:
     python tools/build_comite.py 06/2026  # só esse mês
 """
 import json
+import base64
+import io
 import re
 import sys
 from datetime import date, datetime, timedelta
@@ -932,6 +934,33 @@ def slide_manejo(c, m, ano):
 
 # 6 fotos por slide: mais que isso e cada foto vira selo; menos, sobra tela.
 FOTOS_POR_SLIDE = 6
+# As fotos NAO ficam no repo (publico) nem no site (publico): entram embutidas no
+# spec.json, que sai pelo bucket privado. Cru sao 12 MB em 28 arquivos; reduzidas
+# pro tamanho em que o deck as mostra (6 por slide, ~1/3 de tela) dao ~2 MB.
+FOTO_LADO_MAX = 760
+FOTO_QUALIDADE = 68
+
+
+def _foto_embutida(caminho: Path) -> str | None:
+    """Foto como data URI reduzida. None se nao der pra ler — slide vira pendencia
+    em vez de imagem quebrada, que e o que acontecia com caminho relativo depois
+    que as fotos sairam do repo."""
+    try:
+        from PIL import Image
+    except ImportError:
+        print("  [fotos] Pillow ausente (pip install Pillow) — fotos ficam de fora")
+        return None
+    try:
+        im = Image.open(caminho)
+        im.thumbnail((FOTO_LADO_MAX, FOTO_LADO_MAX))
+        if im.mode != "RGB":
+            im = im.convert("RGB")
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=FOTO_QUALIDADE, optimize=True)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception as exc:
+        print(f"  [fotos] {caminho.name}: {exc!r}")
+        return None
 
 
 def slides_fotos(c, m, ano):
@@ -940,6 +969,19 @@ def slides_fotos(c, m, ano):
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
                      "_docs/comite_conteudo.json → fotos (assets/comite/fotos/)",
                      "rode tools/extrair_conteudo.py ou solte as fotos do mês na pasta")]
+    # troca o nome do arquivo pela imagem embutida; some quem nao carregou
+    embutidas, kb = [], 0
+    for f in fs:
+        uri = _foto_embutida(OUT / f)   # f ja vem como "fotos/fotoNN.jpg"
+        if uri:
+            embutidas.append(uri)
+            kb += len(uri) // 1024
+    if not embutidas:
+        return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
+                     "assets/comite/fotos/ (fora do repo, por serem imagens da fazenda)",
+                     "solte as fotos do mes na pasta local")]
+    print(f"  [fotos] {len(embutidas)} embutidas no spec ({kb // 1024 or 1} MB)")
+    fs = embutidas
     n = (len(fs) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
     return [{"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
              "sub": f"Registros de {MESES[m-1]} {ano}" + (f" · {k+1}/{n}" if n > 1 else ""),

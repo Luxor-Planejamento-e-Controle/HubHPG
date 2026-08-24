@@ -1,12 +1,20 @@
-/* Configuração do Hub HPG.
-   Fase atual: DEMO OFFLINE — abre o index.html direto (file://), sem login e
-   sem rede. O painel da única aba vem de tools/build_semanal.py.
+/* Configuração PÚBLICA do Hub HPG.
 
-   Quando for a gold, é aqui que entram SUPABASE_URL + anon key (pública por
-   design) e o hub passa a montar só depois do porteiro (assets/auth.js),
-   igual ao LuxorP&CHub. A allowlist do HPG é PRÓPRIA — outro projeto Supabase,
-   outras pessoas; nada compartilhado com o hub do P&C. */
-window.HUB = {
-  offline: true,
-  dashboards: ['semanal', 'comite', 'plantel'],   // offline: tudo liberado
-};
+   A anon key é pública por design — quem protege é a RLS + a allowlist do
+   Supabase (sql/hub_schema.sql). NUNCA colocar a service_role / secret aqui:
+   ela ignora RLS e daria acesso total ao banco. Ela vive só no .env local, que
+   é gitignored, e é usada pelo tools/publish_hub.py.
+
+   O projeto Supabase do HPG é PRÓPRIO — outra allowlist, outras pessoas, outro
+   bucket. Nada compartilhado com o hub do P&C: erro de policy num hub não deve
+   alcançar o outro.
+
+   Enquanto SUPABASE_URL estiver vazio, o hub roda em DEMO OFFLINE: abre o
+   index.html por file://, sem login e sem rede, com os assets que os
+   tools/build_*.py geraram na máquina. */
+
+window.SUPABASE_URL = "";        // https://xxxx.supabase.co
+window.SUPABASE_ANON_KEY = "";   // eyJ... (anon, nunca service_role)
+
+// Bucket PRIVADO com o que o pipeline publica (tools/publish_hub.py).
+window.HUB_BUCKET = "hpg-data";
