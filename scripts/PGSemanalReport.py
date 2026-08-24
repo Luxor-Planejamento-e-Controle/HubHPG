@@ -1827,13 +1827,48 @@ def _conferir_delta(rep: Report):
     (CONTAGEM vs diff da população), então uma confere a outra. Divergir significa
     movimentação que não passou pelas planilhas — tem de aparecer, não sumir."""
     ent, sai = rep.saidas.get("entradas_semana"), rep.saidas.get("saidas_semana")
-    # O Δ mostrado (badge '+00 / -00' do dashboard) é o movimento que MEXE na
-    # CONTAGEM, não o total de saídas: quem vai pro sócio sai da fazenda e continua no
-    # headcount. Sem essa separação o badge diria -1 com o total parado em 203.
     ent = rep.saidas.get("entradas_no_headcount", ent)
     sai = rep.saidas.get("saidas_no_headcount", sai)
-    rep.headcount["delta_entradas"] = ent
-    rep.headcount["delta_saidas"] = sai
+
+    # O badge '+02 / -01' do dashboard tem de dizer a MESMA coisa que o relatorio, e
+    # o relatorio abre o movimento de ANIMAIS: potro que nasceu entrou, animal
+    # vendido saiu. Receptora nao entra nessa abertura — ela e contada a parte, e
+    # receptora que vai pro socio sai da contagem sem aparecer ali.
+    # A conta vem do roster, que e a lista de animais: quem entrou e quem saiu dele.
+    # Usar o movimento que afeta o headcount dava '+2 / -3' em 21/08/2026, somando as
+    # duas receptoras, contra o '+02 / -01' do relatorio.
+    hist = _load_hist()
+    prev_roster = None
+    for wid in sorted(hist):
+        if wid < rep.semana_atual and hist[wid].get("roster"):
+            prev_roster = hist[wid]["roster"]
+    if prev_roster and rep.roster:
+        entraram = set(rep.roster) - set(prev_roster)
+        sairam = set(prev_roster) - set(rep.roster)
+
+        # O diff CRU do roster nao serve: renome aparece como uma saida mais uma
+        # entrada. Em 21/08/2026 'PERSIA ING DA PAO GRANDE' virou 'PERSIA DA PAO
+        # GRANDE' e o badge saiu '+3 / -2' no lugar de '+02 / -01'. Contamos por
+        # CAUSA CONHECIDA — nascimento entra, saida lancada sai — e o que sobra do
+        # diff vira aviso, em vez de virar numero.
+        nasc = rep.producao.get("nascimentos") or 0
+        lancadas = {_norm(e.get("animal")) for e in (rep.detalhe.get("saidas_diff") or [])}
+        saiu_com_lancamento = {n for n in sairam if _norm(n) in lancadas}
+        rep.headcount["delta_entradas"] = nasc
+        rep.headcount["delta_saidas"] = len(saiu_com_lancamento)
+
+        sem_causa_saida = sorted(sairam - saiu_com_lancamento)
+        sem_causa_entrada = sorted(
+            n for n in entraram if not RE_PRODUTO.search(_norm(n)))
+        if sem_causa_saida or sem_causa_entrada:
+            print(f"  [roster] movimento sem causa lançada — provavel renome, "
+                  f"conferir: saiu {sem_causa_saida or '—'}; entrou "
+                  f"{sem_causa_entrada or '—'}")
+        rep.detalhe["animais_entraram"] = sorted(entraram)
+        rep.detalhe["animais_sairam"] = sorted(sairam)
+    else:
+        rep.headcount["delta_entradas"] = ent
+        rep.headcount["delta_saidas"] = sai
     delta = rep.headcount.get("delta")
     if None in (ent, sai) or delta is None:
         return
