@@ -1,53 +1,49 @@
 # ============================================================
-# Repo PRIVADO. Versiona o código + o estado do pipeline e as
-# saídas leves em JSON. Fica de fora o que é pesado ou refazível
-# a partir das planilhas do Drive.
+# REPO PÚBLICO. Nada de dado do plantel, nome de animal, e-mail
+# ou segredo entra aqui. O site é público na internet; o dado
+# entra pelo bucket PRIVADO do Supabase, via srcdoc no iframe.
 # ============================================================
 
-# cache das planilhas do Drive: 221 MB de parquet/xlsx, tudo refazível
-# rodando o pipeline de novo. Exceção: os dois JSON abaixo NÃO são cache,
-# são a memória do pipeline (histórico semanal congelado) e não têm como
-# ser reconstruídos, porque as planilhas-fonte são sobrescritas a cada semana.
-_cache/*
-!_cache/semanal_snapshots.json
-!_cache/headcount_history.json
+# ------------------------------------------------------------
+# Memória do pipeline. NÃO é cache: as planilhas-fonte do Drive
+# são sobrescritas toda semana, então snapshot perdido não se
+# reconstrói. Ficou fora do Git quando o repo virou público —
+# o backup passou a ser o bucket privado, via
+#   python tools/publish_hub.py estado
+# ------------------------------------------------------------
+_cache/
 
-# saídas do pipeline
-bases/*
-!bases/semanal_data.json
-!bases/semanal_docx.json
+# saídas do pipeline: JSON com nome de animal, headcount, comprador
+bases/
 
-# dashboard gerado: entra, é o entregável que se manda no grupo
-dashboards/*
-!dashboards/dashboard_semanal.html
+# dashboard gerado (dado do plantel). Vai pro bucket, nunca pro site.
+dashboards/
 
-# hub/ — o site. A casca (HTML/CSS/JS/logo/vendor) é código e entra. O que o
-# build gera a partir das bases é DADO DO PLANTEL e fica fora: se um dia o repo
-# virar público pro deploy contínuo (como foi preciso no LuxorP&CHub), é essa
-# separação que impede o dado de ir junto.
-hub/assets/semanal/*
-hub/assets/comite/spec.js
-hub/assets/comite/spec.json
-# fotos do mês: 12 MB extraídos do PPTX, refazíveis pelo extrair_conteudo.py.
-# O texto que acompanha (_docs/comite_conteudo.json) ESSE fica versionado — é
-# escrito à mão e não tem como ser reconstruído.
-hub/assets/comite/fotos/
+# o que os build_*.py geram a partir das bases
+assets/semanal/
+assets/comite/spec.js
+assets/comite/spec.json
+# regra por PADRÃO: aba nova nasce protegida mesmo sem ser listada acima
+assets/*/dashboard.html
 
-# planilhas / documentos em qualquer lugar
+# fotos do relatório mensal — imagem da fazenda em site público
+assets/comite/fotos/
+
+# planilhas e bases
 *.xlsx
-*.xls
 *.xlsm
-*.xlsb
-*.docx
-*.doc
-*.pptx
-*.pdf
-*.parquet
 *.csv
+*.parquet
 *.pbix
+*.pptx
 
-# temporários do Office
-~$*
+# conteúdo manual extraído do deck aprovado (texto de comentários e manejo)
+_docs/comite_conteudo.json
+_docs/source_samples/
+ComitêHPG/
+
+# seeds com e-mails reais — a allowlist vive no Supabase, não no Git
+sql/*.local.sql
 
 # segredos
 .env
@@ -56,22 +52,16 @@ hub/assets/comite/fotos/
 *.pem
 *.key
 
-# ambiente
+# ambientes
 .venv/
-venv/
 __pycache__/
 *.pyc
+node_modules/
+.netlify/
 
-# Windows / Google Drive
-desktop.ini
+# lixo de sistema
+__MACOSX/
+.DS_Store
+._*
 Thumbs.db
-
-# ============================================================
-# EXCEÇÕES — precisam vir DEPOIS das regras genéricas acima,
-# senão o `*.xlsx`/`*.parquet` genérico anula (no git, a última
-# regra que casa é a que vale).
-# ============================================================
-!bases/base_bi.parquet
-!bases/base_bi.xlsx
-!_docs/**/*.xlsx
-_docs/**/~$*
+desktop.ini

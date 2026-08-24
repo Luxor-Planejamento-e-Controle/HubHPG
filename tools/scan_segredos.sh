@@ -1,0 +1,113 @@
+#!/bin/sh
+# Recusa dado do plantel, e-mail @luxor.com.br e segredo. Repo é PÚBLICO.
+# Fonte do dado sensível aqui: nome de animal, comprador, headcount, cota.
+#
+# Fonte ÚNICA da regra: usado pelo hook .githooks/pre-commit (local, opcional)
+# e pelo .github/workflows/guarda.yml (no PR, obrigatório). Se as duas cópias
+# divergirem, a que vale é a Action — o hook depende de cada clone ter rodado
+# tools/install_hooks.py, então não dá pra confiar nele como barreira.
+#
+# Uso:
+#   tools/scan_segredos.sh --staged            arquivos vêm do índice (git show :f)
+#   tools/scan_segredos.sh arquivo...          arquivos vêm do disco
+#
+# Sai 0 = limpo. Sai 1 = achou problema (mensagens no stderr).
+
+modo_staged=0
+rev=""
+if [ "$1" = "--staged" ]; then
+  modo_staged=1
+  shift
+  set -- $(git diff --cached --name-only --diff-filter=ACM)
+elif [ "$1" = "--rev" ]; then
+  # Conteúdo vem de um COMMIT, não do disco nem do índice. É o que o pre-push
+  # precisa: o commit pode ter sido criado por outra ferramenta (ou com
+  # --no-verify) e o arquivo já não estar no disco.
+  rev="$2"
+  shift 2
+fi
+
+[ $# -eq 0 ] && exit 0
+
+fail=0
+say() { echo "  ✗ $1" >&2; fail=1; }
+
+# Lê o conteúdo do arquivo conforme o modo.
+ler() {
+  if [ -n "$rev" ]; then git show "$rev:$1" 2>/dev/null
+  elif [ "$modo_staged" = "1" ]; then git show ":$1" 2>/dev/null
+  else [ -f "$1" ] && cat "$1" 2>/dev/null
+  fi
+}
+
+# --- 1) caminhos que nunca podem entrar ---------------------------------
+for f in "$@"; do
+  case "$f" in
+    assets/semanal/*|assets/comite/spec.js|assets/comite/spec.json|bases/*)
+      say "dado real/PII: $f" ;;
+    # Saída dos build_*.py: assets/<aba>/dashboard.html é SEMPRE artefato gerado
+    # com dado real. Regra por PADRÃO e não por nome de pasta: aba nova nasce
+    # protegida mesmo que se esqueça de listá-la acima — foi assim que o
+    # dashboard de vendas (nome de cliente) entrou num commit local.
+    assets/*/dashboard.html)
+      say "dashboard gerado (dado real): $f" ;;
+    .env|.env.*)
+      [ "$f" = ".env.example" ] || say "arquivo de segredo: $f" ;;
+    *.local.sql)
+      say "seed com dado real: $f" ;;
+    *.xlsx|*.xlsm|*.csv|*.parquet|*.pbix|*.pptx)
+      say "planilha/base/deck: $f" ;;
+    # memoria do pipeline e saidas: nome de animal e comprador
+    _cache/*|dashboards/*|_docs/comite_conteudo.json|_docs/source_samples/*)
+      say "dado do plantel: $f" ;;
+    # fotos do relatorio mensal: imagem da fazenda em repo publico
+    assets/comite/fotos/*)
+      say "foto do relatorio mensal: $f" ;;
+    *__MACOSX/*|*/.DS_Store|.DS_Store|*/Thumbs.db|*/desktop.ini)
+      say "lixo de sistema: $f" ;;
+  esac
+done
+
+# --- 2) conteúdo -------------------------------------------------------
+# Fora do scan: assets/vendor/ (bundles minificados batem em qualquer padrão),
+# .githooks/ e este script (contêm os próprios padrões e se auto-acusariam).
+scan=""
+for f in "$@"; do
+  case "$f" in
+    assets/vendor/*|.githooks/*|tools/scan_segredos.sh) continue ;;
+    # binário não tem texto pra vazar e ainda gera aviso de byte nulo
+    *.png|*.jpg|*.jpeg|*.gif|*.ico|*.svg|*.pdf|*.zip|*.woff|*.woff2|*.ttf|*.otf) continue ;;
+  esac
+  scan="$scan $f"
+done
+[ -z "$scan" ] && { [ $fail -eq 0 ] && exit 0 || exit 1; }
+
+pat_segredo='sb_secret_[A-Za-z0-9_-]\{8,\}\|AccountKey=[A-Za-z0-9+/=]\{20,\}\|DefaultEndpointsProtocol=https;AccountName=\|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+# E-mail @luxor.com.br real. Passam: placeholders de doc e o curinga SQL
+# `like '%@luxor.com.br'` (o % é do LIKE, não faz parte do endereço).
+pat_email='[A-Za-z0-9._%+-]\{1,\}@luxor\.com\.br'
+placeholders="voce@\|fulano@\|exemplo@\|usuario@\|admin@exemplo\|seu-email@\|novo@\|saiu@\|alguem@\|nome@\|'%@\|\"%@\|<[a-z0-9]*>@"
+
+for f in $scan; do
+  blob=$(ler "$f") || continue
+  [ -z "$blob" ] && continue
+
+  # JWT do Supabase com role != anon. A anon key é pública por design; a
+  # service_role ignora RLS e daria acesso total ao banco.
+  for t in $(printf '%s' "$blob" | grep -o 'eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*'); do
+    corpo=$(printf '%s' "$t" | cut -d. -f2)
+    decodificado=$(printf '%s==' "$corpo" | base64 -d 2>/dev/null)
+    case "$decodificado" in
+      *'"role":"service_role"'*|*'"role": "service_role"'*)
+        say "service_role JWT em $f" ;;
+    esac
+  done
+
+  hit=$(printf '%s' "$blob" | grep -n "$pat_segredo" | head -1)
+  [ -n "$hit" ] && say "segredo em $f: $(printf '%s' "$hit" | cut -c1-90)"
+
+  hit=$(printf '%s' "$blob" | grep -n "$pat_email" | grep -v "$placeholders" | head -1)
+  [ -n "$hit" ] && say "e-mail real em $f: $(printf '%s' "$hit" | cut -c1-90)"
+done
+
+exit $fail

@@ -1,0 +1,31 @@
+[build]
+  publish = "."
+  command = ""
+  # O plano Free cobra 15 créditos por DEPLOY DE PRODUÇÃO (300/mês = 20 deploys),
+  # não por minuto de build. No P&C, 17 de 28 deploys do primeiro ciclo só mexeram
+  # em script/doc/SQL e republicaram um site idêntico — 255 créditos à toa, e o
+  # site ficou congelado 3 semanas quando o teto estourou.
+  # `git diff --quiet` sai 0 quando NÃO há diferença, e o Netlify cancela o build
+  # nesse caso. Sem CACHED_COMMIT_REF (1º build) o comando falha e o build
+  # acontece — que é o lado seguro de errar.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)scripts' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes' ':(exclude)PGSemanal.py'"
+
+# Site interno: não indexar e não vazar referrer pra fora.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+    X-Robots-Tag = "noindex, nofollow"
+    Permissions-Policy = "geolocation=(), camera=(), microphone=()"
+
+# As abas rodam em iframe do próprio hub — nunca de outro site.
+[[headers]]
+  for = "/assets/semanal/*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors 'self'"
+
+[[headers]]
+  for = "/assets/comite/*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors 'self'"

@@ -250,13 +250,13 @@ def main():
     D.build()
 
     # 3b) cópia do hub. A aba /semanal do hub NÃO lê dashboards/dashboard_semanal.html:
-    # ela embute hub/assets/semanal/dashboard.html, que é outro arquivo, gerado por
-    # hub/tools/build_semanal.py. Enquanto esse build ficou fora do orquestrador, o hub
+    # ela embute assets/semanal/dashboard.html, que é outro arquivo, gerado por
+    # tools/build_semanal.py. Enquanto esse build ficou fora do orquestrador, o hub
     # serviu por uma semana o fechamento de 07/08 enquanto o dashboard já estava no de
     # 14/08 — e nada indicava a diferença, porque os dois abrem igual.
     _log("3/4 HUB", "atualizando a cópia embutida no hub...")
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent / "hub" / "tools"))
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
         import build_semanal
         build_semanal.run()
     except SystemExit as exc:                 # o build usa sys.exit p/ recusar o HTML

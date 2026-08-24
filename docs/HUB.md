@@ -12,9 +12,9 @@ hub do P&C.
 ## Rodar
 
 ```bash
-python hub/tools/build_semanal.py   # dashboard do pipeline -> assets/semanal/dashboard.html
-python hub/tools/build_comite.py    # bases -> assets/comite/spec.js (todos os meses fechados)
-python hub/tools/build_comite.py 06/2026   # só um mês
+python tools/build_semanal.py   # dashboard do pipeline -> assets/semanal/dashboard.html
+python tools/build_comite.py    # bases -> assets/comite/spec.js (todos os meses fechados)
+python tools/build_comite.py 06/2026   # só um mês
 ```
 
 Depois é só abrir `hub/index.html`.
@@ -31,7 +31,7 @@ hoje é um PPTX montado à mão. Vira deck HTML em `comite.html`: slide de
 1280×720 (16:9, mesma proporção do PPTX), navegação por seta, modo apresentação
 (tecla **P**, **Esc** sai) e **Exportar PPTX**.
 
-O desenho é *um spec, duas saídas*: `hub/tools/build_comite.py` lê as bases e
+O desenho é *um spec, duas saídas*: `tools/build_comite.py` lê as bases e
 grava `assets/comite/spec.js` — uma lista de `{t: <tipo de slide>, ...}`. O HTML
 e o PPTX renderizam **o mesmo spec**, então não existe conteúdo que só viva num
 dos dois. Slide sem fonte vira tipo `pendente` e diz na tela qual base vai
@@ -42,7 +42,7 @@ Mapa de slide × fonte: [`_docs/COMITE_MAPEAMENTO.md`](../_docs/COMITE_MAPEAMENT
 O que **não** sai de planilha — comentários do DRE, exposições, manejo e fotos —
 mora em [`_docs/comite_conteudo.json`](../_docs/comite_conteudo.json), uma chave
 por mês (`AAAA-MM`). Foi semeado do último deck aprovado por
-`hub/tools/extrair_conteudo.py`; daí em diante é editar o JSON. Mês sem conteúdo
+`tools/extrair_conteudo.py`; daí em diante é editar o JSON. Mês sem conteúdo
 escrito mostra o slide em aberto dizendo isso — nunca repete o mês anterior.
 
 **Plantel / Movimentação** (em breve) — entrada *placeholder*: aparece na

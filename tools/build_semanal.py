@@ -10,15 +10,15 @@ A checagem de referência externa não é frescura: na fase gold o HTML vem do b
 privado por `srcdoc`, sem base de URL própria, e qualquer CDN/imagem externa
 simplesmente não carregaria — melhor falhar aqui do que publicar painel furado.
 
-Saída: hub/assets/semanal/dashboard.html (gitignored — é dado do plantel).
-Uso: python hub/tools/build_semanal.py
+Saída: assets/semanal/dashboard.html (gitignored — é dado do plantel).
+Uso: python tools/build_semanal.py
 """
 import re
 import sys
 from pathlib import Path
 
-HUB = Path(__file__).resolve().parent.parent
-REPO = HUB.parent
+REPO = Path(__file__).resolve().parent.parent
+HUB = REPO
 SRC = REPO / "dashboards" / "dashboard_semanal.html"
 OUTDIR = HUB / "assets" / "semanal"
 OUT = OUTDIR / "dashboard.html"

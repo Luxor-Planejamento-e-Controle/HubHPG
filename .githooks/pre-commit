@@ -1,0 +1,25 @@
+#!/bin/sh
+# Barreira LOCAL do repo público. A regra em si mora em tools/scan_segredos.sh,
+# que é o mesmo script rodado pela Action no PR — assim não existem duas versões
+# da regra podendo divergir.
+#
+# Instalar: python tools/install_hooks.py   (ou: git config core.hooksPath .githooks)
+# Emergência: git commit --no-verify
+#
+# Este hook é opcional por clone: quem não rodar o install_hooks não o tem.
+# Quem barra de verdade é a Action, que ninguém consegue pular.
+
+raiz=$(git rev-parse --show-toplevel)
+scan="$raiz/tools/scan_segredos.sh"
+
+[ -x "$scan" ] || [ -f "$scan" ] || exit 0   # script sumiu: não trava o commit
+
+if sh "$scan" --staged; then
+  exit 0
+fi
+
+echo "" >&2
+echo "Commit barrado. Repo é público — tire o arquivo do stage" >&2
+echo "(git restore --staged <arquivo>) ou confira o .gitignore." >&2
+echo "Falso positivo: git commit --no-verify" >&2
+exit 1

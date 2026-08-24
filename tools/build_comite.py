@@ -14,8 +14,8 @@ velho. As bases não-DRE (plantel, estação, vendas) entram no mês que elas t�
 quando o mês pedido não existe na base, o slide vira `pendente` dizendo isso.
 
 Uso:
-    python hub/tools/build_comite.py          # todos os meses com dado
-    python hub/tools/build_comite.py 06/2026  # só esse mês
+    python tools/build_comite.py          # todos os meses com dado
+    python tools/build_comite.py 06/2026  # só esse mês
 """
 import json
 import re
@@ -26,8 +26,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-HUB = Path(__file__).resolve().parent.parent
-REPO = HUB.parent
+# tools/ vive na raiz do repo desde a reorganizacao: a raiz E o site.
+REPO = Path(__file__).resolve().parent.parent
+HUB = REPO
 OUT = HUB / "assets" / "comite"
 sys.path.insert(0, str(REPO / "scripts"))
 
@@ -868,7 +869,7 @@ def slides_embrioes():
 # ============================= Conteúdo escrito à mão (S08, S23–S27, S38, S39)
 # Comentário do DRE, exposição, manejo e foto não saem de planilha: são escritos
 # todo mês. Ficam em `_docs/comite_conteudo.json`, semeado do último deck
-# aprovado por `hub/tools/extrair_conteudo.py`. Sem isso esses slides seriam
+# aprovado por `tools/extrair_conteudo.py`. Sem isso esses slides seriam
 # placeholder pra sempre.
 CONTEUDO = REPO / "_docs" / "comite_conteudo.json"
 FALTA_CONTEUDO = "escreva o conteúdo desse mês em _docs/comite_conteudo.json"
@@ -937,8 +938,8 @@ def slides_fotos(c, m, ano):
     fs = c.get("fotos") or []
     if not fs:
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
-                     "_docs/comite_conteudo.json → fotos (hub/assets/comite/fotos/)",
-                     "rode hub/tools/extrair_conteudo.py ou solte as fotos do mês na pasta")]
+                     "_docs/comite_conteudo.json → fotos (assets/comite/fotos/)",
+                     "rode tools/extrair_conteudo.py ou solte as fotos do mês na pasta")]
     n = (len(fs) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
     return [{"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
              "sub": f"Registros de {MESES[m-1]} {ano}" + (f" · {k+1}/{n}" if n > 1 else ""),

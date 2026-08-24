@@ -92,7 +92,7 @@ ESTACAO_MASTER_DIR = (
 PLANTEL_DIR_BASE = DRIVE_ROOT / "PLANTEL"
 PLANTEL_ESTACAO_GLOB = "Estação *"
 RECEPTORAS_DIR = PLANTEL_DIR_BASE / "Estação 2025-2026"   # so p/ mensagens de erro
-# Mapa de Vendas — quem consome é o deck do comitê (hub/tools/build_comite.py),
+# Mapa de Vendas — quem consome é o deck do comitê (tools/build_comite.py),
 # não o fechamento semanal. Cheguei a tratar como constante morta por não achar
 # uso neste módulo; o uso está no outro.
 MAPA_VENDAS_DIR = DRIVE_ROOT / "VENDAS" / "MAPAS DE VENDAS" / "Estação 2025-2026"

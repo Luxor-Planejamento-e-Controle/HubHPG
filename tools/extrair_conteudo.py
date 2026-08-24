@@ -13,15 +13,15 @@ A leitura é por geometria: o gerador do deck original não usou tabelas de
 verdade, só caixas de texto posicionadas, então cada slide é reconstruído
 agrupando as caixas por linha (mesmo `top`) e ordenando por `left`.
 
-Uso: python hub/tools/extrair_conteudo.py
+Uso: python tools/extrair_conteudo.py
 """
 import json
 import re
 import sys
 from pathlib import Path
 
-HUB = Path(__file__).resolve().parent.parent
-REPO = HUB.parent
+REPO = Path(__file__).resolve().parent.parent
+HUB = REPO
 PPTX = REPO / "ComitêHPG" / "RELATORIO MENSAL_PG_JUNHO26.pptx"
 OUT = REPO / "_docs" / "comite_conteudo.json"
 FOTOS = HUB / "assets" / "comite" / "fotos"
@@ -165,7 +165,7 @@ def run():
 
     conteudo = {
         "_leia": ("Conteúdo do comitê que NÃO sai de planilha. Semeado do deck de "
-                  "junho/2026 por hub/tools/extrair_conteudo.py; daqui pra frente é "
+                  "junho/2026 por tools/extrair_conteudo.py; daqui pra frente é "
                   "editado à mão. Cada mês novo é uma chave 'AAAA-MM'; o build usa o "
                   "mês pedido ou, se não existir, o mês anterior mais recente."),
         MES: {

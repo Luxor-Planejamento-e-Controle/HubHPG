@@ -10,8 +10,8 @@ O alfa sai da projeção da cor do pixel no eixo fundo→dourado, não de um cor
 seco: assim a borda anti-serrilhada da fonte é preservada e a marca não fica
 com degrau.
 
-Uso: python hub/tools/build_logo.py     (só precisa rodar se o logo mudar)
-Saída: hub/assets/pg-logo.png
+Uso: python tools/build_logo.py     (só precisa rodar se o logo mudar)
+Saída: assets/pg-logo.png
 """
 from pathlib import Path
 
@@ -19,7 +19,7 @@ import numpy as np
 from PIL import Image
 
 HUB = Path(__file__).resolve().parent.parent
-SRC = HUB.parent / "pg_logo.png"
+SRC = HUB / "pg_logo.png"
 OUT = HUB / "assets" / "pg-logo.png"
 
 GOLD = np.array([202, 151, 3], dtype=float)   # --amber do tema
