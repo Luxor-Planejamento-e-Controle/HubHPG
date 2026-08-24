@@ -1237,10 +1237,16 @@ def build_pendentes(rep: Report):
     # congelado desde 24/07/2026 e perde os marcados depois disso.
     mensal = _status_plantel_mensal()
     rep.fontes["status_plantel"] = mensal["fonte"]
-    # o card conta animal E embrião — o relatório abre assim: "08 (06 animais e 02
-    # embriões)". Contar só animal era assimétrico com o card de sociedade, que sempre
-    # somou os dois.
-    vend_embrioes = [p for p in pend_emb if p["tipo"] == "VENDA"]
+    mensal_terceiros_embrioes = [t for t in mensal["terceiros"]
+                                 if t.get("especie") == "EMBRIAO"]
+    # O embrião dos vendidos pendentes vem do ROSTER MENSAL, não do EMBRIOES A
+    # ENTREGAR. O relatório abre "07 (05 animais e 02 embriões)" e o roster tem
+    # exatamente 5 com VENDIDO PENDENTE SAIDA e 2 com DE TERCEIRO + CATEGORIA=EMBRIAO
+    # — mesma fonte, mesmo número, mesma abertura, e é o mesmo conjunto que ele
+    # publica em "Total terceiros: 07 (vendidos pendentes)".
+    # Antes puxávamos o embrião de cota integral do ENTREGAR (1 em vez de 2): aquilo
+    # é a fila de entrega comercial, outra coisa.
+    vend_embrioes = [t for t in mensal_terceiros_embrioes]
     # REPOSIÇÃO não é venda pendente: o animal está saindo para repor outro, não para
     # um comprador. O STATUS PLANTEL não tem essa marca — ela vive na coluna de obs do
     # Animais para sair —, então cruzamos os dois pelo núcleo do nome. Essa regra
@@ -1276,7 +1282,18 @@ def build_pendentes(rep: Report):
     if bloqueados:
         print("  [pendentes] em sociedade com pendência documental, fora da conta: "
               + "; ".join(f'{p["nome"]} ({p["obs"]})' for p in bloqueados))
-    soc_animais = [p for p in soc_todos if p not in bloqueados]
+    # O "Animais para sair" esta congelado desde 24/07/2026. Animal listado la que o
+    # roster mensal (fresco) mostra como PLANTEL puro nao esta mais pendente — foi o
+    # caso de MUSICA, que inflava a sociedade em 1.
+    marcados_no_roster = {_nucleo_nome(x["nome"]) for x in mensal["vendidos_pendentes"]}
+    marcados_no_roster |= {_nucleo_nome(t["nome"]) for t in mensal["terceiros"]}
+    fantasmas = [p for p in soc_todos
+                 if p not in bloqueados and _nucleo_nome(p["nome"]) not in marcados_no_roster]
+    if fantasmas:
+        print("  [pendentes] em sociedade pelo 'Animais para sair' (24/07) mas SEM marca "
+              "no roster mensal — tratado como nao pendente: "
+              + "; ".join(p["nome"] for p in fantasmas))
+    soc_animais = [p for p in soc_todos if p not in bloqueados and p not in fantasmas]
     soc_embrioes = [p for p in pend_emb if p["tipo"] == "SOCIEDADE"]
     sociedade = soc_animais + soc_embrioes
     rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
@@ -1289,7 +1306,7 @@ def build_pendentes(rep: Report):
     # receptora e embriões de terceiro que passaram pela estação: em 14/08/2026 dava 8
     # e batia com o relatório por coincidência de número, não por ser a mesma coisa.
     # Nenhuma das 8 linhas está no roster do plantel, e 7 das 8 estão fora da fazenda.
-    terceiros = vendidos
+    terceiros = vendidos          # o relatorio publica o mesmo numero nas duas linhas
     terc_embrioes = [t for t in terceiros if t.get("especie") == "EMBRIAO"]
     terc_animais = [t for t in terceiros if t.get("especie") != "EMBRIAO"]
 
