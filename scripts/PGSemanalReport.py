@@ -1246,14 +1246,19 @@ def build_pendentes(rep: Report):
     # Animais para sair —, então cruzamos os dois pelo núcleo do nome. Essa regra
     # existia antes da migração para o STATUS PLANTEL e se perdeu no caminho: era o que
     # separava os nossos 5 dos 4 do relatório.
+    # REPOSIÇÃO CONTA. Cheguei a excluir, apoiado num rascunho de relatorio que dizia
+    # "04 animais"; a conferencia por movimentacao derrubou isso — o STATUS PLANTEL tem
+    # 5 marcados e o relatorio fechado diz "05 animais", reposicao inclusa. Fica so o
+    # aviso, porque a natureza da saida e diferente e alguem pode querer separar.
     reposicoes = {_nucleo_nome(x["nome"]) for x in pend if x["reposicao"]}
     if mensal["vendidos_pendentes"]:
         marcados = mensal["vendidos_pendentes"]
         repostos = [x for x in marcados if _nucleo_nome(x["nome"]) in reposicoes]
         if repostos:
-            print("  [pendentes] reposição fora dos vendidos pendentes: "
+            print("  [pendentes] entre os vendidos pendentes ha reposição (sai para "
+                  "repor outro animal, nao para comprador): "
                   + "; ".join(x["nome"] for x in repostos))
-        vendidos = [x for x in marcados if x not in repostos] + vend_embrioes
+        vendidos = marcados + vend_embrioes
         fonte_vendidos = "status_plantel"
     else:
         vendidos = [p for p in pend if p["tipo"] == "VENDA" and not p["reposicao"]]
@@ -1454,6 +1459,7 @@ def build_report(ini: date, fim: date) -> Report:
     rep.docx_ref = _load_docx_ref()               # relatórios oficiais (validação + seed do 1º caso)
     _compute_movimento(rep)                       # saídas/entradas = diff da população contada
     _paricoes_do_roster(rep)                      # potro no roster sem parição na ESTAÇÃO
+    _acumulado_nunca_cai(rep)                     # agregador da safra, nao cai
     _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
     _avisar_pasta_de_saida()
     _avisar_fontes_velhas(ini, fim)                # BLOQUEIA se a fonte for velha
@@ -1617,6 +1623,40 @@ def _arquivo_anterior(semana: str) -> dict:
         return {}
     ant = sorted(f.stem for f in FONTES_DIR.glob("*.json") if f.stem < semana)
     return _linhas_da_semana(ant[-1]) if ant else {}
+
+
+ACUMULADO_PISO = BASE_DIR / "_cache" / "acumulado_piso.json"
+
+
+def _acumulado_nunca_cai(rep: Report):
+    """O acumulado da estacao e um agregador: soma ocorrencias ate o fim da estacao e
+    nao volta atras. A formula 'vivos no grupo + parições' e derivada, e por isso fragil
+    — linha apagada na origem sem parição lançada fazia o numero CAIR (61 -> 60 em
+    21/08/2026). Guardamos o maior valor ja visto na safra e usamos como piso, avisando
+    quando a derivacao vem abaixo dele."""
+    ac = rep.producao.get("acumulado_estacao")
+    if ac is None:
+        return
+    piso = {}
+    if ACUMULADO_PISO.exists():
+        try:
+            piso = json.loads(ACUMULADO_PISO.read_text(encoding="utf-8"))
+        except Exception:
+            piso = {}
+    ant = piso.get(SAFRA_ATUAL)
+    if ant is not None and ac < ant:
+        print(f"  [acumulado] a derivacao deu {ac}, abaixo do maior valor ja registrado "
+              f"na safra ({ant}). Acumulado nao cai — publicando {ant} e mantendo a "
+              f"diferenca visivel. Alguma linha saiu da planilha do grupo sem parição "
+              f"nem aborto lançado.")
+        rep.producao["acumulado_estacao_derivado"] = ac
+        rep.producao["acumulado_estacao"] = ant
+        ac = ant
+    if ant is None or ac > ant:
+        piso[SAFRA_ATUAL] = ac
+        ACUMULADO_PISO.parent.mkdir(parents=True, exist_ok=True)
+        ACUMULADO_PISO.write_text(json.dumps(piso, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
 
 
 def _paricoes_do_roster(rep: Report):
