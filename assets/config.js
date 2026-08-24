@@ -9,12 +9,14 @@
    bucket. Nada compartilhado com o hub do P&C: erro de policy num hub não deve
    alcançar o outro.
 
-   Enquanto SUPABASE_URL estiver vazio, o hub roda em DEMO OFFLINE: abre o
+   Enquanto a ANON KEY estiver vazia, o hub roda em DEMO OFFLINE: abre o
    index.html por file://, sem login e sem rede, com os assets que os
    tools/build_*.py geraram na máquina. */
 
-window.SUPABASE_URL = "";        // https://xxxx.supabase.co
-window.SUPABASE_ANON_KEY = "";   // eyJ... (anon, nunca service_role)
+window.SUPABASE_URL = "https://opiihihhfucmzbnpkfmu.supabase.co";
+window.SUPABASE_ANON_KEY = "";   // Supabase > Settings > API > "anon public"
+                                 // NUNCA a service_role: ela ignora RLS, e este
+                                 // arquivo vai pro repo publico.
 
 // Bucket PRIVADO com o que o pipeline publica (tools/publish_hub.py).
 window.HUB_BUCKET = "hpg-data";

@@ -153,7 +153,7 @@ async function loadData(dashboards){
 
 /* ---------- boot ---------- */
 async function start(){
-  if(HUB_OFFLINE || !window.SUPABASE_URL){               // demo local
+  if(HUB_OFFLINE || !window.SUPABASE_URL || !window.SUPABASE_ANON_KEY){   // demo local
     window.HUB.offline = true;
     window.HUB.dashboards = Object.keys(HUB_DATASETS);
     hideGate(); window.hubBoot(); return;

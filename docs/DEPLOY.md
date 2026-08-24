@@ -134,8 +134,35 @@ opaco e o `<script src="assets/comite/deck.js">` de dentro não resolve.
 
 ---
 
-## Proteção da branch
+## Proteção da branch — depende de o repo ser público
 
-No P&C a `main` tem proteção com **bypass de admin de propósito**. A consequência
-vale aqui também: push direto não passa por PR nem pela Action, e nesse caminho
-os hooks locais são a única barreira. Mais uma razão para o `install_hooks.py`.
+Branch protection e ruleset **não funcionam em repo privado** sem GitHub Pro: a
+API devolve `403 Upgrade to GitHub Pro or make this repository public`. Isso
+força a ordem:
+
+```bash
+# 1. história já purgada localmente (git filter-repo)
+git push --force-with-lease origin main
+
+# 2. conferir na aba de commits do GitHub que xlsx/parquet/fotos sumiram
+
+# 3. Settings > General > Change visibility  ->  público
+
+# 4. só então:
+python tools/proteger_main.py
+```
+
+O script aplica o mesmo par do P&C:
+
+- **proteção clássica**: exige o check `guarda`, 1 aprovação, dismiss de review
+  velha, review de code owner, sem force-push, sem deleção
+- **ruleset `protege main`**: bloqueia deleção e non-fast-forward, exige PR com
+  1 aprovação
+
+Os dois com **bypass de admin de propósito**, igual ao P&C (`enforce_admins:false`
+e `RepositoryRole 5`). Consequência assumida: push direto do admin não passa por
+PR nem pela Action `guarda` — nesse caminho os hooks locais são a única barreira.
+Mais uma razão para rodar `python tools/install_hooks.py` em toda máquina.
+
+O script se recusa a rodar enquanto o repo for privado, explicando o motivo, em
+vez de estourar um 403 cru.
