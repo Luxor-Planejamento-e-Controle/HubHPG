@@ -91,6 +91,8 @@ def _validacao(rep):
          ds.get("sociedade_pendentes")),
         ("Total terceiros", rep.terceiros.get("terceiros_propriedade"),
          dx["terceiros"].get("total")),
+        ("Outros terceiros", rep.terceiros.get("outros_terceiros"),
+         dx["terceiros"].get("outros")),
     ]
     def _eq(a, b):
         # docx "-" vira None = zero/nada; trata None e 0 como iguais

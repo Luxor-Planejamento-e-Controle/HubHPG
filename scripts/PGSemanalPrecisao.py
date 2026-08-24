@@ -51,6 +51,7 @@ def _linhas(snap: dict, dx: dict) -> list:
         ("Vendidos pendentes", tc.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
         ("Sociedade pendentes", tc.get("sociedade_pendentes"), ds.get("sociedade_pendentes")),
         ("Total terceiros", tc.get("terceiros_propriedade"), dx["terceiros"].get("total")),
+        ("Outros terceiros", tc.get("outros_terceiros"), dx["terceiros"].get("outros")),
     ]
 
 
