@@ -168,7 +168,30 @@ def parse_docx(path: Path, ref: date) -> dict:
     locais = [h["fazenda_pg"], h["arrendamento"], h["cte"], h["socio"]]
     h["soma_locais"] = sum(x for x in locais if x) if any(locais) else None
     h["coerente"] = (h["soma_locais"] == h["total"]) if (h["soma_locais"] and h["total"]) else None
+
+    # ABERTURA: "07 (05 animais e 02 embriões)" tem de somar o total da própria linha.
+    # Em 14/08/2026 saiu "08 (06 animais e 02 embriões)" num item que não tinha 8 —
+    # conferir o parêntese contra o número pega isso sem depender de planilha.
+    rep["aberturas"] = {}
+    for rot, bruto in (("vendidos_pendentes", find("Vendidos pendentes de saída")),
+                       ("sociedade_pendentes", find("Em sociedade pendentes de saída")
+                                               or find("Em sociedade pendentes"))):
+        rep["aberturas"][rot] = _conferir_abertura(bruto)
     return rep
+
+
+def _conferir_abertura(bruto):
+    """{'total','partes','soma','coerente'} da forma 'NN (AA animais e BB embriões)'."""
+    if not bruto:
+        return None
+    total = _int(bruto.split("(")[0]) if "(" in bruto else _int(bruto)
+    dentro = re.search(r"\(([^)]*)\)", bruto)
+    if total is None or not dentro:
+        return {"total": total, "partes": None, "soma": None, "coerente": None}
+    partes = [int(x) for x in re.findall(r"\d+", dentro.group(1))]
+    soma = sum(partes) if partes else None
+    return {"total": total, "partes": partes, "soma": soma,
+            "coerente": (soma == total) if soma is not None else None}
 
 
 def _fim_declarado(txt, ano):

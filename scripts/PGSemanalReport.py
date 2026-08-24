@@ -358,12 +358,13 @@ def _acumulado_grupo() -> dict:
     A aba ICSI fica de fora: hoje só tem safra 2023/2024."""
     src = _latest_emb_matrizes()
     wb = _load(src)
-    out = {"pg": 0, "socio": 0, "vendido": 0, "fonte": src.name, "chaves": set()}
+    out = {"pg": 0, "socio": 0, "vendido": 0, "fonte": src.name,
+           "chaves": set(), "linhas": []}
     for aba, fatia_fixa in ABAS_ACUMULADO:
         if aba not in wb.sheetnames:
             print(f"  [acumulado] aba {aba!r} não existe em {src.name} — fatia zerada")
             continue
-        iest = ist = idoa = igar = irec = None
+        iest = ist = idoa = igar = irec = icot = isoc = None
         for i, r in enumerate(wb[aba].iter_rows(values_only=True), start=1):
             if i == HDR_ROW_ACUMULADO:
                 iest = _col_idx(r, "ESTACAO")
@@ -372,6 +373,13 @@ def _acumulado_grupo() -> dict:
                 # (RECEPTORA é a 5ª numa e a 4ª na outra) — resolver por nome
                 idoa, igar, irec = (_col_idx(r, "DOADORA"), _col_idx(r, "GARANHÃO"),
                                     _col_idx(r, "RECEPTORA"))
+                # cota e sócio não existem nas duas abas; ausentes viram None
+                def _opt(*nomes):
+                    try:
+                        return _col_idx(r, *nomes)
+                    except KeyError:
+                        return None
+                icot, isoc = _opt("COTA PG"), _opt("COMPRADOR/SOCIO")
                 continue
             if i <= HDR_ROW_ACUMULADO or r[1] is None or not str(r[1]).strip():
                 continue
@@ -379,7 +387,16 @@ def _acumulado_grupo() -> dict:
                 continue
             fatia = fatia_fixa or ("vendido" if _norm(r[ist]) == "VENDIDO" else "socio")
             out[fatia] += 1
-            out["chaves"].add(_chave_embriao(r[idoa], r[igar], r[irec]))
+            chave = _chave_embriao(r[idoa], r[igar], r[irec])
+            out["chaves"].add(chave)
+            # a LINHA, não só a chave: quando o embrião pare, o haras apaga a linha e a
+            # cota vai com ela. Guardada aqui, a fatia da parição é recuperável.
+            out["linhas"].append({
+                "chave": list(chave), "aba": aba, "fatia": fatia,
+                "doadora": _s(r[idoa]), "garanhao": _s(r[igar]),
+                "receptora": _s(r[irec]), "cota": (r[icot] if icot is not None else None),
+                "socio": (_s(r[isoc]) if isoc is not None else None),
+            })
     wb.close()
     out["total"] = out["pg"] + out["socio"] + out["vendido"]
     return out
@@ -528,6 +545,7 @@ def build_producao(rep: Report, ini: date, fim: date):
     # conferência em `acumulado_estacao_monta`.
     grupo = _acumulado_grupo()
     rep.fontes["embrioes_matrizes"] = grupo["fonte"]
+    _LINHAS_BRUTAS["grupo"] = grupo["linhas"]
     acumulado_planejamento = _acumulado_planejamento(wb)
 
     confirmados = [e for e in embrioes if e["confirmado"]]
@@ -1043,15 +1061,18 @@ def _plantel_por_status() -> dict:
     wb = _load(src)
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_SEMANAL
-    roster = []
+    roster, linhas = [], []
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < L["linha1"] or r[L["nome"]] is None:
             continue
         nome = _s(r[L["nome"]])
-        if nome:
-            roster.append(nome)
+        if not nome:
+            continue
+        roster.append(nome)
+        linhas.append({"nome": nome, "categoria": _s(r[L["categoria"]]),
+                       "status_plantel": _s(r[L["status"]]), "local": _s(r[L["local"]])})
     wb.close()
-    return {"roster": sorted(set(roster)), "fonte": src.name}
+    return {"roster": sorted(set(roster)), "linhas": linhas, "fonte": src.name}
 
 
 def _status_plantel_mensal() -> dict:
@@ -1140,6 +1161,7 @@ def _embrioes_pendentes() -> list:
 def build_pendentes(rep: Report):
     plantel = _plantel_por_status()
     rep.roster = plantel["roster"]
+    _LINHAS_BRUTAS["roster"] = plantel["linhas"]
     rep.fontes["roster_plantel"] = plantel["fonte"]
 
     # VENDIDOS / SOCIEDADE pendentes = aba ANIMAIS VENDIDOS do "Animais para sair"
@@ -1393,6 +1415,7 @@ def build_report(ini: date, fim: date) -> Report:
     _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
     _avisar_pasta_de_saida()
     _avisar_fontes_velhas(ini, fim)                # BLOQUEIA se a fonte for velha
+    _arquivar_linhas(rep)                         # historico linha a linha
     _persist_snapshot(rep)                        # congela snapshot CALCULADO desta semana
     rep.calendario = _calendario_dos_snapshots(rep.snapshots)
     return rep
@@ -1508,6 +1531,52 @@ PARICOES_EXTRA = BASE_DIR / "_cache" / "paricoes_extra.json"
 RE_PRODUTO = re.compile(r"RECEP\w*\s*([A-Z0-9]+)\s*$")
 
 
+# Arquivo das LINHAS das fontes, uma pasta por semana. FICA FORA do
+# semanal_snapshots.json de proposito: aquele JSON e embutido no dashboard, e linha a
+# linha ele pesaria centenas de KB por semana. Aqui e so historico consultavel.
+FONTES_DIR = BASE_DIR / "_cache" / "fontes"
+# As linhas brutas ficam AQUI, nao em rep.detalhe: o semanal_data.json e embutido
+# inteiro no dashboard, e linha a linha engordaria o HTML sem servir a ninguem lendo.
+_LINHAS_BRUTAS: dict = {}
+
+
+def _arquivar_linhas(rep: Report):
+    """Congela as linhas lidas nesta semana: sem isso, linha apagada na origem leva a
+    informacao embora — foi assim que a cota das parições de 21/08/2026 se perdeu."""
+    FONTES_DIR.mkdir(parents=True, exist_ok=True)
+    dados = {
+        "semana": rep.semana_atual,
+        "fontes": dict(rep.fontes),
+        "grupo_embrioes": _LINHAS_BRUTAS.get("grupo") or [],
+        "receptoras": [{"animal": k, **v} for k, v in sorted(_receptoras_info().items())],
+        "roster": _LINHAS_BRUTAS.get("roster") or [],
+        "pendentes_saida": rep.detalhe.get("pendentes_saida") or [],
+        "terceiros_de_terceiro": rep.detalhe.get("terceiros_propriedade") or [],
+    }
+    alvo = FONTES_DIR / f"{rep.semana_atual}.json"
+    alvo.write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
+    n = sum(len(v) for v in dados.values() if isinstance(v, list))
+    print(f"  [fontes] {n} linhas arquivadas em _cache/fontes/{alvo.name}")
+
+
+def _linhas_da_semana(wid: str) -> dict:
+    f = FONTES_DIR / f"{wid}.json"
+    if not f.exists():
+        return {}
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _arquivo_anterior(semana: str) -> dict:
+    """Ultimo arquivo de linhas antes desta semana."""
+    if not FONTES_DIR.exists():
+        return {}
+    ant = sorted(f.stem for f in FONTES_DIR.glob("*.json") if f.stem < semana)
+    return _linhas_da_semana(ant[-1]) if ant else {}
+
+
 def _paricoes_do_roster(rep: Report):
     """Parição que o roster conhece e a aba ESTAÇÃO não.
 
@@ -1553,6 +1622,29 @@ def _paricoes_do_roster(rep: Report):
     desta = [k for k, v in da_safra.items() if v["semana"] == rep.semana_atual]
     rep.producao["acumulado_estacao"] = (rep.producao.get("acumulado_estacao") or 0) + len(da_safra)
     rep.producao["acumulado_paricoes_so_no_roster"] = len(da_safra)
+
+    # FATIA: a cota do embrião vive na planilha do grupo e vai embora quando a linha é
+    # apagada na parição. O arquivo de linhas da semana anterior ainda tem — é o que
+    # permite fechar o split PG/sócio/vendido em vez de deixá-lo abaixo do acumulado.
+    ant = _arquivo_anterior(rep.semana_atual).get("grupo_embrioes") or []
+    por_recep = {_norm(l.get("receptora")): l for l in ant}
+    split = rep.producao.get("acumulado_estacao_split") or {}
+    sem_fatia = []
+    for k, v in da_safra.items():
+        linha = por_recep.get(_norm(v.get("receptora")))
+        if linha and linha.get("fatia"):
+            split[linha["fatia"]] = split.get(linha["fatia"], 0) + 1
+            v["fatia"] = linha["fatia"]
+            v["cota"] = linha.get("cota")
+        else:
+            sem_fatia.append(k)
+    rep.producao["acumulado_estacao_split"] = split
+    if sem_fatia:
+        print(f"  [nascimentos] fatia nao recuperada para {len(sem_fatia)} parição(ões) "
+              f"— o split fica abaixo do acumulado. Sem arquivo de linhas da semana "
+              f"anterior nao ha de onde tirar a cota:")
+        for k in sem_fatia:
+            print(f"    - {k}")
     if desta:
         rep.producao["nascimentos"] = (rep.producao.get("nascimentos") or 0) + len(desta)
         rep.detalhe["nascimentos_semana"] = rep.detalhe.get("nascimentos_semana", []) + [

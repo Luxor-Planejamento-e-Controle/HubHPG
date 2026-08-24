@@ -123,6 +123,7 @@ def _conferir_docx(rep, dx):
             print(f"    !  {papel} ({wid}) não fecha: locais somam {h['soma_locais']} "
                   f"e o total declarado é {h['total']}")
 
+    _coerencia_interna(rep, dx)
     _avisos(rep.semana_atual, dx, "relatório desta semana")
     ant = None
     for wid in sorted(rep.docx_ref):
@@ -141,6 +142,38 @@ def _conferir_docx(rep, dx):
         print(f"    !  base do Δ divergente: nosso snapshot de {ant} tem headcount "
               f"{nosso} e o relatório daquela semana diz {oficial} — corrigir o "
               f"snapshot de {ant} antes de confiar no Δ desta semana")
+
+
+def _coerencia_interna(rep, dx):
+    """Checagens do relatório contra ELE MESMO. Um documento que não fecha internamente
+    não serve de alvo, e culpar o cálculo por isso queima tempo toda sexta."""
+    h = dx["headcount"]
+
+    # 1) Δ declarado tem de ser o total desta semana menos o total declarado na anterior
+    ant = max((w for w in rep.docx_ref if w < rep.semana_atual), default=None)
+    if ant and h.get("delta_net") is not None:
+        t_ant = rep.docx_ref[ant]["headcount"].get("total")
+        if t_ant and h.get("total"):
+            esperado = h["total"] - t_ant
+            if esperado != h["delta_net"]:
+                print(f"    !  Δ do relatório não fecha com o próprio total: declara "
+                      f"{h['delta_net']:+d}, mas {t_ant} -> {h['total']} é "
+                      f"{esperado:+d}")
+
+    # 2) abertura entre parênteses tem de somar o número da linha
+    for rot, ab in (dx.get("aberturas") or {}).items():
+        if ab and ab.get("coerente") is False:
+            print(f"    !  abertura de {rot.replace('_', ' ')} não soma: "
+                  f"{ab['total']} declarado, partes {ab['partes']} somam {ab['soma']}")
+
+    # 3) split PG/sócio/vendido tem de somar o acumulado (checagem do NOSSO lado)
+    sp = rep.producao.get("acumulado_estacao_split") or {}
+    if sp:
+        soma = sum(v for v in sp.values() if isinstance(v, int))
+        ac = rep.producao.get("acumulado_estacao")
+        if ac and soma != ac:
+            print(f"    !  split PG/sócio/vendido soma {soma} e o acumulado é {ac} "
+                  f"— fatia de {ac - soma} parição(ões) não foi recuperada")
 
 
 def main():
