@@ -68,6 +68,8 @@ def _validacao(rep):
         ("Acumulado estação", p["acumulado_estacao"], dp["acumulado_estacao"]),
         ("Confirmados semana", p["confirmados_semana"], dp["confirmados_semana"]),
         ("Nascimentos", p["nascimentos"], dp["nascimentos"]),
+        ("Acumulado no mês", p.get("acumulado_mes"), dp.get("acumulado_mes")),
+        ("Abortos / óbitos", p.get("abortos_obitos"), dp.get("abortos_obitos")),
         ("Receptoras total", r["total"], dr["total"]),
         ("Receptoras prenhas", r["prenhas"], dr["prenhas"]),
         ("Receptoras vazias", r["vazias"], dr["vazias"]),
@@ -147,6 +149,7 @@ def main():
     args = sys.argv[1:]
     do_open = "--no-open" not in args
     do_docx = "--no-docx" not in args
+    R.PERMITIR_FONTE_VELHA = '--forcar' in args
     ref = _parse_ref(args)
     ini, fim = _janela(ref)
 
@@ -194,7 +197,13 @@ def main():
 
     # 2) calcula a semana
     _log("2/4 CALC", "lendo planilhas e calculando a semana...")
-    rep = R.build_report(ini, fim)
+    try:
+        rep = R.build_report(ini, fim)
+    except RuntimeError as exc:
+        # fonte velha nao e crash: e recusa deliberada de publicar numero errado
+        _log("2/4 CALC", "ABORTADO")
+        print("   " + str(exc))
+        return
     import json
     from dataclasses import asdict
     R.JSON_OUT.parent.mkdir(parents=True, exist_ok=True)

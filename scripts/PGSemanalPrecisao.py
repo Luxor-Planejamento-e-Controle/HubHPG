@@ -31,6 +31,8 @@ def _linhas(snap: dict, dx: dict) -> list:
         ("Acumulado estação", snap.get("acumulado_estacao"), dp["acumulado_estacao"]),
         ("Confirmados semana", snap.get("confirmados_semana"), dp["confirmados_semana"]),
         ("Nascimentos", snap.get("nascimentos"), dp["nascimentos"]),
+        ("Acumulado no mês", snap.get("acumulado_mes"), dp.get("acumulado_mes")),
+        ("Abortos / óbitos", snap.get("abortos_obitos"), dp.get("abortos_obitos")),
         ("Receptoras total", rc.get("total"), dr["total"]),
         ("Receptoras prenhas", rc.get("prenhas"), dr["prenhas"]),
         ("Receptoras vazias", rc.get("vazias"), dr["vazias"]),
@@ -116,7 +118,7 @@ def main():
         if not ws:
             return None
         tot = sum(len([l for l in _linhas(hist[w], docx[w]) if _eq(l[1], l[2])]) for w in ws)
-        return tot / (len(ws) * 19)
+        return tot / (len(ws) * len(_linhas(hist[ws[0]], docx[ws[0]])))
     print("\n" + "=" * 96)
     m_comp, m_limpas = _media(comparaveis), _media(limpas)
     print(f"  semanas congeladas ................................. {len(semanas)}")

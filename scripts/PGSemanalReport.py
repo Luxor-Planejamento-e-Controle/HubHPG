@@ -149,6 +149,51 @@ def _load(path: Path):
     return openpyxl.load_workbook(cached, data_only=True, read_only=True)
 
 
+# {rotulo: Path} das fontes efetivamente abertas neste run — base do aviso de fonte
+# velha. Sem isso, apagar a copia de trabalho faz o pipeline cair numa versao
+# congelada semanas atras SEM UM RUIDO: em 21/08/2026 os dois arquivos "EDITAR
+# SETEMBRO" foram apagados no meio do dia e o fechamento passou a ler receptoras de
+# 05/08 e roster mensal de 13/08, publicando headcount 205 no lugar de 202.
+_FONTES_USADAS: dict = {}
+
+
+def _registra_fonte(rotulo: str, f: Path) -> Path:
+    _FONTES_USADAS[rotulo] = f
+    return f
+
+
+# so o orquestrador libera, via --forcar
+PERMITIR_FONTE_VELHA = False
+
+
+def _avisar_fontes_velhas(ini: date, fim: date):
+    """Fonte salva antes do inicio da janela nao pode descrever esta semana.
+
+    BLOQUEIA antes de congelar o snapshot: avisar depois nao serve, porque o numero
+    errado ja foi publicado. Em 21/08/2026 isso aconteceu duas vezes seguidas."""
+    velhas = []
+    for rotulo, f in sorted(_FONTES_USADAS.items()):
+        try:
+            m = datetime.fromtimestamp(f.stat().st_mtime).date()
+        except OSError:
+            continue
+        if m < ini:
+            velhas.append((rotulo, f.name, m))
+    if not velhas:
+        return
+    print(f"  [fontes] !! {len(velhas)} fonte(s) mais VELHAS que a janela "
+          f"({ini.strftime('%d/%m')}-{fim.strftime('%d/%m')}) — o que sai delas nao "
+          f"descreve esta semana:")
+    for rotulo, nome, m in velhas:
+        print(f"    - {rotulo}: {nome} (salvo em {m.strftime('%d/%m/%Y')})")
+    print("    Conferir se a copia de trabalho foi apagada ou renomeada.")
+    if not PERMITIR_FONTE_VELHA:
+        raise RuntimeError(
+            "fonte(s) mais velha(s) que a janela: "
+            + "; ".join(f"{r} ({n}, {m:%d/%m})" for r, n, m in velhas)
+            + " — snapshot NAO congelado. Use --forcar para gravar assim mesmo.")
+
+
 def _latest_by_mtime(folder: Path, pattern: str) -> Path:
     """Arquivo mais recente por MTIME (data de modificação real). Inclui as cópias
     'EDITAR ...' — o operador trabalha nelas (versão viva), então são as MAIS frescas.
@@ -204,7 +249,7 @@ def _resolver(pattern: str, dirs, rotulo: str, requer_aba: str | None = None) ->
             if d == FALLBACK_DIR and (rotulo, f.name) not in {
                     (r, n) for r, n, _ in _NA_PASTA_DE_SAIDA}:
                 _NA_PASTA_DE_SAIDA.append((rotulo, f.name, dirs[0]))
-            return f
+            return _registra_fonte(rotulo, f)
     detalhe = (" | recusados: " + "; ".join(recusados)) if recusados else ""
     raise FileNotFoundError(
         f"Nenhum {pattern!r} ({rotulo}) em: " + " | ".join(tentadas) + detalhe)
@@ -227,11 +272,13 @@ def _controle_plantel() -> Path:
 
 
 def _latest_estacao_master() -> Path:
-    return _latest_by_mtime(ESTACAO_MASTER_DIR, "*ESTACAO DE MONTA.xlsx")
+    return _registra_fonte("estacao de monta",
+                           _latest_by_mtime(ESTACAO_MASTER_DIR, "*ESTACAO DE MONTA.xlsx"))
 
 
 def _latest_by_yymmdd(folder: Path, pattern: str) -> Path:
-    return _latest_by_mtime(folder, pattern)
+    rotulo = "receptoras" if "RECEPTORAS" in pattern.upper() else "controle mensal"
+    return _registra_fonte(rotulo, _latest_by_mtime(folder, pattern))
 
 
 # ------------------------------------------------------------------
@@ -1342,11 +1389,12 @@ def build_report(ini: date, fim: date) -> Report:
     build_pendentes(rep)
     rep.docx_ref = _load_docx_ref()               # relatórios oficiais (validação + seed do 1º caso)
     _compute_movimento(rep)                       # saídas/entradas = diff da população contada
-    _conferir_nascimentos(rep)                    # roster ganhou potro sem parição lançada?
+    _paricoes_do_roster(rep)                      # potro no roster sem parição na ESTAÇÃO
     _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
+    _avisar_pasta_de_saida()
+    _avisar_fontes_velhas(ini, fim)                # BLOQUEIA se a fonte for velha
     _persist_snapshot(rep)                        # congela snapshot CALCULADO desta semana
     rep.calendario = _calendario_dos_snapshots(rep.snapshots)
-    _avisar_pasta_de_saida()
     return rep
 
 
@@ -1455,40 +1503,68 @@ def _compute_movimento(rep: Report):
     _conferir_delta(rep)
 
 
-def _conferir_nascimentos(rep: Report):
-    """O roster é a prova final de que um potro nasceu: ele aparece lá com nome de
-    produto. A aba ESTAÇÃO é a fonte dos nascimentos, mas só enxerga o que passou pela
-    estação de monta — em 21/08/2026 entraram DOIS potros no roster e só um tinha
-    parição lançada, então o cálculo publicou 1 onde o relatório dizia 2.
+PARICOES_EXTRA = BASE_DIR / "_cache" / "paricoes_extra.json"
+# assinatura de nome de produto no roster: "... RECEP 309", "MACHO ... RECEP 258"
+RE_PRODUTO = re.compile(r"RECEP\w*\s*([A-Z0-9]+)\s*$")
 
-    Não corrige o número (a fonte é a ESTAÇÃO); acusa a diferença, porque potro que
-    entra no plantel sem parição lançada é lançamento faltando, não ausência de fato.
+
+def _paricoes_do_roster(rep: Report):
+    """Parição que o roster conhece e a aba ESTAÇÃO não.
+
+    O roster é prova de que o potro nasceu: ele entra lá com nome de produto. A aba
+    ESTAÇÃO é a fonte oficial, mas só vê o que passou pela estação de monta — em
+    21/08/2026 nasceram DOIS potros e só um tinha parição lançada. O que faltava
+    derrubava DUAS linhas de uma vez, porque o acumulado é 'vivos no grupo + parições':
+    a planilha do grupo já tinha apagado a linha do embrião (ele pariu), mas sem
+    parição correspondente o número não voltava. Resultado: nascimentos 1 em vez de 2
+    E acumulado 60 em vez de 61, pela mesma causa.
+
+    O registro é CUMULATIVO em disco. Se contasse só os novos da semana, o acumulado
+    subiria nesta semana e cairia na próxima, quando o potro deixa de ser novidade no
+    roster.
     """
     hist = _load_hist()
     prev = None
     for wid in sorted(hist):
         if wid < rep.semana_atual and hist[wid].get("roster"):
             prev = hist[wid]["roster"]
-    if not prev or not rep.roster:
+    reg = {}
+    if PARICOES_EXTRA.exists():
+        try:
+            reg = json.loads(PARICOES_EXTRA.read_text(encoding="utf-8"))
+        except Exception:
+            reg = {}
+    if prev and rep.roster:
+        # receptoras das parições que a ESTAÇÃO já entregou — evita contar duas vezes
+        na_estacao = {_norm(e.get("receptora")) for e in rep.detalhe.get("nascimentos_semana", [])}
+        for nome in sorted(set(rep.roster) - set(prev)):
+            m = RE_PRODUTO.search(_norm(nome))
+            if not m or m.group(1) in na_estacao or nome in reg:
+                continue
+            reg[nome] = {"receptora": m.group(1), "semana": rep.semana_atual,
+                         "safra": SAFRA_ATUAL}
+        PARICOES_EXTRA.parent.mkdir(parents=True, exist_ok=True)
+        PARICOES_EXTRA.write_text(json.dumps(reg, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
+
+    da_safra = {k: v for k, v in reg.items() if v.get("safra") == SAFRA_ATUAL}
+    if not da_safra:
         return
-    novos = sorted(set(rep.roster) - set(prev))
-    if not novos:
-        return
-    achados = {_norm(e.get("receptora")) for e in rep.detalhe.get("nascimentos_semana", [])}
-    # nome de produto no roster carrega a receptora ("... RECEP 309"); é o que casa
-    # com a parição da aba ESTAÇÃO
-    sem_paricao = []
-    for n in novos:
-        m = re.search(r"RECEP\w*\s*([A-Z0-9]+)\s*$", _norm(n))
-        if not (m and m.group(1) in achados):
-            sem_paricao.append(n)
-    if sem_paricao:
-        print(f"  [nascimentos] {len(sem_paricao)} animal(is) novo(s) no roster sem "
-              f"parição correspondente na aba ESTAÇÃO — o número publicado "
-              f"({rep.producao.get('nascimentos')}) pode estar abaixo do real:")
-        for n in sem_paricao:
-            print(f"    - {n}")
-    rep.producao["roster_novos_sem_paricao"] = len(sem_paricao)
+    desta = [k for k, v in da_safra.items() if v["semana"] == rep.semana_atual]
+    rep.producao["acumulado_estacao"] = (rep.producao.get("acumulado_estacao") or 0) + len(da_safra)
+    rep.producao["acumulado_paricoes_so_no_roster"] = len(da_safra)
+    if desta:
+        rep.producao["nascimentos"] = (rep.producao.get("nascimentos") or 0) + len(desta)
+        rep.detalhe["nascimentos_semana"] = rep.detalhe.get("nascimentos_semana", []) + [
+            {"produto": k, "receptora": da_safra[k]["receptora"], "origem": "roster",
+             "data_paricao": None} for k in desta]
+    print(f"  [nascimentos] {len(da_safra)} parição(ões) da safra conhecidas só pelo "
+          f"roster, somadas ao acumulado (a aba ESTAÇÃO não as tem):")
+    for k in sorted(da_safra):
+        marca = "  <- nesta semana" if k in desta else ""
+        print(f"    - {k} (recep {da_safra[k]['receptora']}){marca}")
+    print(f"  [nascimentos] o split PG/sócio/vendido fica {len(da_safra)} abaixo do "
+          f"acumulado: a fatia dessas parições não existe em nenhuma fonte")
 
 
 def _conferir_delta(rep: Report):
