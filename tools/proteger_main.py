@@ -16,6 +16,7 @@ Uso: python tools/proteger_main.py [--repo OWNER/NOME]
 """
 import json
 import subprocess
+import time
 import sys
 
 REPO = "Luxor-Planejamento-e-Controle/HubHPG"
@@ -58,14 +59,31 @@ RULESET = {
 }
 
 
-def gh(metodo, caminho, corpo=None):
+# Trocar a visibilidade deixa o repo LOCKED por alguns minutos enquanto o GitHub
+# reindexa, e a API responde 403 "Repository has been locked". Nao e erro de
+# configuracao — e so cedo. Sem retry, quem roda logo depois de tornar publico ve
+# um 403 cru e precisa lembrar de rodar de novo.
+TENTATIVAS = 6
+ESPERA_S = 20
+
+
+def gh(metodo, caminho, corpo=None, tentar_de_novo=True):
     cmd = ["gh", "api", "-X", metodo, caminho]
     entrada = None
     if corpo is not None:
         cmd += ["--input", "-"]
         entrada = json.dumps(corpo)
-    r = subprocess.run(cmd, input=entrada, capture_output=True, text=True)
-    return r.returncode == 0, (r.stdout or "") + (r.stderr or "")
+    for n in range(1, TENTATIVAS + 1):
+        r = subprocess.run(cmd, input=entrada, capture_output=True, text=True)
+        saida = (r.stdout or "") + (r.stderr or "")
+        if r.returncode == 0:
+            return True, saida
+        if not (tentar_de_novo and "has been locked" in saida and n < TENTATIVAS):
+            return False, saida
+        print(f"  repo travado pelo GitHub (troca de visibilidade recente); "
+              f"tentativa {n}/{TENTATIVAS}, esperando {ESPERA_S}s...")
+        time.sleep(ESPERA_S)
+    return False, saida
 
 
 def main():
