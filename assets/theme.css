@@ -163,3 +163,38 @@ code{background:var(--surface-2);padding:1px 6px;border-radius:5px;font-size:12p
 .empty{display:grid;place-items:center;text-align:center;padding:70px 20px;color:var(--ink-3)}
 .empty .big{font-size:44px;margin-bottom:12px;opacity:.5}
 .banner{background:var(--amber-soft);border:1px solid rgba(202,151,3,.35);color:var(--ink);padding:11px 15px;border-radius:var(--r-sm);font-size:12.5px;margin-bottom:20px;display:flex;gap:10px;align-items:center}
+
+/* ---- auth gate (overlay de login) ---- */
+/* O hub só aparece depois que o porteiro (auth.js) chama hubBoot() e
+   adiciona .hub-ready ao body. Antes disso, mostrar o shell vazio atrás do
+   gate confunde — parece quebrado em vez de "ainda não logou". */
+body:not(.hub-ready) .app{visibility:hidden}
+
+#hub-gate{
+  display:none;                           /* auth.js seta flex quando necessário */
+  position:fixed;inset:0;z-index:900;
+  align-items:center;justify-content:center;
+  background:var(--bg);
+}
+.gate-box{
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:36px 40px;width:360px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.5);
+  text-align:center;
+}
+.gate-box img{height:48px;width:auto}
+.gate-box h2{font-family:var(--font-serif);font-size:18px;margin:0;font-weight:600}
+.gate-box p{color:var(--ink-2);font-size:13px;margin:0}
+.gate-box input{
+  width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);
+  padding:0 14px;height:var(--ctl-h);border-radius:var(--r-sm);font:inherit;font-size:13px;
+  outline:none;box-sizing:border-box;
+}
+.gate-box input:focus{border-color:var(--amber)}
+.gate-box button{
+  width:100%;height:var(--ctl-h);border:0;border-radius:var(--r-sm);
+  background:var(--amber);color:#1a1300;font:inherit;font-size:13px;font-weight:600;
+  cursor:pointer;transition:.13s;
+}
+.gate-box button:hover{background:var(--amber-deep)}
+#gate-msg{font-size:12px;color:var(--ink-3);min-height:18px}
