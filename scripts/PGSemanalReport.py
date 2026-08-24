@@ -1692,6 +1692,22 @@ def _acumulado_nunca_cai(rep: Report):
                                   encoding="utf-8")
 
 
+def _produto_do_roster(nome: str) -> str:
+    """'MACHO FACEIRA MAPEJO X IMPERIO SAPECADO RECEP 258' -> 'Macho — Faceira
+    Mapejo × Imperio Sapecado'. O roster grava em caixa alta com a receptora
+    colada; a tabela do dashboard mostra lado a lado com os que vem da ESTACAO,
+    entao o formato tem de ser o mesmo."""
+    t = re.sub(r"\s+RECEP\w*\s*[A-Z0-9]+\s*$", "", _norm(nome)).strip()
+    sexo = ""
+    for pref, rot in (("FEMEA", "Fêmea"), ("FEMA", "Fêmea"), ("MACHO", "Macho"),
+                      ("POTRA", "Fêmea"), ("POTRO", "Macho")):
+        if t.startswith(pref + " "):
+            sexo, t = rot, t[len(pref) + 1:]
+            break
+    t = t.title().replace(" X ", " × ").replace(" Da ", " da ").replace(" De ", " de ")
+    return f"{sexo} — {t}" if sexo else t
+
+
 def _paricoes_do_roster(rep: Report):
     """Parição que o roster conhece e a aba ESTAÇÃO não.
 
@@ -1763,8 +1779,8 @@ def _paricoes_do_roster(rep: Report):
     if desta:
         rep.producao["nascimentos"] = (rep.producao.get("nascimentos") or 0) + len(desta)
         rep.detalhe["nascimentos_semana"] = rep.detalhe.get("nascimentos_semana", []) + [
-            {"produto": k, "receptora": da_safra[k]["receptora"], "origem": "roster",
-             "data_paricao": None} for k in desta]
+            {"produto": _produto_do_roster(k), "receptora": da_safra[k]["receptora"],
+             "origem": "roster"} for k in desta]
 
         # Potro que nasce ENTRA no plantel: o roster cresce e o headcount sobe. O
         # relatorio conta assim no Δ ('+02 / -01' = 2 nascimentos, 1 venda). A aba

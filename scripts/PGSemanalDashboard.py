@@ -255,7 +255,8 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   sexo_potro:"Sexo",nome_potro:"Potro",data_paricao:"Parição",data_aborto:"Aborto",data_obito:"Óbito",
   status:"Status",categoria:"Categoria",comprador:"Comprador / Sócio",nome:"Nome",cota:"Cota",
   tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)"};
-const HIDE=new Set(["key","confirmado","reposicao"]);        // internos, não exibir
+const HIDE=new Set(["key","confirmado","reposicao","origem","especie","chave",
+  "afeta_headcount","era_receptora_contada"]);   // internos, não exibir
 const DATECOLS=new Set(["data","data_ia","data_confirmacao","data_paricao","data_aborto","data_obito"]);
 const PCTCOLS=new Set(["cota","cotas_pg"]);
 function lab(c){ return LABELS[c] || c.replace(/_/g," "); }
