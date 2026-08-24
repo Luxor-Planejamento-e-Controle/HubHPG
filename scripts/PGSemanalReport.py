@@ -1501,6 +1501,38 @@ def _descreve_mov(nome: str, info_ant: dict, info_atual: dict) -> dict:
     }
 
 
+def _mapa_receptoras_anterior(semana: str) -> dict:
+    """Mapa {receptora: local} da ultima semana congelada antes desta."""
+    hist = _load_hist()
+    prev = {}
+    for wid in sorted(hist):
+        if wid < semana and hist[wid].get("receptoras_locais"):
+            prev = hist[wid]["receptoras_locais"]
+    return prev
+
+
+def _refina_afeta_headcount(rep: Report):
+    """SAIDA-SOCIO nao e igual pra todo mundo.
+
+    Animal que vai pro socio CONTINUA no headcount — a aba CONTAGEM tem bucket
+    SOCIO. Receptora, nao: ela so e contada em PAO GRANDE e ARRENDAMENTO, entao ir
+    pro socio a TIRA da conta. A regra unica marcava as duas como 'nao afeta', e o
+    Δ so nao denunciou porque os erros se cancelavam (0-1 e 2-3 dao -1).
+    """
+    prev = _mapa_receptoras_anterior(rep.semana_atual)
+    if not prev:
+        return
+    for e in rep.detalhe.get("saidas_diff") or []:
+        if "SOCIO" not in _norm(e.get("classificacao")):
+            continue
+        chave = re.sub(r"^RECEPTORA\s+", "", _norm(e.get("animal")))
+        if chave in prev:
+            e["afeta_headcount"] = True
+            e["era_receptora_contada"] = True
+    rep.saidas["saidas_no_headcount"] = sum(
+        1 for x in (rep.detalhe.get("saidas_diff") or []) if x.get("afeta_headcount"))
+
+
 def _compute_movimento(rep: Report):
     """Saídas/entradas na semana.
 
@@ -1527,6 +1559,7 @@ def _compute_movimento(rep: Report):
         rep.saidas["entradas_no_headcount"] = sum(1 for x in ent if x.get("afeta_headcount"))
         rep.detalhe["saidas_diff"] = sai
         rep.detalhe["entradas_diff"] = ent
+        _refina_afeta_headcount(rep)
         _conferir_delta(rep)
         return
 
@@ -1732,6 +1765,21 @@ def _paricoes_do_roster(rep: Report):
         rep.detalhe["nascimentos_semana"] = rep.detalhe.get("nascimentos_semana", []) + [
             {"produto": k, "receptora": da_safra[k]["receptora"], "origem": "roster",
              "data_paricao": None} for k in desta]
+
+        # Potro que nasce ENTRA no plantel: o roster cresce e o headcount sobe. O
+        # relatorio conta assim no Δ ('+02 / -01' = 2 nascimentos, 1 venda). A aba
+        # SAIDAS-ENTRADAS reconhece a classificacao NASCIMENTO, mas ninguem lanca —
+        # entao a entrada vinha zerada mesmo com o potro ja no roster. Conta aqui,
+        # marcado como nascimento, pra nao virar "chegou animal de fora".
+        rep.saidas["entradas_semana"] = (rep.saidas.get("entradas_semana") or 0) + len(desta)
+        rep.saidas["entradas_no_headcount"] = (
+            rep.saidas.get("entradas_no_headcount") or 0) + len(desta)
+        rep.saidas["entradas_nascimento"] = len(desta)
+        rep.detalhe["entradas_diff"] = (rep.detalhe.get("entradas_diff") or []) + [
+            {"animal": k, "data": None, "classificacao": "NASCIMENTO (roster)",
+             "afeta_headcount": True, "local_saida": None,
+             "local_entrada": "FAZENDA PAO GRANDE"} for k in desta]
+        _conferir_delta(rep)
     print(f"  [nascimentos] {len(da_safra)} parição(ões) da safra conhecidas só pelo "
           f"roster, somadas ao acumulado (a aba ESTAÇÃO não as tem):")
     for k in sorted(da_safra):
