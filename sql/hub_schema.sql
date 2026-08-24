@@ -39,7 +39,7 @@ create trigger allowed_users_lower before insert or update on allowed_users
 -- ---------------------------------------------------------------------
 create table if not exists user_dashboard_access (
   email      text not null references allowed_users(email) on update cascade on delete cascade,
-  dashboard  text not null check (dashboard in ('semanal','comite','plantel')),
+  dashboard  text not null check (dashboard in ('semanal','comite','auditoria','plantel')),
   granted_at timestamptz not null default now(),
   primary key (email, dashboard)
 );
@@ -49,7 +49,7 @@ create table if not exists user_dashboard_access (
 -- admin volta como violação de check (aconteceu no P&C ao adicionar 'vendas').
 alter table user_dashboard_access drop constraint if exists user_dashboard_access_dashboard_check;
 alter table user_dashboard_access add constraint user_dashboard_access_dashboard_check
-  check (dashboard in ('semanal','comite','plantel'));
+  check (dashboard in ('semanal','comite','auditoria','plantel'));
 
 -- ---------------------------------------------------------------------
 -- 3) Helpers. SECURITY DEFINER para as policies não recursarem na própria

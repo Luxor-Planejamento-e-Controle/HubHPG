@@ -16,7 +16,8 @@ _cache/
 # saídas do pipeline: JSON com nome de animal, headcount, comprador
 bases/
 
-# dashboard gerado (dado do plantel). Vai pro bucket, nunca pro site.
+# dashboards gerados (dado do plantel): semanal e auditoria.
+# Vao pro bucket, nunca pro site.
 dashboards/
 
 # o que os build_*.py geram a partir das bases

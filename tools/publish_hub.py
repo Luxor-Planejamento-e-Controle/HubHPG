@@ -40,6 +40,9 @@ DATASETS = {
                 "text/html; charset=utf-8"),
     "comite":  (ROOT / "assets/comite/spec.json", "comite.json",
                 "application/json"),
+    # A auditoria cita animal e comprador — mesma regra dos outros: bucket privado.
+    "auditoria": (ROOT / "dashboards/auditoria_semanal.html", "auditoria.html",
+                  "text/html; charset=utf-8"),
 }
 # Memória do pipeline: vários arquivos sob o mesmo prefixo.
 ESTADO = [
@@ -52,8 +55,9 @@ ESTADO = [
 GERADOR = {
     "semanal": "python PGSemanal.py",
     "comite":  "python tools/build_comite.py",
+    "auditoria": "python tools/build_auditoria.py",
 }
-PADRAO = ["semanal", "comite"]
+PADRAO = ["semanal", "comite", "auditoria"]
 
 
 def env():
