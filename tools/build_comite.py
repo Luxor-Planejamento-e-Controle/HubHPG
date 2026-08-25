@@ -39,6 +39,8 @@ from PGSemanalReport import (                                    # noqa: E402
     EMB_COMERCIAIS, MAPA_VENDAS_DIR, SAFRA_ATUAL, _controle_plantel,
     _latest_by_yymmdd, _latest_estacao_master, _load, _norm, _s, _to_num,
 )
+# os resolvedores de fonte compartilhados anotam ali o arquivo que escolheram
+from PGSemanalReport import _FONTES_USADAS as _FONTES_COMPARTILHADAS   # noqa: E402
 
 DRE_DIR = Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/DRE Data")
 DRE_HARAS = DRE_DIR / "DRE 2026 HPG - HARAS.xlsx"
@@ -115,6 +117,17 @@ DRE_HIST_CANDIDATOS = (
 )
 _hist_cache = {}
 
+# rótulo -> arquivo efetivamente aberto neste run. Vai para o spec e de lá para a
+# auditoria: o que o build LEU, não o que alguém escreveu que ele lê.
+_FONTES: dict = {}
+
+
+def _registra(rotulo, caminho):
+    """Anota a fonte e devolve o caminho, para caber em linha de chamada."""
+    if caminho is not None:
+        _FONTES[rotulo] = Path(caminho)
+    return caminho
+
 
 _dre_hist_cache = []
 
@@ -134,7 +147,7 @@ def _dre_hist():
     if atrasadas:
         msg += " — mais nova que " + ", ".join(f"{o.parents[1].name} ({d(o)})" for o in atrasadas)
     print(msg)
-    _dre_hist_cache.append(escolhido)
+    _dre_hist_cache.append(_registra("DRE histórico", escolhido))
     return escolhido
 
 
@@ -439,7 +452,7 @@ def slide_contagem(m, ano):
 
 # ============================================================ Estação (S16–S20)
 def _estacao_wb():
-    return _load(_latest_estacao_master())
+    return _load(_registra("estação de monta", _latest_estacao_master()))
 
 
 def slides_estacao():
@@ -450,7 +463,7 @@ def slides_estacao():
     confirmado que não nasceu; óbito = nasceu e morreu.
     """
     try:
-        src = _latest_estacao_master()
+        src = _registra("estação de monta", _latest_estacao_master())
         wb = _load(src)
     except Exception as e:
         p = pend(16, "ESTAÇÃO DE MONTA — EMBRIÕES E PRENHEZES", "", "ESTACAO DE MONTA.xlsx",
@@ -690,7 +703,7 @@ def slide_coberturas():
                     "Saldo por garanhão de fora",
                     "REPRODUÇÃO/COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx",
                     "arquivo não encontrado no Drive")
-    wb = _load(f)
+    wb = _load(_registra("coberturas de fora", f))
     ws = wb["Planilha2"]
     rows = []
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
@@ -729,8 +742,8 @@ def slide_inadimplencia(m, ano):
         return pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
                     "controle-de-inadimplencia → output_pbi/indicadores_kpi.xlsx",
                     f"saída não encontrada em {INAD_DIR}; rode o ControleInadimplencia.py")
-    k = pd.read_excel(kpi_f).iloc[0]
-    fx = pd.read_excel(faixa_f)
+    k = pd.read_excel(_registra("inadimplência (KPI)", kpi_f)).iloc[0]
+    fx = pd.read_excel(_registra("inadimplência (faixas)", faixa_f))
     ref = pd.to_datetime(k["data_referencia"]).strftime("%d/%m/%Y")
     venc = fx[fx["status_titulo"] == "Vencido"].groupby("faixa_atraso")[["valor_total", "qtd_titulos"]].sum()
     tot_venc = float(venc["valor_total"].sum()) or 1.0
@@ -762,7 +775,7 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
     8 valor da venda, 11 tipo de evento, 12 nome do evento, 15 vendedor,
     19 status contrato, 22 ano, 23 mês."""
     try:
-        src = _latest_by_yymmdd(MAPA_VENDAS_DIR, "*_PG_Mapa Vendas.xlsx")
+        src = _registra("mapa de vendas", _latest_by_yymmdd(MAPA_VENDAS_DIR, "*_PG_Mapa Vendas.xlsx"))
         wb = _load(src)
     except Exception as e:
         p = pend(29, "VENDAS — RESULTADO ACUMULADO", "", "PG_Mapa Vendas.xlsx, aba MAPA VENDAS",
@@ -822,7 +835,7 @@ S34 = ("DIREITO", "TROCA")
 
 def slides_embrioes():
     try:
-        wb = _load(EMB_COMERCIAIS)
+        wb = _load(_registra("embriões a entregar", EMB_COMERCIAIS))
     except Exception as e:
         base = pend(32, "VENDAS — EMBRIÕES VENDIDOS A FAZER", "", EMB_COMERCIAIS.name,
                     f"não consegui abrir: {e}")
@@ -1130,9 +1143,21 @@ def build(so_mes=None):
         decks[f"{ano}-{m:02d}"] = monta_deck(m, ano, ctx)
 
     chaves = sorted(decks)
+    # As fontes que os resolvedores compartilhados registram (roster, receptoras,
+    # controle mensal) ficam em PGSemanalReport._FONTES_USADAS; as deste módulo, em
+    # _FONTES. A auditoria quer as duas na mesma lista.
+    fontes = {}
+    for rotulo, caminho in list(_FONTES_COMPARTILHADAS.items()) + list(_FONTES.items()):
+        p = Path(caminho)
+        try:
+            quando = datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="minutes")
+        except OSError:
+            quando = None
+        fontes[rotulo] = {"arquivo": p.name, "pasta": p.parent.name, "modificado": quando}
+
     payload = {"meses": chaves, "padrao": chaves[-1], "avisos": avisos,
                "labels": {k: f"{MESES[int(k[5:]) - 1]} {k[:4]}" for k in chaves},
-               "decks": decks}
+               "fontes": fontes, "decks": decks}
     OUT.mkdir(parents=True, exist_ok=True)
     js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=_json_default)
     (OUT / "spec.json").write_text(js, encoding="utf-8")
