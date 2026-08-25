@@ -9,6 +9,7 @@ Responsabilidades:
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -16,11 +17,13 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # raiz do projeto (scripts/ fica 1 nível abaixo)
 
-# Raiz do Drive
-DRIVE_ROOT = Path(
+# Raiz do Drive. Na máquina do Arthur é o mount do Google Drive for Desktop; na
+# nuvem não existe unidade G:, então HPG_DRIVE_ROOT aponta para a cópia que
+# tools/sync_drive.py baixa da API do Drive, com a mesma estrutura de pastas.
+DRIVE_ROOT = Path(os.getenv("HPG_DRIVE_ROOT") or (
     r"G:\.shortcut-targets-by-id\1mBrSeztRwtBnMlkOMnq6aO4LQUkNjiTb"
     r"\PLANILHAS DE CONTROLE"
-)
+))
 # Comitê mensal: CONTROLE_DE_PLANTEL
 SOURCE_ROOT = DRIVE_ROOT / "PLANTEL"
 # Atualização semanal: outras 3 fontes

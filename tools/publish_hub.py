@@ -25,6 +25,7 @@ Uso:
     python tools/publish_hub.py estado          # backup da memória do pipeline
     python tools/publish_hub.py --all
 """
+import os
 import sys
 from pathlib import Path
 
@@ -61,12 +62,45 @@ PADRAO = ["semanal", "comite", "auditoria"]
 
 
 def env():
+    """.env local primeiro; variável de ambiente depois.
+
+    Numa Azure Function não há .env — as credenciais chegam como app settings, que o
+    runtime expõe como variáveis de ambiente."""
     cfg = dotenv_values(ROOT / ".env")
-    url = (cfg.get("SUPABASE_URL") or "").rstrip("/")
-    key = cfg.get("SUPABASE_SERVICE_ROLE_KEY")
+    url = (cfg.get("SUPABASE_URL") or os.getenv("SUPABASE_URL") or "").rstrip("/")
+    key = cfg.get("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:
-        sys.exit("Faltam SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY no .env da raiz do repo.")
+        sys.exit("Faltam SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (no .env da raiz do "
+                 "repo ou nas variáveis de ambiente).")
     return url, key
+
+
+def baixa(url, key, dest: str, alvo: Path) -> bool:
+    """Traz um objeto do bucket para o disco. É a volta do `sobe`."""
+    r = requests.get(f"{url}/storage/v1/object/{BUCKET}/{dest}",
+                     headers={"Authorization": f"Bearer {key}"}, timeout=180)
+    if r.status_code == 404:
+        print(f"[skip] {dest} ainda não existe no bucket")
+        return False
+    if r.status_code >= 300:
+        print(f"[erro] {dest} -> HTTP {r.status_code}: {r.text[:300]}")
+        return False
+    alvo.parent.mkdir(parents=True, exist_ok=True)
+    alvo.write_bytes(r.content)
+    print(f"[ok] {BUCKET}/{dest} ({len(r.content)//1024} KB) -> {alvo.name}")
+    return True
+
+
+def restaurar_estado() -> int:
+    """Baixa a memória do pipeline do bucket para o _cache local.
+
+    Existe por causa da execução na nuvem: o disco da Function é descartável e os
+    snapshots semanais NÃO se reconstroem — as planilhas do Drive são sobrescritas a
+    cada semana. Sem isto, um fechamento na nuvem começaria sem histórico e publicaria
+    a primeira semana como se fosse a única (sem diff de saídas, sem Δ, acumulado sem
+    piso). Rodar antes do fechamento, sempre."""
+    url, key = env()
+    return sum(1 for origem, dest in ESTADO if baixa(url, key, dest, origem))
 
 
 def sobe(url, key, src: Path, dest: str, ctype: str, gerador: str = "") -> bool:
