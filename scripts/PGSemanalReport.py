@@ -327,8 +327,16 @@ def _latest_estacao_master() -> Path:
                            _latest_by_mtime(ESTACAO_MASTER_DIR, "*ESTACAO DE MONTA.xlsx"))
 
 
-def _latest_by_yymmdd(folder: Path, pattern: str) -> Path:
-    rotulo = "receptoras" if "RECEPTORAS" in pattern.upper() else "controle mensal"
+def _latest_by_yymmdd(folder: Path, pattern: str, rotulo: str | None = None) -> Path:
+    """Mais recente por mtime, registrado sob `rotulo`.
+
+    O rótulo era adivinhado pelo padrão — RECEPTORAS virava 'receptoras', o resto
+    virava 'controle mensal'. O comitê chama esta mesma função para o mapa de vendas,
+    e o registro passava a dizer que o controle mensal era o mapa de vendas. Rótulo
+    errado não muda número, mas vai direto para a auditoria, que serve exatamente
+    para dizer de onde veio cada dado."""
+    if rotulo is None:
+        rotulo = "receptoras" if "RECEPTORAS" in pattern.upper() else "controle mensal"
     return _registra_fonte(rotulo, _latest_by_mtime(folder, pattern))
 
 

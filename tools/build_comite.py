@@ -452,7 +452,7 @@ def slide_contagem(m, ano):
 
 # ============================================================ Estação (S16–S20)
 def _estacao_wb():
-    return _load(_registra("estação de monta", _latest_estacao_master()))
+    return _load(_latest_estacao_master())
 
 
 def slides_estacao():
@@ -463,7 +463,7 @@ def slides_estacao():
     confirmado que não nasceu; óbito = nasceu e morreu.
     """
     try:
-        src = _registra("estação de monta", _latest_estacao_master())
+        src = _latest_estacao_master()
         wb = _load(src)
     except Exception as e:
         p = pend(16, "ESTAÇÃO DE MONTA — EMBRIÕES E PRENHEZES", "", "ESTACAO DE MONTA.xlsx",
@@ -775,7 +775,7 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
     8 valor da venda, 11 tipo de evento, 12 nome do evento, 15 vendedor,
     19 status contrato, 22 ano, 23 mês."""
     try:
-        src = _registra("mapa de vendas", _latest_by_yymmdd(MAPA_VENDAS_DIR, "*_PG_Mapa Vendas.xlsx"))
+        src = _latest_by_yymmdd(MAPA_VENDAS_DIR, "*_PG_Mapa Vendas.xlsx", "mapa de vendas")
         wb = _load(src)
     except Exception as e:
         p = pend(29, "VENDAS — RESULTADO ACUMULADO", "", "PG_Mapa Vendas.xlsx, aba MAPA VENDAS",
