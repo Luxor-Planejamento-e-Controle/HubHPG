@@ -238,8 +238,9 @@ def _secao_comite() -> str:
             f'<td>{situacao}</td><td class="obs">{obs}</td></tr>')
 
     com_dado = len(linhas_s) - pendentes
+    rotulo_mes = (spec.get("labels") or {}).get(mes) or (mes or "")
     return f"""<section>
-  <h2>Comitê mensal &middot; {html.escape(spec.get("labels", {{}}).get(mes, mes or ""))}</h2>
+  <h2>Comitê mensal &middot; {html.escape(rotulo_mes)}</h2>
   <div class="tiles">
     <div class="tile ok"><span class="num">{com_dado}</span><span class="lab">slides com dado, de {len(linhas_s)} com fonte</span></div>
     <div class="tile bad"><span class="num">{pendentes}</span><span class="lab">pendentes — falta conteúdo ou fonte</span></div>
