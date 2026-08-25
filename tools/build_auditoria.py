@@ -19,6 +19,7 @@ Uso:
 from __future__ import annotations
 
 import html
+import json
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -30,6 +31,11 @@ import PGSemanalReport as R          # noqa: E402
 from PGSemanalPrecisao import _eq, _linhas   # noqa: E402
 
 SAIDA = ROOT / "dashboards" / "auditoria_semanal.html"
+SPEC_COMITE = ROOT / "assets" / "comite" / "spec.json"
+
+# Uma fonte mensal com mais de 45 dias já não descreve o mês que o deck publica.
+# Não é erro — o haras pode não ter atualizado —, mas tem de aparecer.
+DIAS_FONTE_VELHA = 45
 
 # Metadado ESTÁVEL por indicador: (seção, fonte·aba, regra).
 # Só muda quando a origem muda — e aí muda aqui, num lugar só.
@@ -183,6 +189,80 @@ def _linhas_da_semana(semana):
     return snap, dx, comparaveis
 
 
+def _secao_comite() -> str:
+    """Tabelas do comitê a partir de assets/comite/spec.json."""
+    if not SPEC_COMITE.exists():
+        return ('<section><h2>Comitê mensal</h2><div class="nota">'
+                'spec.json não existe — rode <code>python tools/build_comite.py</code>.'
+                '</div></section>')
+    spec = json.loads(SPEC_COMITE.read_text(encoding="utf-8"))
+    mes = spec.get("padrao")
+    deck = (spec.get("decks") or {}).get(mes) or []
+    fontes = spec.get("fontes") or {}
+
+    linhas_f, velhas = [], 0
+    for rotulo in sorted(fontes):
+        f = fontes[rotulo]
+        quando = f.get("modificado")
+        idade = ""
+        if quando:
+            dias = (datetime.now() - datetime.fromisoformat(quando)).days
+            idade = f"{dias} dia{'s' if dias != 1 else ''}"
+            if dias > DIAS_FONTE_VELHA:
+                velhas += 1
+                idade = f'<span class="chip bad">{idade}</span>'
+        linhas_f.append(
+            f'<tr><td>{html.escape(rotulo)}</td>'
+            f'<td class="src">{html.escape(f.get("arquivo") or "—")}<br>'
+            f'<span class="aba">{html.escape(f.get("pasta") or "")}</span></td>'
+            f'<td>{html.escape((quando or "—").replace("T", " "))}</td>'
+            f'<td class="num">{idade}</td></tr>')
+
+    linhas_s, pendentes = [], 0
+    for sl in deck:
+        tipo = sl.get("t")
+        if tipo in ("capa", "agenda", "divisor", "encerramento"):
+            continue          # moldura do deck, não tem fonte de dado
+        if tipo == "pendente":
+            pendentes += 1
+            situacao = '<span class="chip bad">pendente</span>'
+            obs = (f'<b>{html.escape(sl.get("motivo") or "")}</b><br>'
+                   f'{html.escape(sl.get("fonte") or "")}')
+        else:
+            situacao = '<span class="chip ok">com dado</span>'
+            obs = html.escape(sl.get("sub") or "")
+        linhas_s.append(
+            f'<tr><td class="num">{sl.get("n")}</td>'
+            f'<td>{html.escape(sl.get("titulo") or "")}</td>'
+            f'<td><span class="aba">{html.escape(tipo or "")}</span></td>'
+            f'<td>{situacao}</td><td class="obs">{obs}</td></tr>')
+
+    com_dado = len(linhas_s) - pendentes
+    return f"""<section>
+  <h2>Comitê mensal &middot; {html.escape(spec.get("labels", {{}}).get(mes, mes or ""))}</h2>
+  <div class="tiles">
+    <div class="tile ok"><span class="num">{com_dado}</span><span class="lab">slides com dado, de {len(linhas_s)} com fonte</span></div>
+    <div class="tile bad"><span class="num">{pendentes}</span><span class="lab">pendentes — falta conteúdo ou fonte</span></div>
+    <div class="tile neu"><span class="num">{len(fontes)}</span><span class="lab">arquivos lidos no build{(" · " + str(velhas) + " com mais de " + str(DIAS_FONTE_VELHA) + " dias") if velhas else ""}</span></div>
+  </div>
+  <div class="scroll"><table>
+    <thead><tr><th>Rótulo</th><th>Arquivo &middot; pasta</th><th>Modificado</th><th>Idade</th></tr></thead>
+    <tbody>
+{chr(10).join(linhas_f)}
+    </tbody>
+  </table></div>
+  <div class="scroll" style="margin-top:18px"><table>
+    <thead><tr><th>#</th><th>Slide</th><th>Tipo</th><th>Situação</th><th>Fonte declarada / detalhe</th></tr></thead>
+    <tbody>
+{chr(10).join(linhas_s)}
+    </tbody>
+  </table></div>
+  <div class="nota">Lida de <code>assets/comite/spec.json</code>: o que o build de fato
+  abriu, não o que está escrito em <code>_docs/COMITE_MAPEAMENTO.md</code>. A regra de
+  cada slide (aba, filtro) continua lá — é texto estável.</div>
+</section>"""
+
+
 def build(semana=None):
     hist = R._load_hist()
     semanas = sorted(w for w in hist if R._is_iso(w))
@@ -255,7 +335,8 @@ def build(semana=None):
     doc = TEMPLATE.format(
         semana=semana, janela=html.escape(janela), gerado=gerado,
         n_ok=n_ok, n_nao=n_tot - n_ok, n_tot=n_tot,
-        n_extra=len(SEM_CONTRAPARTE), linhas="\n".join(linhas_html), avisos=avisos_html)
+        n_extra=len(SEM_CONTRAPARTE), linhas="\n".join(linhas_html), avisos=avisos_html,
+        comite=_secao_comite())
     SAIDA.parent.mkdir(parents=True, exist_ok=True)
     SAIDA.write_text(doc, encoding="utf-8")
     print(f"[auditoria] semana {semana} · {n_ok}/{n_tot} batem · "
@@ -290,6 +371,8 @@ h1{{font-family:var(--serif);font-size:clamp(1.9rem,5vw,2.7rem);line-height:1.08
 .stamp{{display:flex;flex-wrap:wrap;gap:6px 22px;font-family:var(--mono);font-size:12px;color:var(--ink-mute)}}
 .stamp b{{color:var(--ink-soft);font-weight:600}}
 section{{padding-top:36px}}
+h2{{font-family:var(--serif);font-size:1.45rem;font-weight:600;margin:0 0 14px;
+padding-bottom:8px;border-bottom:1px solid var(--line)}}
 .tiles{{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px;margin-bottom:20px}}
 .tile{{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--h,var(--ink-mute));
 padding:14px 16px 16px;display:flex;flex-direction:column;gap:2px}}
@@ -324,7 +407,7 @@ footer{{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-f
 font-size:11.5px;color:var(--ink-mute)}}
 </style></head><body><div class="wrap">
 <header>
-  <span class="eyebrow">Haras Pao Grande &middot; fechamento semanal</span>
+  <span class="eyebrow">Haras Pao Grande &middot; fechamento semanal e comitê mensal</span>
   <h1>Auditoria de Fontes</h1>
   <div class="stamp">
     <span>Semana <b>{semana}</b></span>
@@ -333,6 +416,7 @@ font-size:11.5px;color:var(--ink-mute)}}
   </div>
 </header>
 <section>
+  <h2>Fechamento semanal</h2>
   <div class="tiles">
     <div class="tile ok"><span class="num">{n_ok}</span><span class="lab">batem, de {n_tot} comparáveis</span></div>
     <div class="tile bad"><span class="num">{n_nao}</span><span class="lab">não batem</span></div>
@@ -347,7 +431,9 @@ font-size:11.5px;color:var(--ink-mute)}}
   </table></div>
   {avisos}
 </section>
-<footer>Gerada por tools/build_auditoria.py a partir do snapshot congelado — não digitada à mão.</footer>
+{comite}
+<footer>Gerada por tools/build_auditoria.py a partir do snapshot congelado e do spec do
+comitê — não digitada à mão.</footer>
 </div></body></html>
 """
 
