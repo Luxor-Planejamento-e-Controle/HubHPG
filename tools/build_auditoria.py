@@ -41,10 +41,10 @@ DIAS_FONTE_VELHA = 45
 # Só muda quando a origem muda — e aí muda aqui, num lugar só.
 FONTES = {
     "Acumulado estação": ("1 · Produção",
-        "EMBRIÕES E MATRIZES · EMBRIÕES PAO GRANDE + SOCIOS\nESTACAO DE MONTA · ESTAÇÃO\nCONTROLE PLANTEL · PLANTEL",
+        "ESTACAO DE MONTA · ESTAÇÃO",
         "Vivos no grupo + parições da safra. A soma funciona porque a planilha do grupo apaga a linha de quem pariu; parição não lançada em lugar nenhum some da conta. Parição conhecida só pelo roster entra aqui, com registro cumulativo. O valor nunca cai — há piso por safra."),
     "Acumulado estação (safra nova)": ("1 · Produção",
-        "EMBRIÕES E MATRIZES · EMBRIÕES PAO GRANDE + SOCIOS\nESTACAO DE MONTA · ESTAÇÃO",
+        "ESTACAO DE MONTA · ESTAÇÃO",
         "Mesma regra da safra que fecha, aplicada na que começa — o relatório publica as duas durante a transição. Enquanto não há uma linha lançada para a safra nova em nenhuma das duas planilhas, o número é 0, que é o '--' do relatório."),
     "Confirmados semana": ("1 · Produção", "ESTACAO DE MONTA · ESTAÇÃO",
         "Coluna +/- = OK. A contagem da semana é a diferença do conjunto contra o snapshot anterior."),
@@ -62,16 +62,16 @@ FONTES = {
     "Receptoras vazias": ("2 · Receptoras", "ARRENDAMENTOS E RECEPTORAS · ANIMAIS",
         "STATUS começando com VAZIA."),
     "Índice eficiência": ("2 · Receptoras",
-        "ARRENDAMENTOS E RECEPTORAS · ANIMAIS\nCONTROLE PLANTEL · PLANTEL",
+        "ARRENDAMENTOS E RECEPTORAS · ANIMAIS\nCONTROLE_DE_PLANTEL mensal · PLANTEL",
         "Vazias ÷ doadoras contadas (CATEGORIA = DOADORA). O relatório já oscilou entre divisor fixo 10 e o contado."),
     "Headcount total": ("3 · Headcount",
-        "CONTROLE PLANTEL · PLANTEL\nARRENDAMENTOS E RECEPTORAS · ANIMAIS",
+        "CONTROLE_DE_PLANTEL mensal · PLANTEL\nARRENDAMENTOS E RECEPTORAS · ANIMAIS",
         "Animais por LOCAL mais receptoras do mesmo local. Reproduz o COUNTIF da aba CONTAGEM, que fica só como conferência."),
-    "Fazenda Pao Grande": ("3 · Headcount", "CONTROLE PLANTEL · PLANTEL", "Animais mais receptoras da fazenda."),
-    "Arrendamento": ("3 · Headcount", "CONTROLE PLANTEL · PLANTEL", "Animais mais receptoras do arrendamento."),
-    "Centro de Treinamento": ("3 · Headcount", "CONTROLE PLANTEL · PLANTEL",
+    "Fazenda Pao Grande": ("3 · Headcount", "CONTROLE_DE_PLANTEL mensal · PLANTEL", "Animais mais receptoras da fazenda."),
+    "Arrendamento": ("3 · Headcount", "CONTROLE_DE_PLANTEL mensal · PLANTEL", "Animais mais receptoras do arrendamento."),
+    "Centro de Treinamento": ("3 · Headcount", "CONTROLE_DE_PLANTEL mensal · PLANTEL",
         "LOCAL OUTROS no roster. Mato Grosso fica fora da contagem por decisão de negócio."),
-    "Sócios": ("3 · Headcount", "CONTROLE PLANTEL · PLANTEL", "LOCAL SOCIO no roster."),
+    "Sócios": ("3 · Headcount", "CONTROLE_DE_PLANTEL mensal · PLANTEL", "LOCAL SOCIO no roster."),
     "Δ headcount": ("3 · Headcount", "snapshot local · headcount_history.json",
         "Variação do número de ANIMAIS, que é o que o relatório publica no '+02 / -01'. Receptora não entra aqui: ela é contada à parte, e receptora que vai pro sócio sai da contagem sem aparecer nesse Δ. A variação do total (animais + receptoras) fica em delta, separada."),
     "Saídas semana": ("5 · Saídas", "CONTROLE_DE_PLANTEL mensal · SAIDAS-ENTRADAS",
@@ -85,8 +85,9 @@ FONTES = {
         "CONTROLE_DE_PLANTEL mensal · PLANTEL\nEMBRIOES A ENTREGAR · ENTREGAR",
         "STATUS PLANTEL = VENDIDO PENDENTE SAIDA mais embrião de cota integral aguardando entrega. Reposição conta (sai para repor outro animal, mas está pendente)."),
     "Sociedade pendentes": ("5 · Saídas",
-        "EMBRIÕES E MATRIZES · EMBRIOES SOCIOS - VENDIDOS",
-        "ANIMAIS tipo SOCIEDADE. Embrião de cota parcial não entra aqui: tem indicador "
+        "ESTACAO DE MONTA · ESTAÇÃO",
+        "Embrião 100% do sócio (COTAS EMBRIÃO vazia, SÓCIO EMBRIÃO = 1), confirmado, sem parto nem aborto, com a receptora ainda em terra da PG. Cota parcial (0,25/0,5) é embrião da PG COM sócio e não é pendência de saída. Animal em sociedade: não há fonte viva que marque — o Animais para sair saiu do pipeline. "  # noqa: E501
+        "ANTIGO: ANIMAIS tipo SOCIEDADE. Embrião de cota parcial não entra aqui: tem indicador "
         "próprio, porque o relatório soma embrião nesta linha em algumas semanas e em "
         "outras não. Animal com pendência documental fica fora. O Animais para sair está "
         "congelado em 24/07, então o animal só sai da conta quando some do roster mensal — "
@@ -104,7 +105,7 @@ SEM_CONTRAPARTE = [
     ("1 · Produção", "Aberto · PG / sócio / vendido",
      lambda s: " · ".join(str(s.get("acumulado_estacao_split", {}).get(k, 0))
                           for k in ("pg", "socio", "vendido")),
-     "EMBRIÕES E MATRIZES · EMBRIÕES PAO GRANDE + SOCIOS",
+     "ESTACAO DE MONTA · ESTAÇÃO",
      "Fatia por cota e STATUS. Parição cuja cota não foi recuperada no arquivo da semana anterior fica fora, e a soma sai abaixo do acumulado."),
     ("2 · Receptoras", "Doadoras ciclando",
      lambda s: (s.get("receptoras") or {}).get("doadoras_ciclando"),
@@ -112,7 +113,7 @@ SEM_CONTRAPARTE = [
      "Égua disponível hormonalmente para doar óvulo. NÃO existe em planilha: é avaliação do veterinário. O roster e o PLANEJAMENTO da estação só têm cadastro e logística; a aba MATRIZES tem data de ovulação/coleta, que é evento passado. Preenchido à mão por semana, sem herdar a semana anterior. O relatório oficial também não publica."),
     ("2 · Receptoras", "Doadoras (estação)",
      lambda s: (s.get("receptoras") or {}).get("doadoras"),
-     "CONTROLE PLANTEL · PLANTEL",
+     "CONTROLE_DE_PLANTEL mensal · PLANTEL",
      "CATEGORIA = DOADORA no roster. O relatório não publica o número, só o usa como divisor do índice."),
     ("5 · Saídas", "Embriões em sociedade aguardando entrega",
      lambda s: (s.get("terceiros") or {}).get("sociedade_pendentes_embrioes"),
@@ -130,12 +131,9 @@ ORDEM = ["1 · Produção", "2 · Receptoras", "3 · Headcount", "4 · Terceiros
 # permite trocar "CONTROLE PLANTEL" pelo caminho real do arquivo lido na semana.
 # Fonte que não é planilha do Drive (snapshot local, input humano) não entra.
 ROTULO_DA_FONTE = {
-    "EMBRIÕES E MATRIZES": "acumulado na estação",
     "ESTACAO DE MONTA": "estacao de monta",
-    "CONTROLE PLANTEL": "roster do plantel",
     "ARRENDAMENTOS E RECEPTORAS": "receptoras",
     "CONTROLE_DE_PLANTEL mensal": "controle mensal",
-    "Animais para sair": "sociedade pendente",
     "EMBRIOES A ENTREGAR": "embrioes a entregar",
 }
 

@@ -659,6 +659,10 @@ def build_producao(rep: Report, ini: date, fim: date):
     # aborta —, então as parições voltam pra conta e os abortos não. A estação de monta
     # sozinha não serve: só enxerga o que passou pela FPG (56 vs 61 hoje). Fica como
     # conferência em `acumulado_estacao_monta`.
+    # ACUMULADO: confirmados da safra na própria aba ESTAÇÃO. Ela não apaga linha —
+    # parição e aborto ficam registrados na mesma linha —, então a contagem já é
+    # cumulativa. O grupo (EMBRIÕES E MATRIZES) segue sendo lido só para o split por
+    # fatia e para a lista arquivada.
     grupo = _acumulado_grupo()
     rep.fontes["embrioes_matrizes"] = grupo["fonte"]
     _LINHAS_BRUTAS["grupo"] = grupo["linhas"]
@@ -698,7 +702,11 @@ def build_producao(rep: Report, ini: date, fim: date):
         for e in ainda_no_grupo:
             print(f"    - {e['doadora']} x {e['garanhao']} (recep {e['receptora']}), "
                   f"pariu {e['data_paricao']}")
-    acumulado = grupo["total"] + len(paridos_novos)
+    # Confirmados da safra na aba ESTAÇÃO = acumulado. Aborto não volta (baixa
+    # definitiva, decidido com o haras em 2026-07-31), então sai da conta.
+    confirmados_safra = [e for e in embrioes if e["confirmado"]]
+    abortados = [e for e in confirmados_safra if e["data_aborto"]]
+    acumulado = len(confirmados_safra) - len(abortados)
     split = {"pg": grupo["pg"], "socio": grupo["socio"], "vendido": grupo["vendido"]}
     for e in paridos_novos:
         split[e["fatia"]] = split.get(e["fatia"], 0) + 1
@@ -891,19 +899,6 @@ def _slug_local(local: str) -> str:
     return local.lower().replace(" ", "_")
 
 
-def _contagem_declarada() -> dict:
-    """Valores da aba CONTAGEM — só para conferência, não é fonte."""
-    wb = _load(_controle_plantel())
-    ws = wb["CONTAGEM"]
-    out = {}
-    for r in ws.iter_rows(values_only=True):
-        label = _norm(r[1])
-        if label in ("FAZENDA", "ARRENDAMENTO", "CTE", "SOCIO", "TOTAL GERAL"):
-            out[label] = {"animais": r[2], "receptoras": r[3], "total": r[4]}
-    wb.close()
-    return out
-
-
 def _receptoras_por_local() -> dict:
     """{LOCAL do roster: nº de receptoras}. Mesma regra da seção 2 (prenha/vazia)."""
     src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
@@ -961,23 +956,10 @@ def build_headcount(rep: Report):
 
     rep.headcount = {"total": total, **chaves, "detalhe": detalhe, "fora_da_contagem": fora}
 
-    # 4) conferência contra a aba manual — divergência vira aviso, não erro
-    decl = _contagem_declarada()
-    dif = []
-    for rotulo, v in detalhe.items():
-        d = decl.get(rotulo)
-        if d is None:
-            dif.append(f"{rotulo}: {v['total']} calculado, sem linha na CONTAGEM")
-        elif d.get("total") != v["total"]:
-            dif.append(f"{rotulo}: {v['total']} calculado vs {d.get('total')} na CONTAGEM")
-    declarado_total = (decl.get("TOTAL GERAL") or {}).get("total")
-    if declarado_total is not None and declarado_total != total:
-        dif.append(f"TOTAL GERAL: {total} calculado vs {declarado_total} na CONTAGEM")
-    rep.headcount["conferencia_contagem"] = dif
-    if dif:
-        print("  [headcount] divergência vs aba CONTAGEM (usando o calculado):")
-        for d in dif:
-            print(f"    - {d}")
+    # A conferência contra a aba CONTAGEM saiu: aquela aba é um COUNTIF dentro do
+    # arquivo de DIVULGAÇÃO, e conferir o cálculo contra o que foi divulgado não
+    # confere nada — é o próprio número que se quer auditar. Quem confere o headcount
+    # é o relatório oficial, no placar do fechamento.
     desconhecidos = [l for l in fora if l not in HEADCOUNT_LOCAIS_FORA]
     if desconhecidos:
         print("  [headcount] LOCAL novo no roster, FORA da contagem — conferir:")
@@ -1223,14 +1205,19 @@ PLANTEL_LAYOUT_MENSAL = {"linha1": 5, "nome": 3, "categoria": 5, "status": 6, "l
 ROSTER_FONTE = "controle_mensal"      # gravado no snapshot; ver _conferir_delta
 
 
-# EMBRIÕES E MATRIZES, aba dos embriões de sócio e vendidos. STATUS separa os dois;
-# LOCAL diz onde o embrião está — em terra da PG ou já no sócio/comprador.
-ABA_SOCIOS = "EMBRIOES SOCIOS - VENDIDOS"
-SOCIOS_LINHA1 = 4
-SOCIOS_COL = {"doadora": 1, "garanhao": 2, "data": 3, "receptora": 4,
-              "status": 5, "local": 6, "estacao": 7, "socio": 8}
-# "ainda está aqui": terra da PG. SOCIO e COMPRADOR significam que já saiu.
-LOCAIS_EMBRIAO_NA_PG = ("PAO GRANDE", "ARRENDAMENTO")
+# "ainda está aqui" para o embrião = onde a receptora dele está. LOCAL SOCIO ou
+# COMPRADOR significa que já saiu.
+LOCAIS_RECEPTORA_NA_PG = ("PAO GRANDE", "ARRENDAMENTO CESAR FURTADO")
+
+
+# Embrião de sociedade: 100% do sócio. Na aba ESTAÇÃO isso é COTAS EMBRIÃO vazia
+# (ou zero) com SÓCIO EMBRIÃO = 1. Cota parcial (0,25 / 0,5) é embrião da PG COM
+# sócio, que não é pendência de saída — a planilha do grupo dizia o mesmo separando
+# em duas abas.
+def _e_sociedade(cota, socio) -> bool:
+    c = _to_num(cota)
+    s = _to_num(socio)
+    return (c is None or c == 0) and s is not None and s >= 1
 
 
 def _embrioes_sociedade_pendentes() -> list:
@@ -1239,28 +1226,28 @@ def _embrioes_sociedade_pendentes() -> list:
     Regra do haras: a `EMBRIOES A ENTREGAR` NÃO serve aqui — ali só tem embrião
     vendido e não gestado, sem sociedade e sem vendido já gestado. O que vale é
     esta aba, com STATUS SOCIO e o embrião ainda em terra nossa."""
-    src = _latest_emb_matrizes()
-    wb = _load(src)
-    if ABA_SOCIOS not in wb.sheetnames:
-        wb.close()
-        print(f"  [sociedade] aba {ABA_SOCIOS!r} não existe em {src.name} — zero")
-        return []
-    ws = wb[ABA_SOCIOS]
-    C = SOCIOS_COL
+    locais = _receptoras_locais()
+    wb = _load(_latest_estacao_master())
+    ws = wb["ESTAÇÃO"]
     out = []
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-        if i < SOCIOS_LINHA1 or r[C["doadora"]] is None:
+        if i < 3 or r[0] is None or _s(r[35]) != SAFRA_ATUAL:
             continue
-        if _norm(r[C["status"]]) != "SOCIO":
+        if not _e_sociedade(r[5], r[6]):
             continue
-        if _norm(r[C["local"]]) not in LOCAIS_EMBRIAO_NA_PG:
+        if _norm(r[17]) != "OK":            # não confirmado, não é pendência
+            continue
+        if r[21] is not None or r[23] is not None:   # abortou ou já pariu
+            continue
+        local = _norm(locais.get(_norm(r[11])))
+        if local not in LOCAIS_RECEPTORA_NA_PG:      # já está com o sócio: saiu
             continue
         out.append({
-            "nome": f'{_s(r[C["doadora"]])} x {_s(r[C["garanhao"]])}',
-            "receptora": _s(r[C["receptora"]]),
-            "local": _s(r[C["local"]]),
-            "estacao": _s(r[C["estacao"]]),
-            "socio": _s(r[C["socio"]]),
+            "nome": f"{_s(r[2])} x {_s(r[3])}",
+            "receptora": _s(r[11]),
+            "local": local,
+            "estacao": _s(r[35]),
+            "socio": _s(r[34]),
             "tipo": "SOCIEDADE",
             "especie": "EMBRIAO",
         })
@@ -1465,30 +1452,11 @@ def build_pendentes(rep: Report):
     _LINHAS_BRUTAS["roster"] = plantel["linhas"]
     rep.fontes["roster_plantel"] = plantel["fonte"]
 
-    # VENDIDOS / SOCIEDADE pendentes = aba ANIMAIS VENDIDOS do "Animais para sair"
-    # (validado vs docx 17/07: VENDA≠REPOSIÇÃO=2 vendidos; SOCIEDADE=2). col5=tipo, col6=obs.
-    pend, pend_emb = [], []
-    try:
-        src = _latest_animais_sair()
-        wb = _load(src)
-        rep.fontes["animais_para_sair"] = src.name
-        ws = wb["ANIMAIS VENDIDOS"]
-        for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-            if i < 4 or r[1] is None:
-                continue
-            tipo = _norm(r[5])
-            obs = _norm(r[6])
-            if tipo not in ("VENDA", "SOCIEDADE"):
-                continue
-            pend.append({"nome": _s(r[1]), "local": _s(r[2]), "cota": r[3],
-                         "comprador": _s(r[4]), "tipo": tipo, "obs": _s(r[6]),
-                         "reposicao": obs == "REPOSICAO"})
-        wb.close()
-    except FileNotFoundError as exc:
-        # NÃO engolir: sem esse arquivo, vendidos/sociedade pendentes e a lista da
-        # seção 5 viram zero — e zero aqui é indistinguível de "não tem nenhum".
-        print(f"  [pendentes] FONTE AUSENTE: {exc} -> vendidos/sociedade pendentes "
-              f"e pendentes de saída ficam ZERADOS nesta semana")
+    # O "Animais para sair" saiu do pipeline: mora na pasta de divulgação (o que foi
+    # enviado ao grupo), está congelado em 24/07/2026 e só alimentava a marcação de
+    # reposição, que já era apenas um aviso. Vendido pendente vem do STATUS PLANTEL do
+    # controle mensal; sociedade, da aba ESTAÇÃO.
+    pend = []
     pend_emb = _embrioes_pendentes()
 
     # VENDIDOS PENDENTES: fonte é o STATUS PLANTEL do controle mensal. O "Animais para
