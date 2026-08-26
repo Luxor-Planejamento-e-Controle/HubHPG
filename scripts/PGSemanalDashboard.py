@@ -94,13 +94,28 @@ TEMPLATE = r"""<!doctype html>
      nada fica cortado: sem scroll interno, sem barra de ferramentas, e as cores
      do tema preservadas (senão sai um documento branco sem hierarquia). */
   @media print{
-    @page{size:A4 landscape;margin:8mm}
-    html,body{background:#fff !important;-webkit-print-color-adjust:exact;
-      print-color-adjust:exact}
-    .toolbar,#btnEdit,#btnImg,#btnPdf,#pdfEmb,.rst{display:none !important}
+    @page{size:A4 landscape;margin:7mm}
+    html,body{background:var(--bg) !important;-webkit-print-color-adjust:exact;
+      print-color-adjust:exact;font-size:12px}
+    body{padding:0 !important}
+    .wrap{max-width:none !important}
+    .toolbar,#btnEdit,#btnImg,#btnPdf,#pdfEmb,.rst,.tag{display:none !important}
     .det-b,.scroll{overflow:visible !important;max-height:none !important}
-    .panel{break-inside:avoid;page-break-inside:avoid}
-    table{font-size:10px}
+    /* O painel INTEIRO com break-inside:avoid empurrava cada seção para uma folha
+       nova e deixava meia página em branco — foi o que saiu na primeira tentativa.
+       Quem não pode partir é a faixa de KPIs e cada tabela; o painel pode. */
+    .panel{break-inside:auto;page-break-inside:auto;padding:10px 12px;margin-bottom:8px}
+    .kpis,.det{break-inside:avoid;page-break-inside:avoid}
+    .sections{display:block !important}
+    .panel h2{font-size:13px;margin-bottom:2px}
+    .kpi{min-height:0 !important;padding:7px 9px}
+    .kpi .lab{font-size:8px;min-height:0}
+    .kpi .val{font-size:17px;margin-top:2px}
+    .kpi .val .nota{font-size:8.5px;margin-top:3px}
+    .det{margin-top:8px;padding-top:6px}
+    .det-h{font-size:9px;margin-bottom:4px}
+    table{font-size:8.5px}
+    thead th,tbody td{padding:3px 6px}
   }
   /* detalhe integrado no card, sempre visível, sem scroll lateral */
   .det{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}

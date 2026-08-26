@@ -115,9 +115,15 @@ def _pdf(caminho: Path, titulo: str, cabecalho: list[str], linhas: list[list[str
 
     # cabeçalho do documento: logo à esquerda, título ocupando o resto — é o desenho
     # do PDF que o haras já manda
+    # A célula do logo tem a MESMA largura da primeira coluna da tabela, e o cabeçalho
+    # a mesma largura total. Sem isso as duas molduras não fecham no mesmo prumo e o
+    # documento fica com a linha vertical do logo cortando a coluna DOADORA.
     logo = Image(str(LOGO), width=11 * mm, height=11 * mm) if LOGO.exists() else ""
+    col_logo = (larguras[0] if larguras else 40) * mm
+    total = sum(larguras) * mm if larguras else None
     topo = Table([[logo, Paragraph(titulo, tit)]],
-                 colWidths=[16 * mm, None], rowHeights=[14 * mm])
+                 colWidths=[col_logo, (total - col_logo) if total else None],
+                 rowHeights=[14 * mm])
     topo.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#1B2B44")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
