@@ -291,6 +291,7 @@ def build(semana=None):
     # gravado por _registra_caminhos; snapshot antigo não tem, e aí a coluna fica
     # como era antes — só o nome do arquivo
     caminhos = snap.get("fontes_caminhos") or {}
+    fora_de_lugar = set(snap.get("fontes_fora_de_lugar") or [])
 
     por_secao = {s: [] for s in ORDEM}
     n_ok = n_tot = 0
@@ -338,9 +339,14 @@ def build(semana=None):
                     out += f'<br><span class="aba">{html.escape(p.split(" · ", 1)[1])}</span>'
                 # caminho do arquivo que a semana leu de verdade; sem registro
                 # (fonte que não é planilha, ou snapshot antigo) fica só o nome
-                cam = caminhos.get(ROTULO_DA_FONTE.get(nome, ""))
+                rot = ROTULO_DA_FONTE.get(nome, "")
+                cam = caminhos.get(rot)
                 if cam:
                     out += f'<br><span class="cam">{html.escape(cam)}</span>'
+                    # pasta de divulgação usada como fonte tem de aparecer, não ficar
+                    # implícita no caminho para quem souber ler
+                    if rot in fora_de_lugar:
+                        out += '<br><span class="chip bad">pasta de divulgação</span>'
                 return out
             fonte_html = "<br>".join(_uma(p) for p in fonte.split("\n"))
             linhas_html.append(

@@ -176,8 +176,23 @@ def _load(path: Path):
 _FONTES_USADAS: dict = {}
 
 
+# Pasta de DIVULGAÇÃO, não de dado: é onde o haras deixa o que foi enviado ao grupo,
+# e serve para conferir o calculado contra o publicado. Três arquivos vivos só existem
+# lá hoje, então ler de lá é a situação atual — mas tem de doer, não passar batido.
+FONTES_FORA_DE_LUGAR: set = set()
+
+
 def _registra_fonte(rotulo: str, f: Path) -> Path:
     _FONTES_USADAS[rotulo] = f
+    try:
+        if FALLBACK_DIR in Path(f).parents:
+            if rotulo not in FONTES_FORA_DE_LUGAR:
+                print(f"  [fonte] {rotulo}: lendo de '{FALLBACK_DIR.name}', que é pasta de "
+                      f"divulgação, não de dado ({Path(f).name}). Fora dela a cópia mais "
+                      f"nova é de 2025 — o arquivo precisa ser movido na origem.")
+            FONTES_FORA_DE_LUGAR.add(rotulo)
+    except Exception:
+        pass
     return f
 
 
@@ -366,6 +381,7 @@ class Report:
     semana_fim: str
     fontes: dict = field(default_factory=dict)
     fontes_caminhos: dict = field(default_factory=dict)  # rótulo -> caminho no Drive
+    fontes_fora_de_lugar: list = field(default_factory=list)  # lidas da pasta de divulgação
     producao: dict = field(default_factory=dict)
     receptoras: dict = field(default_factory=dict)
     headcount: dict = field(default_factory=dict)
@@ -1991,6 +2007,7 @@ def _registra_caminhos(rep: Report):
     em qual pasta clicar. Um dict à parte para não mexer no formato de rep.fontes,
     que os snapshots antigos já gravaram."""
     rep.fontes_caminhos = {r: caminho_curto(f) for r, f in _FONTES_USADAS.items()}
+    rep.fontes_fora_de_lugar = sorted(FONTES_FORA_DE_LUGAR)
 
 
 def _aplica_manual(rep: Report):

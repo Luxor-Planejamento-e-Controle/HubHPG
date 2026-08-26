@@ -65,16 +65,19 @@ def run(destino: Path | None = None) -> dict:
     cabecalho = _bloco(html, "header")
     rodape = _bloco(html, "footer")
     secoes = _secoes(html)
-    if len(secoes) < 2:
-        raise SystemExit(f"esperava 2 seções (semanal e comitê), achei {len(secoes)}")
+    if not secoes:
+        raise SystemExit("nenhuma seção encontrada na auditoria gerada")
 
     destino = destino or Path(
         os.getenv("CLAUDE_SCRATCHPAD")
         or os.getenv("TEMP") or "/tmp")
     destino.mkdir(parents=True, exist_ok=True)
 
+    # Só a seção semanal. A do comitê tem página própria, com narrativa e tabela de
+    # fontes mais rica — tools/build_artifact_comite.py. Os dois escreviam o mesmo
+    # arquivo e o último a rodar apagava o outro.
     saidas = {}
-    for chave, secao in (("semanal", secoes[0]), ("comite", secoes[1])):
+    for chave, secao in (("semanal", secoes[0]),):
         # o cabeçalho da página fala das duas auditorias; em cada artifact sobra uma
         eyebrow = ("Haras Pao Grande &middot; fechamento semanal" if chave == "semanal"
                    else "Haras Pao Grande &middot; comitê mensal")
