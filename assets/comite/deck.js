@@ -176,7 +176,12 @@ function vazio(glyph, tag, titulo, texto, fonte, motivo){
 
 /* ---- navegação ---- */
 let mesAtual = SPEC.padrao;
-let slides = SPEC.decks[mesAtual];
+/* mensal = deck inteiro; trimestral = sem os slides que recortam o MÊS.
+   O comitê trimestral olha o acumulado do ANO, não o do trimestre — então os
+   slides de YTD, que já existem, são justamente os que ficam. */
+let modo = 'mensal';
+const doModo = d => modo === 'trimestral' ? d.filter(x => !x.so_mensal) : d;
+let slides = doModo(SPEC.decks[mesAtual]);
 let idx = 0;
 const stage = document.getElementById('stage');
 
@@ -205,7 +210,7 @@ const go = i => { idx = Math.max(0, Math.min(slides.length - 1, i)); render(); }
 function trocaMes(mes){
   if (!SPEC.decks[mes]) return;
   mesAtual = mes;
-  slides = SPEC.decks[mes];
+  slides = doModo(SPEC.decks[mes]);
   document.getElementById('mes').value = mes;
   listaSlides();
   atualizaAviso();
@@ -262,7 +267,8 @@ async function exportarPptx(btn){
       if (!(f in imgs)) imgs[f] = f;
     }
     slides.forEach((s, i) => pptSlide(p, s, i, logo, imgs));
-    await p.writeFile({fileName: `RELATORIO MENSAL_PG_${mesAtual}.pptx`});
+    const rotulo = modo === 'trimestral' ? 'TRIMESTRAL' : 'MENSAL';
+    await p.writeFile({fileName: `RELATORIO ${rotulo}_PG_${mesAtual}.pptx`});
     btn.textContent = 'Exportar PPTX';
   } catch (e) {
     btn.textContent = 'Falhou — ver console';
@@ -299,21 +305,36 @@ function pptSlide(p, s, i, logo, imgs){
     return;
   }
 
-  T(s.titulo, {x:0.41, y:0.13, w:8.6, h:0.4, fontSize:15, bold:true});
+  /* título comprido quebrava em duas linhas, cobria o subtítulo e a tabela — que
+     começa em y fixo — não recuava. Reduz a fonte quando é longo, em vez de deixar
+     quebrar. */
+  const tituloLongo = (s.titulo || '').length > 58;
+  T(s.titulo, {x:0.41, y:0.13, w:8.6, h:0.4, fontSize:tituloLongo ? 12 : 15,
+               bold:true, valign:'top'});
   if (s.sub) T(s.sub, {x:0.41, y:0.52, w:8.6, h:0.3, fontSize:9, color:C.ink3});
   if (logo) sl.addImage({data:logo, x:9.05, y:0.14, w:0.55, h:0.55});
   T(`${SPEC.labels[mesAtual]}   ·   ${i + 1}/${slides.length}${s.obs ? '   ·   ' + s.obs : ''}`,
     {x:0.41, y:5.25, w:9.2, h:0.25, fontSize:8, color:C.ink3});
 
   /* rowH acompanha o nº de linhas, como no HTML — 4,1 in é a altura útil */
+  /* rowH no pptxgen é altura MÍNIMA: o PowerPoint expande a linha para caber o
+     texto mais a margem interna da célula. Com a margem padrão (~0,05in em cima e
+     embaixo) uma linha de 6pt renderiza ~0,19in, não os 0,155in declarados — 27
+     linhas viravam 5,1in a partir de y=0,95 e a tabela saía pela borda de baixo,
+     por cima do rodapé. Era isso que quebrava os slides de DRE.
+     Margem zerada + altura calculada com o piso REAL de renderização. */
+  const MARG = 0.6;                       // pt de respiro interno, mínimo legível
   const tbl = (rows, opts) => {
     const y = (opts && opts.y) || 0.95;
     const alt = 5.15 - y;
+    const fs = Math.max(6, Math.min(9, alt / rows.length * 26));
+    const pisoLinha = fs * 1.18 / 72 + (MARG * 2) / 72;   // altura mínima real
     return sl.addTable(rows, Object.assign({
       x:0.41, y, w:9.2, border:{type:'solid', pt:0.4, color:C.line},
-      fontFace:'Segoe UI', fontSize:Math.max(6, Math.min(9, alt / rows.length * 26)),
-      rowH:Math.max(0.11, Math.min(0.3, alt / rows.length)),
-      color:C.ink, valign:'middle',
+      fontFace:'Segoe UI', fontSize:fs,
+      margin:[MARG, 3, MARG, 3],
+      rowH:Math.max(pisoLinha, Math.min(0.3, alt / rows.length)),
+      color:C.ink, valign:'middle', autoPage:false,
     }, opts));
   };
   const th = t => ({text:String(t), options:{bold:true, fontSize:7.5, color:C.ink3, fill:{color:C.bg2}, align:'right'}});
@@ -457,6 +478,11 @@ function pptSlide(p, s, i, logo, imgs){
 document.getElementById('mes').innerHTML = SPEC.meses
   .map(m => `<option value="${m}">${esc(SPEC.labels[m])}</option>`).join('');
 document.getElementById('mes').onchange = e => trocaMes(e.target.value);
+document.getElementById('modo').onchange = e => {
+  modo = e.target.value;
+  idx = 0;                       // a numeração muda; voltar ao início evita cair fora
+  trocaMes(mesAtual);
+};
 document.getElementById('prev').onclick = () => go(idx - 1);
 document.getElementById('next').onclick = () => go(idx + 1);
 document.getElementById('ir').onchange = e => go(+e.target.value);

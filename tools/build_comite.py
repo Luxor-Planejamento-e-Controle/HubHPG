@@ -1047,6 +1047,17 @@ def divide(slide, campo="linhas"):
     return partes
 
 
+def so_mensal(slides):
+    """Marca os slides que recortam o MÊS — os que não vão no trimestral.
+
+    Marcar em vez de montar um segundo deck: o trimestral é o mesmo conteúdo com
+    um recorte a menos, e duplicar o build significaria manter duas versões da
+    mesma regra."""
+    for x in (slides if isinstance(slides, list) else [slides]):
+        x["so_mensal"] = True
+    return slides if isinstance(slides, list) else [slides]
+
+
 def monta_deck(m, ano, ctx):
     cont = conteudo_do_mes(ctx["conteudo"], f"{ano}-{m:02d}")
     s = [
@@ -1067,27 +1078,28 @@ def monta_deck(m, ano, ctx):
         {"t": "dre", "n": n, "titulo": t, "sub": f"{sub} · {fonte or FONTE}", "linhas": lin}
         if lin else pend(n, t, sub, "DRE_Historico.xlsx", "sem linha para esse recorte no histórico"))
 
-    s += divide(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
+    s += so_mensal(divide(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
                     "DRE 2026 | HPG · competência mensal",
-                    dre_mes("HPG", "Competência", ano, m, so_subtotal=True)))
-    s += divide(dre(5, f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
+                    dre_mes("HPG", "Competência", ano, m, so_subtotal=True))))
+    s += so_mensal(divide(dre(5, f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
                     "Custos indiretos de produção · linhas zeradas no mês omitidas",
-                    dre_grupo("HPG", "Competência", ano, m, "CUSTOS E DESPESAS OPERACIONAIS")))
-    s += divide(dre(6, f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
+                    dre_grupo("HPG", "Competência", ano, m, "CUSTOS E DESPESAS OPERACIONAIS"))))
+    s += so_mensal(divide(dre(6, f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
                     "Despesas do mês · linhas zeradas no mês omitidas",
-                    dre_grupo("HPG", "Competência", ano, m, "DESPESAS")))
+                    dre_grupo("HPG", "Competência", ano, m, "DESPESAS"))))
     s += divide(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
                     "DRE 2026 | HPG · acumulado no ano",
                     dre_ytd("HPG", "Competência", ano, m, so_subtotal=True),
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
     s.append(slide_comentarios(cont, m, ano))
     s.append(slide_investimentos(m, ano))
-    s += divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}", "FC 2026 | HPG · caixa mensal",
-                    dre_mes("HPG", "Caixa", ano, m, so_subtotal=True)))
+    s += so_mensal(divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}",
+                    "FC 2026 | HPG · caixa mensal",
+                    dre_mes("HPG", "Caixa", ano, m, so_subtotal=True))))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
-    s += divide(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano}",
-                    "FPG | Casa · caixa mensal", dre_mes("FPG", "Caixa", ano, m, so_com_valor=True)))
+    s += so_mensal(divide(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano}",
+                    "FPG | Casa · caixa mensal", dre_mes("FPG", "Caixa", ano, m, so_com_valor=True))))
     s += divide(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
                     "FPG | Casa · acumulado no ano", dre_ytd("FPG", "Caixa", ano, m, so_com_valor=True),
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
