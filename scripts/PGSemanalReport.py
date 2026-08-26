@@ -1735,7 +1735,7 @@ COL_MENSAL_NOME_SOCIO = 17
 # semana, para congelar no snapshot e aparecer na auditoria como o que é: input
 # humano. Não usar os overrides do dashboard para isto — eles vivem no localStorage
 # de um navegador só.
-MANUAL = BASE_DIR / "bases" / "semanal_manual.json"
+MANUAL = BASE_DIR / "_cache" / "semanal_manual.json"
 
 
 def _manual(semana: str) -> dict:

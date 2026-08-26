@@ -108,7 +108,7 @@ SEM_CONTRAPARTE = [
      "Fatia por cota e STATUS. Parição cuja cota não foi recuperada no arquivo da semana anterior fica fora, e a soma sai abaixo do acumulado."),
     ("2 · Receptoras", "Doadoras ciclando",
      lambda s: (s.get("receptoras") or {}).get("doadoras_ciclando"),
-     "bases/semanal_manual.json (input humano)",
+     "_cache/semanal_manual.json (input humano)",
      "Égua disponível hormonalmente para doar óvulo. NÃO existe em planilha: é avaliação do veterinário. O roster e o PLANEJAMENTO da estação só têm cadastro e logística; a aba MATRIZES tem data de ovulação/coleta, que é evento passado. Preenchido à mão por semana, sem herdar a semana anterior. O relatório oficial também não publica."),
     ("2 · Receptoras", "Doadoras (estação)",
      lambda s: (s.get("receptoras") or {}).get("doadoras"),

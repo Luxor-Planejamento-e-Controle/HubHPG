@@ -51,6 +51,9 @@ ESTADO = [
     (ROOT / "_cache/headcount_history.json", "estado_headcount_history.json"),
     (ROOT / "_cache/paricoes_extra.json",    "estado_paricoes_extra.json"),
     (ROOT / "_cache/acumulado_piso.json",    "estado_acumulado_piso.json"),
+    # input humano (doadoras ciclando): não sai de planilha nenhuma, então perder o
+    # arquivo é perder o dado
+    (ROOT / "_cache/semanal_manual.json",    "estado_semanal_manual.json"),
 ]
 # Quem gera cada arquivo, pra mensagem de erro apontar o build certo.
 GERADOR = {

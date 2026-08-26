@@ -187,7 +187,7 @@ const SECTIONS = [
     {p:"rec.doa", l:"Doadoras (estação)", get:s=>s.receptoras?.doadoras},
     {p:"rec.idx", l:"Índice eficiência (vazias/doadoras)"},  // derivado: vazias ÷ doadoras
     // sem fonte em planilha: avaliação do veterinário, preenchida em
-    // bases/semanal_manual.json (o override do navegador não entra no snapshot)
+    // _cache/semanal_manual.json (o override do navegador não entra no snapshot)
     {p:"rec.cic", l:"Doadoras ciclando", manual:true,
      get:s=>s.receptoras?.doadoras_ciclando},
  ]},
