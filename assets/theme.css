@@ -80,6 +80,15 @@ a{color:inherit;text-decoration:none}
 .topbar .spacer{flex:1}
 .chip{display:flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid var(--line);border-radius:20px;font-size:12px;color:var(--ink-2)}
 .avatar{width:28px;height:28px;border-radius:50%;background:var(--amber);color:#1a1300;display:grid;place-items:center;font-weight:700;font-size:12px}
+/* Sair é <button>: sem regra própria ele herdava só a cor clara do .chip sobre o
+   fundo padrão de botão do navegador, que também é claro — texto invisível — e sem
+   cursor de mão parecia decoração. Fundo e cor vêm dos tokens; o hover puxa para o
+   vermelho de saída, que é o que a ação faz. */
+.chip-btn{background:transparent;color:var(--ink);font-family:inherit;cursor:pointer;
+  transition:.13s;-webkit-appearance:none;appearance:none}
+.chip-btn:hover{background:var(--surface-2);border-color:var(--neg,var(--line-strong));
+  color:var(--neg,var(--ink))}
+.chip-btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .content{padding:24px 30px 48px;width:100%}
 .content.flush{padding:0}
 
