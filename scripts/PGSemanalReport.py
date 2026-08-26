@@ -501,6 +501,31 @@ def _acumulado_grupo(safra: str = SAFRA_ATUAL) -> dict:
 OBS_BLOQUEIA_SAIDA = ("FALTANDO EXAME",)
 
 
+# Status que significam "ainda está aqui". VENDIDO PENDENTE SAIDA conta: o animal
+# está vendido mas não saiu, e o relatório o inclui no headcount.
+STATUS_NO_PLANTEL = ("PLANTEL", STATUS_VENDIDO_PENDENTE)
+# Categoria que não é animal do headcount: embrião não nasceu; receptora é contada
+# pela planilha de receptoras, e somar aqui duplicaria.
+CATEGORIAS_FORA_DO_HEADCOUNT = ("EMBRIAO", "RECEPTORA")
+
+
+def _sem_cotista(n) -> str:
+    """'PARIS DA PAO GRANDE (EDUARDO)' -> 'PARIS DA PAO GRANDE'.
+
+    O roster mensal repete a mesma linha por cotista, com o nome do cotista no fim
+    do nome. Sem tirar isso, um animal conta duas ou três vezes."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", _norm(n)).strip()
+
+
+def _chave_animal(nome, mae, pai) -> tuple:
+    """Identidade do animal no roster mensal: nome sem cotista + filiação.
+
+    Nome sozinho junta dois potros distintos chamados `MACHO`. Com a data de
+    nascimento na chave, `XARDA DO SALTO` viraria dois animais por causa de um dia
+    de diferença digitado errado (20/09 e 21/09 de 2021)."""
+    return (_sem_cotista(nome), _norm(mae), _norm(pai))
+
+
 def _nucleo_nome(n) -> str:
     """Nome comparável entre planilhas. O roster chama o mesmo animal de
     'POTRA MORENA L2 X DAMASCO DA PAO GRANDE - 07/03/2025 RECEP 07 V' e o Animais para
@@ -820,22 +845,16 @@ DOADORAS_INDICE = None
 
 
 def _count_doadoras(local: str | None = None) -> int:
-    """Doadoras no plantel = CATEGORIA 'DOADORA' na aba PLANTEL do CONTROLE PLANTEL
-    semanal. Com `local`, conta só as daquele LOCAL. Referência/conferência —
-    o índice usa DOADORAS_INDICE."""
-    wb = _load(_controle_plantel())
-    ws = wb["PLANTEL"]
-    n = 0
-    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-        if i < 2 or r[0] is None:
-            continue
-        if _norm(r[2]) != "DOADORA":
-            continue
-        if local is not None and _norm(r[4]) != local:
-            continue
-        n += 1
-    wb.close()
-    return n
+    """Doadoras no plantel = CATEGORIA 'DOADORA' no roster mensal, com as mesmas
+    regras do headcount (status, dedup por cotista). Com `local`, só as daquele LOCAL.
+
+    Divide o roster já montado em vez de reler a planilha: a contagem tem de vir do
+    MESMO conjunto que o headcount, senão o índice de eficiência usa um denominador
+    que não existe em lugar nenhum."""
+    linhas = _plantel_por_status()["linhas"]
+    return sum(1 for x in linhas
+               if _norm(x["categoria"]) == "DOADORA"
+               and (local is None or _norm(x["local"]) == local))
 
 
 # ------------------------------------------------------------------
@@ -1193,27 +1212,57 @@ PLANTEL_LAYOUT_SEMANAL = {"linha1": 2, "nome": 0, "categoria": 2, "status": 3, "
 PLANTEL_LAYOUT_MENSAL = {"linha1": 5, "nome": 3, "categoria": 5, "status": 6, "local": 7}
 
 
+ROSTER_FONTE = "controle_mensal"      # gravado no snapshot; ver _conferir_delta
+
+
 def _plantel_por_status() -> dict:
-    """Roster do plantel (nomes) da cópia semanal — é a base do headcount e do diff de
-    saídas, e NÃO migrou pro mensal: os dois rosters não reconciliam (148 animais vs
-    224 no mensal, 58 sócios vs 62 mesmo descontando os 65 embriões). Trocar aqui
-    mudaria o headcount publicado, que hoje bate exato com o relatório."""
-    src = _controle_plantel()
+    """Roster do plantel a partir do CONTROLE_DE_PLANTEL mensal, na pasta PLANTEL.
+
+    Antes vinha do `CONTROLE PLANTEL.xlsx` da pasta ATUALIZACAO SEMANAL, que é de
+    divulgação. As regras estão no cabeçalho do commit e resumidas abaixo; cada uma
+    saiu de comparar nome a nome os dois rosters, não de suposição.
+
+    O nome do animal NÃO é identidade aqui: o mensal batiza o potro
+    (`PRINCIPE MN DA PAO GRANDE`) enquanto o semanal o descrevia pelo cruzamento
+    (`MACHO LIBRA DA PAO GRANDE X OLIMPO DO MH`). Quem identifica é nome+MAE+PAI."""
+    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
     wb = _load(src)
     ws = wb["PLANTEL"]
-    L = PLANTEL_LAYOUT_SEMANAL
-    roster, linhas = [], []
+    L = PLANTEL_LAYOUT_MENSAL
+    vistos, linhas = {}, []
+    fora = {"status": 0, "categoria": 0, "duplicado": 0}
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < L["linha1"] or r[L["nome"]] is None:
             continue
         nome = _s(r[L["nome"]])
         if not nome:
             continue
-        roster.append(nome)
-        linhas.append({"nome": nome, "categoria": _s(r[L["categoria"]]),
-                       "status_plantel": _s(r[L["status"]]), "local": _s(r[L["local"]])})
+        if not any(x in _norm(r[L["status"]]) for x in STATUS_NO_PLANTEL):
+            fora["status"] += 1
+            continue
+        categoria = _norm(r[L["categoria"]])
+        if categoria in CATEGORIAS_FORA_DO_HEADCOUNT:
+            fora["categoria"] += 1
+            continue
+        mae = _s(r[COL_MENSAL_MAE]) if len(r) > COL_MENSAL_MAE else None
+        pai = _s(r[COL_MENSAL_PAI]) if len(r) > COL_MENSAL_PAI else None
+        chave = _chave_animal(nome, mae, pai)
+        if chave in vistos:
+            fora["duplicado"] += 1
+            continue
+        # o nome sem cotista é o que vai para o roster: com o cotista, o mesmo animal
+        # apareceria como saída de uma semana e entrada na outra ao mudar de sócio
+        limpo = _sem_cotista(nome)
+        vistos[chave] = limpo
+        linhas.append({"nome": limpo, "categoria": _s(r[L["categoria"]]),
+                       "status_plantel": _s(r[L["status"]]), "local": _s(r[L["local"]]),
+                       "mae": mae, "pai": pai})
     wb.close()
-    return {"roster": sorted(set(roster)), "linhas": linhas, "fonte": src.name}
+    print(f"  [roster] {len(vistos)} animais em {src.name} "
+          f"(fora: {fora['status']} por status, {fora['categoria']} embrião/receptora, "
+          f"{fora['duplicado']} linha(s) repetida(s) por cotista)")
+    return {"roster": sorted(set(vistos.values())), "linhas": linhas,
+            "fonte": src.name, "roster_fonte": ROSTER_FONTE}
 
 
 # CONTROLE_DE_PLANTEL mensal, aba PLANTEL: colunas que não estão no layout mínimo.
@@ -2100,6 +2149,19 @@ def _conferir_delta(rep: Report):
     for wid in sorted(hist):
         if wid < rep.semana_atual and hist[wid].get("roster"):
             prev_roster = hist[wid]["roster"]
+    # Fonte do roster mudou de uma semana para a outra? O diff não vale: o mensal
+    # batiza o potro e o semanal o descrevia pelo cruzamento, então TODO potro
+    # apareceria como uma saída mais uma entrada. Pular é o certo — inventar
+    # movimentação é pior que não ter diff nesta semana.
+    prev_fonte = None
+    for wid in sorted(hist):
+        if wid < rep.semana_atual and hist[wid].get("roster"):
+            prev_fonte = hist[wid].get("roster_fonte")
+    if prev_roster and prev_fonte != ROSTER_FONTE:
+        print(f"  [roster] fonte mudou de {prev_fonte or 'controle_semanal'} para "
+              f"{ROSTER_FONTE} — diff de roster PULADO nesta semana (nome de potro é "
+              f"diferente nas duas planilhas). A partir da próxima o diff volta.")
+        prev_roster = None
     if prev_roster and rep.roster:
         entraram = set(rep.roster) - set(prev_roster)
         sairam = set(prev_roster) - set(rep.roster)
@@ -2202,6 +2264,7 @@ def _snap_from_rep(rep: Report) -> dict:
             "transferencias": rep.detalhe.get("transferencias_internas"),
         },
         "roster": rep.roster,
+        "roster_fonte": ROSTER_FONTE,
         "receptoras_locais": rep.receptoras_locais,
         "populacao": rep.populacao,
         "confirmed_keys": [e["key"] for e in rep.confirmed],
