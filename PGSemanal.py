@@ -88,8 +88,9 @@ def _validacao(rep):
         # bullet vazio ('--') cai no Δ do relatório, que diz a mesma coisa
         ("Saídas semana", s["saidas_semana"],
          ds["saidas_semana"] if ds["saidas_semana"] is not None else dh.get("delta_saidas")),
-        ("Entradas semana", s.get("entradas_semana"),
-         ds["entradas"] if ds.get("entradas") is not None else dh.get("delta_entradas")),
+        # sem atalho pelo Δ: delta_entradas são os NASCIMENTOS, e nascimento não é
+        # entrada. Relatório sem linha de entrada = nada para comparar, não "igual ao Δ".
+        ("Entradas semana", s.get("entradas_semana"), ds.get("entradas")),
         ("Transferências internas", s.get("transferencias_semana"), ds.get("transferencias")),
         ("Vendidos pendentes", rep.terceiros.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
         # ANIMAIS dos dois lados — ver scripts/PGSemanalPrecisao._soc_docx

@@ -1926,19 +1926,17 @@ def _paricoes_do_roster(rep: Report):
              "socio": _socio_da_recep(da_safra[k]["receptora"]),
              "origem": "roster"} for k in desta]
 
-        # Potro que nasce ENTRA no plantel: o roster cresce e o headcount sobe. O
-        # relatorio conta assim no Δ ('+02 / -01' = 2 nascimentos, 1 venda). A aba
-        # SAIDAS-ENTRADAS reconhece a classificacao NASCIMENTO, mas ninguem lanca —
-        # entao a entrada vinha zerada mesmo com o potro ja no roster. Conta aqui,
-        # marcado como nascimento, pra nao virar "chegou animal de fora".
-        rep.saidas["entradas_semana"] = (rep.saidas.get("entradas_semana") or 0) + len(desta)
+        # Potro que nasce ENTRA no plantel: o roster cresce e o headcount sobe —
+        # então ele conta no Δ ('+02 / -01' = 2 nascimentos, 1 venda), e por isso vai
+        # para `entradas_no_headcount`, que é o que o Δ usa.
+        #
+        # Mas NÃO é "entrada na semana": entrada é animal que chega de fora. O potro
+        # já aparece em 'Nascimentos'; somá-lo às entradas colocava o mesmo animal em
+        # duas linhas do relatório. Fica fora de `entradas_semana` e da lista da
+        # seção 5, e continua registrado aqui para quem precisar da abertura do Δ.
         rep.saidas["entradas_no_headcount"] = (
             rep.saidas.get("entradas_no_headcount") or 0) + len(desta)
         rep.saidas["entradas_nascimento"] = len(desta)
-        rep.detalhe["entradas_diff"] = (rep.detalhe.get("entradas_diff") or []) + [
-            {"animal": k, "data": None, "classificacao": "NASCIMENTO (roster)",
-             "afeta_headcount": True, "local_saida": None,
-             "local_entrada": "FAZENDA PAO GRANDE"} for k in desta]
     print(f"  [nascimentos] {len(da_safra)} parição(ões) da safra conhecidas só pelo "
           f"roster, somadas ao acumulado (a aba ESTAÇÃO não as tem):")
     for k in sorted(da_safra):

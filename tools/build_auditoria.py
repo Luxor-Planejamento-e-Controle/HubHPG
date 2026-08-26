@@ -77,8 +77,8 @@ FONTES = {
     "Saídas semana": ("5 · Saídas", "CONTROLE_DE_PLANTEL mensal · SAIDAS-ENTRADAS",
         "Sentido pelo prefixo da classificação. Classificação desconhecida avisa, nunca vira zero calado."),
     "Entradas semana": ("5 · Saídas",
-        "CONTROLE_DE_PLANTEL mensal · SAIDAS-ENTRADAS\nCONTROLE PLANTEL · PLANTEL",
-        "Lançamentos de entrada mais os potros nascidos — potro que nasce entra no plantel e o headcount sobe."),
+        "CONTROLE_DE_PLANTEL mensal · SAIDAS-ENTRADAS",
+        "Só animal que CHEGA de fora. Potro nascido não entra aqui — é produção, já contada em Nascimentos —, mas conta no headcount e no Δ."),
     "Transferências internas": ("5 · Saídas", "ARRENDAMENTOS E RECEPTORAS · ANIMAIS",
         "Diferença do LOCAL contra o snapshot da semana anterior. A aba MOVIMENTAÇÕES não serve: a última transferência lançada lá é de setembro/2025."),
     "Vendidos pendentes": ("5 · Saídas",
@@ -173,7 +173,8 @@ def _porque(lab, calc, alvo, snap, dx, hist, semana):
         return (f"Nosso {calc} = {r.get('vazias')} vazias ÷ {r.get('doadoras')} doadoras contadas.")
     if lab == "Entradas semana":
         n = (snap.get("saidas") or {}).get("entradas_nascimento")
-        return f"Inclui {n} nascimento(s)." if n else ""
+        return (f"{n} nascimento(s) na semana ficam FORA desta linha (entram no "
+                f"headcount e no Δ, não nas entradas)." if n else "")
     return ""
 
 

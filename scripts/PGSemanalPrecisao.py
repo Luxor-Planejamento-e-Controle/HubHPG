@@ -48,8 +48,9 @@ def _linhas(snap: dict, dx: dict) -> list:
         ("Δ headcount", hc.get("delta_animais"), dh.get("delta_net")),
         ("Saídas semana", mv.get("saidas"),
          ds["saidas_semana"] if ds["saidas_semana"] is not None else dh.get("delta_saidas")),
-        ("Entradas semana", mv.get("entradas"),
-         ds["entradas"] if ds.get("entradas") is not None else dh.get("delta_entradas")),
+        # ver PGSemanal._validacao: nascimento não é entrada, então não há atalho
+        # pelo Δ do relatório
+        ("Entradas semana", mv.get("entradas"), ds.get("entradas")),
         ("Transferências internas", mv.get("transferencias"), ds.get("transferencias")),
         ("Vendidos pendentes", tc.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
         # animais dos dois lados: o relatorio ora soma embriao no numero, ora nao,
