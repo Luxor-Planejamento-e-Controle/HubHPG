@@ -86,8 +86,7 @@ a{color:inherit;text-decoration:none}
    vermelho de saída, que é o que a ação faz. */
 .chip-btn{background:transparent;color:var(--ink);font-family:inherit;cursor:pointer;
   transition:.13s;-webkit-appearance:none;appearance:none}
-.chip-btn:hover{background:var(--surface-2);border-color:var(--neg,var(--line-strong));
-  color:var(--neg,var(--ink))}
+.chip-btn:hover{background:var(--surface-2);border-color:var(--neg);color:var(--neg)}
 .chip-btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .content{padding:24px 30px 48px;width:100%}
 .content.flush{padding:0}
