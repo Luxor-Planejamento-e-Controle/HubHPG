@@ -38,6 +38,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 from PGSemanalReport import (                                    # noqa: E402
     EMB_COMERCIAIS, MAPA_VENDAS_DIR, SAFRA_ATUAL, _controle_plantel,
     _latest_by_yymmdd, _latest_estacao_master, _load, _norm, _s, _to_num,
+    caminho_curto,
 )
 # os resolvedores de fonte compartilhados anotam ali o arquivo que escolheram
 from PGSemanalReport import _FONTES_USADAS as _FONTES_COMPARTILHADAS   # noqa: E402
@@ -1153,7 +1154,8 @@ def build(so_mes=None):
             quando = datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="minutes")
         except OSError:
             quando = None
-        fontes[rotulo] = {"arquivo": p.name, "pasta": p.parent.name, "modificado": quando}
+        fontes[rotulo] = {"arquivo": p.name, "caminho": caminho_curto(p),
+                          "pasta": p.parent.name, "modificado": quando}
 
     payload = {"meses": chaves, "padrao": chaves[-1], "avisos": avisos,
                "labels": {k: f"{MESES[int(k[5:]) - 1]} {k[:4]}" for k in chaves},

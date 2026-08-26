@@ -126,6 +126,19 @@ SEM_CONTRAPARTE = [
 
 ORDEM = ["1 · Produção", "2 · Receptoras", "3 · Headcount", "4 · Terceiros", "5 · Saídas"]
 
+# Nome que FONTES escreve -> rótulo com que o pipeline registrou a fonte. É o que
+# permite trocar "CONTROLE PLANTEL" pelo caminho real do arquivo lido na semana.
+# Fonte que não é planilha do Drive (snapshot local, input humano) não entra.
+ROTULO_DA_FONTE = {
+    "EMBRIÕES E MATRIZES": "acumulado na estação",
+    "ESTACAO DE MONTA": "estacao de monta",
+    "CONTROLE PLANTEL": "roster do plantel",
+    "ARRENDAMENTOS E RECEPTORAS": "receptoras",
+    "CONTROLE_DE_PLANTEL mensal": "controle mensal",
+    "Animais para sair": "sociedade pendente",
+    "EMBRIOES A ENTREGAR": "embrioes a entregar",
+}
+
 
 def _fmt(v):
     if v is None or v == "":
@@ -219,7 +232,7 @@ def _secao_comite() -> str:
         linhas_f.append(
             f'<tr><td>{html.escape(rotulo)}</td>'
             f'<td class="src">{html.escape(f.get("arquivo") or "—")}<br>'
-            f'<span class="aba">{html.escape(f.get("pasta") or "")}</span></td>'
+            f'<span class="cam">{html.escape(f.get("caminho") or f.get("pasta") or "")}</span></td>'
             f'<td>{html.escape((quando or "—").replace("T", " "))}</td>'
             f'<td class="num">{idade}</td></tr>')
 
@@ -275,6 +288,10 @@ def build(semana=None):
     semana = semana or semanas[-1]
     snap, dx, comparaveis = _linhas_da_semana(semana)
 
+    # gravado por _registra_caminhos; snapshot antigo não tem, e aí a coluna fica
+    # como era antes — só o nome do arquivo
+    caminhos = snap.get("fontes_caminhos") or {}
+
     por_secao = {s: [] for s in ORDEM}
     n_ok = n_tot = 0
     for lab, calc, alvo in comparaveis:
@@ -314,11 +331,18 @@ def build(semana=None):
             continue
         linhas_html.append(f'<tr class="grp"><td colspan="6">{secao}</td></tr>')
         for lab, calc, alvo, chip, fonte, regra in por_secao[secao]:
-            fonte_html = "<br>".join(
-                f'{html.escape(p.split(" · ")[0])}'
-                + (f'<br><span class="aba">{html.escape(p.split(" · ", 1)[1])}</span>'
-                   if " · " in p else "")
-                for p in fonte.split("\n"))
+            def _uma(p):
+                nome = p.split(" · ")[0]
+                out = html.escape(nome)
+                if " · " in p:
+                    out += f'<br><span class="aba">{html.escape(p.split(" · ", 1)[1])}</span>'
+                # caminho do arquivo que a semana leu de verdade; sem registro
+                # (fonte que não é planilha, ou snapshot antigo) fica só o nome
+                cam = caminhos.get(ROTULO_DA_FONTE.get(nome, ""))
+                if cam:
+                    out += f'<br><span class="cam">{html.escape(cam)}</span>'
+                return out
+            fonte_html = "<br>".join(_uma(p) for p in fonte.split("\n"))
             linhas_html.append(
                 f'<tr><td>{html.escape(lab)}</td><td class="num">{calc}</td>'
                 f'<td class="num">{alvo}</td><td>{chip}</td>'
@@ -396,6 +420,8 @@ tbody tr:nth-child(even){{background:var(--zebra)}}
 td.num{{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}}
 td.src{{font-family:var(--mono);font-size:.77rem;line-height:1.5;white-space:nowrap}}
 td.src .aba{{color:var(--ink-mute)}}
+td.src .cam{{display:block;color:var(--ink-mute);font-size:.72rem;white-space:normal;
+word-break:break-word;max-width:34ch;margin-top:2px}}
 td.obs{{color:var(--ink-soft);font-size:.84rem;min-width:260px}}
 .grp td{{background:var(--surface-alt);font-family:var(--mono);font-size:10px;letter-spacing:.12em;
 text-transform:uppercase;color:var(--accent);padding:7px 13px;font-weight:600}}
