@@ -227,7 +227,7 @@ const SECTIONS = [
     // vai em fonte menor, como comentário — o número é que é o KPI.
     // o relatório publica ANIMAIS nesta linha; embrião tem KPI próprio ao lado.
     // Semana antiga (antes da abertura existir) cai no total, que era só animal.
-    {p:"sai.sp", l:"Em sociedade pendentes de saída",
+    {p:"sai.sp", l:"Animais em sociedade pendentes de saída",
      get:s=>s.terceiros?.sociedade_pendentes_animais ?? s.terceiros?.sociedade_pendentes},
     {p:"sai.se", l:"Embriões em sociedade aguardando entrega",
      get:s=>s.terceiros?.sociedade_pendentes_embrioes},

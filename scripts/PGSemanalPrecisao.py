@@ -53,13 +53,10 @@ def _linhas(snap: dict, dx: dict) -> list:
         ("Entradas semana", mv.get("entradas"), ds.get("entradas")),
         ("Transferências internas", mv.get("transferencias"), ds.get("transferencias")),
         ("Vendidos pendentes", tc.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
-        # animais dos dois lados: o relatorio ora soma embriao no numero, ora nao,
-        # mas a parte de animais e estavel. Quando ele abre ("01 animal e 03
-        # embrioes"), a contraparte e a primeira parte da abertura.
-        ("Sociedade pendentes",
-         tc.get("sociedade_pendentes_animais") if tc.get("sociedade_pendentes_animais") is not None
-         else tc.get("sociedade_pendentes"),
-         _soc_docx(dx)),
+        # total (animais + embriões), como o relatório publica. Cheguei a comparar só
+        # animais por ter lido "01" como sendo o animal — está escrito "01 (embrião)".
+        ("Sociedade pendentes", tc.get("sociedade_pendentes"),
+         ds.get("sociedade_pendentes")),
         ("Total terceiros", tc.get("terceiros_propriedade"), dx["terceiros"].get("total")),
         ("Outros terceiros", tc.get("outros_terceiros"), dx["terceiros"].get("outros")),
     ]

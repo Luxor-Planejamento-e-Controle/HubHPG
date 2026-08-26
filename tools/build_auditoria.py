@@ -85,7 +85,7 @@ FONTES = {
         "CONTROLE_DE_PLANTEL mensal · PLANTEL\nEMBRIOES A ENTREGAR · ENTREGAR",
         "STATUS PLANTEL = VENDIDO PENDENTE SAIDA mais embrião de cota integral aguardando entrega. Reposição conta (sai para repor outro animal, mas está pendente)."),
     "Sociedade pendentes": ("5 · Saídas",
-        "Animais para sair · ANIMAIS VENDIDOS",
+        "EMBRIÕES E MATRIZES · EMBRIOES SOCIOS - VENDIDOS",
         "ANIMAIS tipo SOCIEDADE. Embrião de cota parcial não entra aqui: tem indicador "
         "próprio, porque o relatório soma embrião nesta linha em algumas semanas e em "
         "outras não. Animal com pendência documental fica fora. O Animais para sair está "

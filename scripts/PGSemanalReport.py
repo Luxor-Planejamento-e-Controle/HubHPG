@@ -1223,6 +1223,51 @@ PLANTEL_LAYOUT_MENSAL = {"linha1": 5, "nome": 3, "categoria": 5, "status": 6, "l
 ROSTER_FONTE = "controle_mensal"      # gravado no snapshot; ver _conferir_delta
 
 
+# EMBRIÕES E MATRIZES, aba dos embriões de sócio e vendidos. STATUS separa os dois;
+# LOCAL diz onde o embrião está — em terra da PG ou já no sócio/comprador.
+ABA_SOCIOS = "EMBRIOES SOCIOS - VENDIDOS"
+SOCIOS_LINHA1 = 4
+SOCIOS_COL = {"doadora": 1, "garanhao": 2, "data": 3, "receptora": 4,
+              "status": 5, "local": 6, "estacao": 7, "socio": 8}
+# "ainda está aqui": terra da PG. SOCIO e COMPRADOR significam que já saiu.
+LOCAIS_EMBRIAO_NA_PG = ("PAO GRANDE", "ARRENDAMENTO")
+
+
+def _embrioes_sociedade_pendentes() -> list:
+    """Embriões em sociedade que ainda estão na PG.
+
+    Regra do haras: a `EMBRIOES A ENTREGAR` NÃO serve aqui — ali só tem embrião
+    vendido e não gestado, sem sociedade e sem vendido já gestado. O que vale é
+    esta aba, com STATUS SOCIO e o embrião ainda em terra nossa."""
+    src = _latest_emb_matrizes()
+    wb = _load(src)
+    if ABA_SOCIOS not in wb.sheetnames:
+        wb.close()
+        print(f"  [sociedade] aba {ABA_SOCIOS!r} não existe em {src.name} — zero")
+        return []
+    ws = wb[ABA_SOCIOS]
+    C = SOCIOS_COL
+    out = []
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i < SOCIOS_LINHA1 or r[C["doadora"]] is None:
+            continue
+        if _norm(r[C["status"]]) != "SOCIO":
+            continue
+        if _norm(r[C["local"]]) not in LOCAIS_EMBRIAO_NA_PG:
+            continue
+        out.append({
+            "nome": f'{_s(r[C["doadora"]])} x {_s(r[C["garanhao"]])}',
+            "receptora": _s(r[C["receptora"]]),
+            "local": _s(r[C["local"]]),
+            "estacao": _s(r[C["estacao"]]),
+            "socio": _s(r[C["socio"]]),
+            "tipo": "SOCIEDADE",
+            "especie": "EMBRIAO",
+        })
+    wb.close()
+    return out
+
+
 def _plantel_por_status() -> dict:
     """Roster do plantel a partir do CONTROLE_DE_PLANTEL mensal, na pasta PLANTEL.
 
@@ -1511,8 +1556,14 @@ def build_pendentes(rep: Report):
         print("  [pendentes] em sociedade pelo 'Animais para sair' (24/07) mas fora do "
               "roster mensal — ja saiu, tratado como nao pendente: "
               + "; ".join(p["nome"] for p in fantasmas))
-    soc_animais = [p for p in soc_todos if p not in bloqueados and p not in fantasmas]
-    soc_embrioes = [p for p in pend_emb if p["tipo"] == "SOCIEDADE"]
+    # Animal em sociedade pendente: o 'Animais para sair' está congelado em 24/07 e
+    # o roster mensal não marca sociedade. Sem fonte viva, a lista fica vazia — e o
+    # relatório de 21/08 confirma: "01 (embrião)", nenhum animal. Os nomes de lá
+    # continuam saindo como aviso acima, para não sumirem calados.
+    soc_animais = []
+    # Embrião de sociedade vem da aba de sócios do grupo, não do 'EMBRIOES A
+    # ENTREGAR' — ver _embrioes_sociedade_pendentes.
+    soc_embrioes = _embrioes_sociedade_pendentes()
     sociedade = soc_animais + soc_embrioes
     rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
 

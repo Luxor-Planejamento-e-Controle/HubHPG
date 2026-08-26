@@ -93,12 +93,8 @@ def _validacao(rep):
         ("Entradas semana", s.get("entradas_semana"), ds.get("entradas")),
         ("Transferências internas", s.get("transferencias_semana"), ds.get("transferencias")),
         ("Vendidos pendentes", rep.terceiros.get("vendidos_pendentes"), ds["vendidos_pendentes"]),
-        # ANIMAIS dos dois lados — ver scripts/PGSemanalPrecisao._soc_docx
-        ("Sociedade pendentes",
-         rep.terceiros.get("sociedade_pendentes_animais")
-         if rep.terceiros.get("sociedade_pendentes_animais") is not None
-         else rep.terceiros.get("sociedade_pendentes"),
-         _soc_docx(dx)),
+        ("Sociedade pendentes", rep.terceiros.get("sociedade_pendentes"),
+         ds.get("sociedade_pendentes")),
         ("Total terceiros", rep.terceiros.get("terceiros_propriedade"),
          dx["terceiros"].get("total")),
         ("Outros terceiros", rep.terceiros.get("outros_terceiros"),
