@@ -1011,7 +1011,12 @@ def divisor(n, titulo, sub):
 # sentado longe, que é o ponto de uma apresentação. Passou disso, o slide QUEBRA
 # em continuação, como o PowerPoint faria. Espremer tudo numa página só foi o
 # que deixou a lista ilegível e vazando por cima do rodapé.
-MAX_LINHAS = 26
+# Linhas por slide na exportação PPTX. Eram 26 (27 com o cabeçalho) e as quatro
+# últimas ficavam FORA do slide: a conta de altura usava `área / nº de linhas`, mas o
+# PowerPoint renderiza a linha maior que isso — a 6pt, ~0,19in contra os 0,155in
+# calculados. 22 linhas × 0,19in = 4,18in, que é a altura útil abaixo do título.
+# Conferido gerando o PPTX e comparando o texto que sobrevive na exportação em PDF.
+MAX_LINHAS = 22
 
 
 def divide_tab(slide):
@@ -1128,6 +1133,24 @@ def monta_deck(m, ano, ctx):
     return s
 
 
+# comite.html é estático e carrega deck.js/deck.css/spec.js. Sem versão na URL, o
+# navegador serve o cache e a mudança não aparece — o arquivo no disco está certo e a
+# tela continua velha. O carimbo abaixo invalida o cache a cada build.
+RE_ASSET = re.compile(r'((?:href|src)="assets/comite/(?:deck\.js|deck\.css|spec\.js))(?:\?v=\d+)?"')
+
+
+def _versiona_assets():
+    alvo = REPO / "comite.html"
+    if not alvo.exists():
+        return
+    html = alvo.read_text(encoding="utf-8")
+    v = datetime.now().strftime("%Y%m%d%H%M")
+    novo = RE_ASSET.sub(lambda m: f'{m.group(1)}?v={v}"', html)
+    if novo != html:
+        alvo.write_text(novo, encoding="utf-8")
+        print(f"  [cache] assets do deck versionados: v={v}")
+
+
 def build(so_mes=None):
     ano = so_mes.year if so_mes else 2026
     ctx = {}
@@ -1176,6 +1199,7 @@ def build(so_mes=None):
     js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=_json_default)
     (OUT / "spec.json").write_text(js, encoding="utf-8")
     (OUT / "spec.js").write_text(f"window.COMITE_SPEC = {js};\n", encoding="utf-8")
+    _versiona_assets()
     n = len(decks[chaves[-1]])
     p = sum(1 for x in decks[chaves[-1]] if x["t"] == "pendente")
     print(f"[comite] {len(chaves)} meses ({chaves[0]} … {chaves[-1]}) · {n} slides "

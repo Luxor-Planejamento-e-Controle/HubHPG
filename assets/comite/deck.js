@@ -323,18 +323,20 @@ function pptSlide(p, s, i, logo, imgs){
      linhas viravam 5,1in a partir de y=0,95 e a tabela saía pela borda de baixo,
      por cima do rodapé. Era isso que quebrava os slides de DRE.
      Margem zerada + altura calculada com o piso REAL de renderização. */
-  const MARG = 0.6;                       // pt de respiro interno, mínimo legível
+  /* `margin` aqui é por CÉLULA e em PONTOS. Passar 3 nas laterais deixava a largura
+     útil de coluna estreita menor que um caractere, e o PowerPoint quebrava a cada
+     letra — a tabela virava uma coluna de caracteres empilhados e empurrava o resto
+     para fora do slide. Margem vertical zerada resolve a altura sem estrangular a
+     largura; a lateral fica no padrão. */
   const tbl = (rows, opts) => {
     const y = (opts && opts.y) || 0.95;
     const alt = 5.15 - y;
     const fs = Math.max(6, Math.min(9, alt / rows.length * 26));
-    const pisoLinha = fs * 1.18 / 72 + (MARG * 2) / 72;   // altura mínima real
     return sl.addTable(rows, Object.assign({
       x:0.41, y, w:9.2, border:{type:'solid', pt:0.4, color:C.line},
       fontFace:'Segoe UI', fontSize:fs,
-      margin:[MARG, 3, MARG, 3],
-      rowH:Math.max(pisoLinha, Math.min(0.3, alt / rows.length)),
-      color:C.ink, valign:'middle', autoPage:false,
+      rowH:Math.max(fs * 1.2 / 72, Math.min(0.3, alt / rows.length)),
+      color:C.ink, valign:'middle',
     }, opts));
   };
   const th = t => ({text:String(t), options:{bold:true, fontSize:7.5, color:C.ink3, fill:{color:C.bg2}, align:'right'}});

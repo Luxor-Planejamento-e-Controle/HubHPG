@@ -20,10 +20,12 @@ const HUB_OFFLINE = location.protocol === 'file:';
    quem pode baixar (ver sql/hub_schema.sql).
      html -> vira window.HUB.<nome> (texto, entra por srcdoc)
      json -> vira window.HUB.<nome> (objeto, lido pelo iframe via window.parent) */
+/* A auditoria de fontes NÃO entra aqui: é conferência interna e vive como Artifact,
+   não como aba do hub. O bucket continua recebendo auditoria.html (backup e link
+   direto), mas a casca web não a publica para os usuários do haras. */
 const HUB_DATASETS = {
-  semanal:   { file:'semanal.html',   html:'semanalHtml'   },
-  comite:    { file:'comite.json',    json:'comiteSpec'    },
-  auditoria: { file:'auditoria.html', html:'auditoriaHtml' },
+  semanal: { file:'semanal.html', html:'semanalHtml' },
+  comite:  { file:'comite.json',  json:'comiteSpec'  },
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)
