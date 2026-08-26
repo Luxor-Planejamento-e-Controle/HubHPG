@@ -733,16 +733,41 @@ def slide_coberturas():
 # O ControleInadimplencia.py já grava os agregados; não é preciso print do
 # dashboard nem tocar em linha identificável — aqui só entram KPI e faixa etária,
 # que não têm nome de devedor.
-INAD_DIR = Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes"
-                r"/Controle de inadimplência/output_pbi")
+# Mesmo problema do DRE_Historico: a saída é derivada e existe em mais de um lugar.
+# O `ControleInadimplencia.py` grava em output_pbi ao lado do próprio script (é o que
+# o hub do P&C lê); a pasta do Drive é uma cópia que envelhece — em 26/08/2026 estava
+# em 20/07 enquanto o repo tinha 13/08. Ficam as duas candidatas e vence a mais nova.
+INAD_DIRS = (
+    Path(r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi"),
+    Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes"
+         r"/Controle de inadimplência/output_pbi"),
+)
+
+
+def _inad_dir():
+    """Pasta com o par de saídas mais recente. Diz no log qual venceu."""
+    achadas = [d for d in INAD_DIRS
+               if (d / "indicadores_kpi.xlsx").exists() and (d / "resumo_por_faixa.xlsx").exists()]
+    if not achadas:
+        return None
+    escolhida = max(achadas, key=lambda d: (d / "indicadores_kpi.xlsx").stat().st_mtime)
+    quando = lambda d: datetime.fromtimestamp(
+        (d / "indicadores_kpi.xlsx").stat().st_mtime).strftime("%d/%m/%Y")
+    msg = f"  [inad] lendo {escolhida.parents[1].name} ({quando(escolhida)})"
+    atrasadas = [d for d in achadas if d != escolhida]
+    if atrasadas:
+        msg += " — mais nova que " + ", ".join(f"{d.parents[1].name} ({quando(d)})" for d in atrasadas)
+    print(msg)
+    return escolhida
 
 
 def slide_inadimplencia(m, ano):
-    kpi_f, faixa_f = INAD_DIR / "indicadores_kpi.xlsx", INAD_DIR / "resumo_por_faixa.xlsx"
-    if not kpi_f.exists() or not faixa_f.exists():
+    INAD_DIR = _inad_dir()
+    if INAD_DIR is None:
         return pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
                     "controle-de-inadimplencia → output_pbi/indicadores_kpi.xlsx",
-                    f"saída não encontrada em {INAD_DIR}; rode o ControleInadimplencia.py")
+                    "saída não encontrada em nenhuma das cópias; rode o ControleInadimplencia.py")
+    kpi_f, faixa_f = INAD_DIR / "indicadores_kpi.xlsx", INAD_DIR / "resumo_por_faixa.xlsx"
     k = pd.read_excel(_registra("inadimplência (KPI)", kpi_f)).iloc[0]
     fx = pd.read_excel(_registra("inadimplência (faixas)", faixa_f))
     ref = pd.to_datetime(k["data_referencia"]).strftime("%d/%m/%Y")
