@@ -181,6 +181,23 @@ def _registra_fonte(rotulo: str, f: Path) -> Path:
     return f
 
 
+def caminho_curto(f) -> str:
+    """Caminho legível: relativo a 'PLANILHAS DE CONTROLE' quando vem do Drive.
+
+    A raiz é um atalho (`G:\\.shortcut-targets-by-id\\1mBrSez...`) — mostrar isso
+    inteiro só polui. O que identifica a fonte é a pasta dentro do Drive, porque o
+    mesmo nome de arquivo existe em mais de uma (a estação de monta muda de pasta a
+    cada safra). Fora do Drive, devolve o caminho como está."""
+    p = Path(f)
+    try:
+        return str(p.relative_to(DRIVE_ROOT)).replace("\\", "/")
+    except ValueError:
+        try:
+            return str(p.relative_to(BASE_DIR)).replace("\\", "/")
+        except ValueError:
+            return str(p)
+
+
 # so o orquestrador libera, via --forcar
 PERMITIR_FONTE_VELHA = False
 # Fontes que TEM de ser da semana: descrevem estado que muda toda semana (quem esta
@@ -348,6 +365,7 @@ class Report:
     semana_inicio: str
     semana_fim: str
     fontes: dict = field(default_factory=dict)
+    fontes_caminhos: dict = field(default_factory=dict)  # rótulo -> caminho no Drive
     producao: dict = field(default_factory=dict)
     receptoras: dict = field(default_factory=dict)
     headcount: dict = field(default_factory=dict)
@@ -1558,6 +1576,7 @@ def build_report(ini: date, fim: date) -> Report:
     rep.docx_ref = _load_docx_ref()               # relatórios oficiais (validação + seed do 1º caso)
     _compute_movimento(rep)                       # saídas/entradas = diff da população contada
     _paricoes_do_roster(rep)                      # potro no roster sem parição na ESTAÇÃO
+    _registra_caminhos(rep)                       # pasta de cada fonte, p/ auditoria
     _aplica_manual(rep)                           # campos sem fonte de planilha
     _acumulado_nunca_cai(rep)                     # agregador da safra, nao cai
     # UMA vez, no fim: chamado no meio do caminho ele via as entradas ainda sem os
@@ -1965,6 +1984,13 @@ def _paricoes_do_roster(rep: Report):
     for k in sorted(da_safra):
         marca = "  <- nesta semana" if k in desta else ""
         print(f"    - {k} (recep {da_safra[k]['receptora']}){marca}")
+
+
+def _registra_caminhos(rep: Report):
+    """rep.fontes tem o NOME do arquivo; aqui vai o caminho, para a auditoria dizer
+    em qual pasta clicar. Um dict à parte para não mexer no formato de rep.fontes,
+    que os snapshots antigos já gravaram."""
+    rep.fontes_caminhos = {r: caminho_curto(f) for r, f in _FONTES_USADAS.items()}
 
 
 def _aplica_manual(rep: Report):
