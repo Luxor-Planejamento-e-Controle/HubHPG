@@ -93,20 +93,52 @@ TEMPLATE = r"""<!doctype html>
   /* Impressão = o PDF do dashboard. O navegador é o motor; aqui só se garante que
      nada fica cortado: sem scroll interno, sem barra de ferramentas, e as cores
      do tema preservadas (senão sai um documento branco sem hierarquia). */
+  /* espelha as regras de impressão que mudam a ALTURA, para a medição do zoom
+     bater com o que vai para o papel */
+  .medindo-print .toolbar,.medindo-print .tag{display:none}
+  .medindo-print .panel{padding:10px 12px;margin:0 0 8px}
+  .medindo-print .kpi{min-height:0;padding:7px 9px}
+  .medindo-print .kpi .lab{font-size:8px;min-height:0}
+  .medindo-print .kpi .val{font-size:17px;margin-top:2px}
+  .medindo-print table{font-size:8.5px}
+  .medindo-print thead th,.medindo-print tbody td{padding:3px 6px}
+  .medindo-print .sections{display:block;gap:0}
+  .medindo-print .det{margin-top:8px;padding-top:6px}
+  .medindo-print .det-h{font-size:9px;margin-bottom:4px}
+  .medindo-print .panel h2{font-size:13px;margin-bottom:2px}
+  .medindo-print header{padding:6px 0 8px;min-height:0}
+  .medindo-print header .logo{height:26px}
+  .medindo-print header h1{font-size:15px}
   @media print{
-    @page{size:A4 landscape;margin:7mm}
+    /* margem ZERO na folha: com margem, o papel branco aparece em volta do painel
+       escuro. O respiro vira padding do body, que já é da cor do tema. */
+    @page{size:A4 landscape;margin:0}
     html,body{background:var(--bg) !important;-webkit-print-color-adjust:exact;
       print-color-adjust:exact;font-size:12px}
-    body{padding:0 !important}
+    body{padding:6mm !important}
     .wrap{max-width:none !important}
     .toolbar,#btnEdit,#btnImg,#btnPdf,#pdfEmb,.rst,.tag{display:none !important}
     .det-b,.scroll{overflow:visible !important;max-height:none !important}
     /* O painel INTEIRO com break-inside:avoid empurrava cada seção para uma folha
        nova e deixava meia página em branco — foi o que saiu na primeira tentativa.
        Quem não pode partir é a faixa de KPIs e cada tabela; o painel pode. */
-    .panel{break-inside:auto;page-break-inside:auto;padding:10px 12px;margin-bottom:8px}
-    .kpis,.det{break-inside:avoid;page-break-inside:avoid}
-    .sections{display:block !important}
+    .panel{break-inside:auto;page-break-inside:auto;padding:10px 12px;margin:0 0 8px}
+    .panel:last-child{margin-bottom:0}
+    /* título de seção não fica órfão no pé da folha, separado dos seus KPIs */
+    .panel h2{break-after:avoid;page-break-after:avoid}
+    /* sem break-avoid: com o zoom o conteúdo cabe inteiro, e o avoid era justamente
+       o que empurrava a última tabela para a segunda folha */
+    .kpis,.det{break-inside:auto;page-break-inside:auto}
+    .sections{display:block !important;gap:0 !important}
+    /* folha em branco no fim: qualquer altura sobrando depois do conteúdo vira
+       uma página inteira pintada de fundo escuro */
+    html,body{height:auto !important;min-height:0 !important;margin:0 !important}
+    /* cabe numa folha: o zoom é calculado no clique, medindo a altura real */
+    body{zoom:var(--print-zoom,1)}
+    .wrap{margin:0 !important;padding:0 !important}
+    header{padding:6px 0 8px !important;margin:0 !important;min-height:0 !important}
+    header .logo{height:26px}
+    header h1{font-size:15px}
     .panel h2{font-size:13px;margin-bottom:2px}
     .kpi{min-height:0 !important;padding:7px 9px}
     .kpi .lab{font-size:8px;min-height:0}
@@ -386,10 +418,26 @@ document.getElementById("btnEdit").addEventListener("click",e=>{
    tem que continuar self-contained e funcionando offline. Requisito que isso
    impõe: toda imagem embutida precisa ser data URI (o logo é), senão o canvas
    fica "tainted" e o toBlob falha. */
-/* PDF do dashboard: imprime. O motor de PDF é o do navegador — sem biblioteca,
-   o HTML segue self-contained. A folha @media print acima é quem garante que a
-   tabela sai inteira e as cores do tema vão junto. */
-document.getElementById("btnPdf").onclick=()=>{ window.print(); };
+/* PDF do dashboard: uma página só.
+   O motor de PDF é o do navegador (sem biblioteca — o HTML segue self-contained),
+   mas o conteúdo é mais alto que uma folha. Então mede-se a altura real e aplica-se
+   `zoom` na proporção que cabe em A4 paisagem, antes de chamar print().
+   Medir é obrigatório: com fator fixo, semana com poucas linhas sai minúscula e
+   semana cheia continua estourando. */
+// A4 paisagem a 96dpi (1122x794), menos os 6mm de padding de cada lado.
+// A folga de 4% cobre o arredondamento do navegador ao aplicar zoom — sem ela o
+// conteúdo encosta no limite e escorrega uma linha para a folha seguinte.
+const A4L={largura:1077,altura:749,folga:0.96};
+document.getElementById("btnPdf").onclick=()=>{
+  const alvo=document.body;
+  // mede com a folha de impressão aplicada, senão a conta é da tela e erra feio
+  alvo.classList.add("medindo-print");
+  const h=alvo.scrollHeight, w=alvo.scrollWidth;
+  alvo.classList.remove("medindo-print");
+  const z=Math.min(1, (A4L.altura/h)*A4L.folga, (A4L.largura/w)*A4L.folga);
+  document.documentElement.style.setProperty("--print-zoom", z.toFixed(3));
+  window.print();
+};
 
 /* Os PDFs de embriões da semana, embutidos como data URI pelo build. */
 (function(){
