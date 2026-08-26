@@ -83,7 +83,25 @@ TEMPLATE = r"""<!doctype html>
   .det-lista{color:var(--txt);font-size:12.5px;line-height:1.6;
     border:1px solid var(--line);border-radius:8px;padding:8px 11px}
   .kpi .chk{position:absolute;top:6px;right:8px;font-size:9px;font-weight:700;letter-spacing:.3px}
+  /* link de download com cara de botão: é ação, tem de parecer ação */
+  .btn-pdf{display:inline-block;margin-left:8px;padding:6px 12px;border-radius:8px;
+    border:1px solid var(--line-strong,var(--line));background:transparent;
+    color:var(--ink,#EAF0F4);font-size:12.5px;text-decoration:none;cursor:pointer;
+    transition:.13s}
+  .btn-pdf:hover{background:var(--surface-2,#0F3E63);border-color:var(--teal)}
   .kpi .chk.ok{color:var(--pos)} .kpi .chk.no{color:var(--amber)}
+  /* Impressão = o PDF do dashboard. O navegador é o motor; aqui só se garante que
+     nada fica cortado: sem scroll interno, sem barra de ferramentas, e as cores
+     do tema preservadas (senão sai um documento branco sem hierarquia). */
+  @media print{
+    @page{size:A4 landscape;margin:8mm}
+    html,body{background:#fff !important;-webkit-print-color-adjust:exact;
+      print-color-adjust:exact}
+    .toolbar,#btnEdit,#btnImg,#btnPdf,#pdfEmb,.rst{display:none !important}
+    .det-b,.scroll{overflow:visible !important;max-height:none !important}
+    .panel{break-inside:avoid;page-break-inside:avoid}
+    table{font-size:10px}
+  }
   /* detalhe integrado no card, sempre visível, sem scroll lateral */
   .det{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
   .det-h{color:var(--teal);font-size:11.5px;font-weight:700;text-transform:uppercase;
@@ -111,6 +129,8 @@ TEMPLATE = r"""<!doctype html>
     <select id="semana"></select>
     <button id="btnEdit">Editar</button>
     <button id="btnImg">Exportar imagem</button>
+    <button id="btnPdf">Exportar PDF</button>
+    <span id="pdfEmb"></span>
   </div>
 </header>
 <div class="wrap"><div class="sections" id="sections"></div></div>
@@ -351,6 +371,25 @@ document.getElementById("btnEdit").addEventListener("click",e=>{
    tem que continuar self-contained e funcionando offline. Requisito que isso
    impõe: toda imagem embutida precisa ser data URI (o logo é), senão o canvas
    fica "tainted" e o toBlob falha. */
+/* PDF do dashboard: imprime. O motor de PDF é o do navegador — sem biblioteca,
+   o HTML segue self-contained. A folha @media print acima é quem garante que a
+   tabela sai inteira e as cores do tema vão junto. */
+document.getElementById("btnPdf").onclick=()=>{ window.print(); };
+
+/* Os PDFs de embriões da semana, embutidos como data URI pelo build. */
+(function(){
+  const cx=document.getElementById("pdfEmb"), lista=DATA.pdfs||[];
+  if(!lista.length) return;
+  for(const p of lista){
+    const a=document.createElement("a");
+    a.href=p.uri; a.download=p.nome; a.className="btn-pdf";
+    // rótulo curto: o nome do arquivo tem a data e não cabe na barra
+    a.textContent=/SOCIO|SÓCIO/i.test(p.nome)? "Embriões sócios/vendidos" : "Embriões PG";
+    a.title=p.nome;
+    cx.appendChild(a);
+  }
+})();
+
 document.getElementById("btnImg").onclick=async(ev)=>{
   const btn=ev.target, rotulo=btn.textContent;
   btn.textContent="Gerando..."; btn.disabled=true;
@@ -429,10 +468,34 @@ render();
 """
 
 
+def _pdfs_embrioes(data: dict) -> list:
+    """Os dois PDFs de embriões da semana, como data URI.
+
+    Gerados por tools/build_pdf_embrioes.py em _cache/pdf. Embutidos no HTML porque
+    o dashboard é servido por srcdoc a partir de um bucket privado: link para
+    arquivo externo não chegaria a lugar nenhum."""
+    import base64
+
+    pasta = BASE_DIR / "_cache" / "pdf"
+    if not pasta.exists():
+        return []
+    out = []
+    for f in sorted(pasta.glob("*.pdf")):
+        b64 = base64.b64encode(f.read_bytes()).decode()
+        out.append({"nome": f.name,
+                    "uri": "data:application/pdf;base64," + b64,
+                    "kb": len(b64) // 1024})
+    return out
+
+
 def build():
     if not JSON_IN.exists():
         raise SystemExit(f"Rode PGSemanalReport.py primeiro — falta {JSON_IN.name}")
     data = json.loads(JSON_IN.read_text(encoding="utf-8"))
+    data["pdfs"] = _pdfs_embrioes(data)
+    if data["pdfs"]:
+        print("  [pdf] embutidos: " + ", ".join(
+            f'{p["nome"]} ({p["kb"]} KB)' for p in data["pdfs"]))
     html = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False))
     HTML_OUT.parent.mkdir(parents=True, exist_ok=True)
     HTML_OUT.write_text(html, encoding="utf-8")

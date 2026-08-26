@@ -246,7 +246,16 @@ def main():
     R.JSON_OUT.write_text(json.dumps(asdict(rep), ensure_ascii=False, indent=2), encoding="utf-8")
     _log("2/4 CALC", f"{R.JSON_OUT.name} gravado; snapshot da semana {rep.semana_atual} congelado")
 
-    # 3) dashboard
+    # 3) dashboard. Os PDFs de embriões saem antes: o build do HTML os embute, e
+    # quem abre o dashboard baixa o PDF daquela semana sem passar pelo Drive.
+    _log("3/4 PDF", "gerando os PDFs de embriões...")
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
+        import build_pdf_embrioes
+        build_pdf_embrioes.run(fim)
+    except Exception as exc:
+        _log("3/4 PDF", f"FALHOU: {exc!r} — dashboard sai sem os PDFs")
+
     _log("3/4 DASH", "gerando HTML...")
     D.build()
 
