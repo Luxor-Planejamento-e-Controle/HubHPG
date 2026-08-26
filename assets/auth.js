@@ -21,8 +21,9 @@ const HUB_OFFLINE = location.protocol === 'file:';
      html -> vira window.HUB.<nome> (texto, entra por srcdoc)
      json -> vira window.HUB.<nome> (objeto, lido pelo iframe via window.parent) */
 const HUB_DATASETS = {
-  semanal: { file:'semanal.html', html:'semanalHtml' },
-  comite:  { file:'comite.json',  json:'comiteSpec'  },
+  semanal:   { file:'semanal.html',   html:'semanalHtml'   },
+  comite:    { file:'comite.json',    json:'comiteSpec'    },
+  auditoria: { file:'auditoria.html', html:'auditoriaHtml' },
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)

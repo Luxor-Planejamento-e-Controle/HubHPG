@@ -17,12 +17,14 @@ const ICON = {
   home:'M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10',
   semanal:'M3 5h18v16H3zM3 9h18M8 3v4M16 3v4M8 14h3M8 17h6',
   comite:'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  auditoria:'M9 11l3 3 8-8M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11',
   plantel:'M4 20V8l8-5 8 5v12M9 20v-6h6v6',
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
   {id:'semanal', title:'Atualização Semanal', sub:'Fechamento da semana — plantel, produção e receptoras', icon:'semanal', render:renderSemanal},
   {id:'comite', title:'Comitê Mensal', sub:'Relatório de desempenho estratégico — deck do mês', icon:'comite', render:renderComite},
+  {id:'auditoria', title:'Auditoria de Fontes', sub:'De onde sai cada número, e o que não bate com o relatório oficial', icon:'auditoria', render:renderAuditoria},
   {id:'plantel', title:'Plantel / Movimentação', sub:'Cascata de valor e movimentos do mês', icon:'plantel', soon:true,
    fonte:'mov_cascata / mov_detalhe do LuxorMonthlyP-CRoutines/PlantelHPG (LxMovimentacao.py)',
    hoje:'Hoje sai por e-mail com o xlsx anexo (LxEmailHPGPlantel.py).'},
@@ -101,6 +103,22 @@ function renderSemanal(el){
   }
   const f=document.createElement('iframe');
   f.className='embed'; f.title='Atualização Semanal'; f.srcdoc=html;
+  el.appendChild(f);
+}
+
+/* ---- Auditoria de Fontes ----
+   Página gerada por tools/build_auditoria.py a partir do snapshot congelado e do
+   spec do comitê. Autocontida, como o semanal — entra por `srcdoc` quando vem do
+   bucket privado. */
+function renderAuditoria(el){
+  el.classList.add('flush');
+  const html=window.HUB&&window.HUB.auditoriaHtml;
+  if(!html){
+    el.innerHTML=`<iframe class="embed" src="dashboards/auditoria_semanal.html" title="Auditoria de Fontes"></iframe>`;
+    return;
+  }
+  const f=document.createElement('iframe');
+  f.className='embed'; f.title='Auditoria de Fontes'; f.srcdoc=html;
   el.appendChild(f);
 }
 
