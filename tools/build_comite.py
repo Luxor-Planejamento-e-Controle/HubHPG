@@ -1017,6 +1017,10 @@ def divisor(n, titulo, sub):
 # calculados. 22 linhas × 0,19in = 4,18in, que é a altura útil abaixo do título.
 # Conferido gerando o PPTX e comparando o texto que sobrevive na exportação em PDF.
 MAX_LINHAS = 22
+# Tabela de texto livre (nome de vendedor, garanhão, comprador) quebra em duas
+# linhas nas colunas estreitas, e aí cada linha ocupa o dobro. Metade do corte
+# normal, porque na prática cada linha vale por duas.
+MAX_LINHAS_TEXTO = 10
 
 
 def divide_tab(slide):
@@ -1038,12 +1042,15 @@ def divide_tab(slide):
 def divide(slide, campo="linhas"):
     """Devolve [slide] ou a lista de slides '(cont.)' quando a tabela é longa."""
     linhas = slide.get(campo) or []
-    if len(linhas) <= MAX_LINHAS:
+    # `rows` é a tabela de texto livre; `linhas`, o DRE, que tem coluna larga e
+    # números curtos e não quebra
+    teto = MAX_LINHAS_TEXTO if campo == "rows" else MAX_LINHAS
+    if len(linhas) <= teto:
         return [slide]
-    partes, n = [], (len(linhas) + MAX_LINHAS - 1) // MAX_LINHAS
+    partes, n = [], (len(linhas) + teto - 1) // teto
     for k in range(n):
         p = dict(slide)
-        p[campo] = linhas[k * MAX_LINHAS:(k + 1) * MAX_LINHAS]
+        p[campo] = linhas[k * teto:(k + 1) * teto]
         if k:
             p["titulo"] = f"{slide['titulo']} (cont. {k + 1}/{n})"
         else:
