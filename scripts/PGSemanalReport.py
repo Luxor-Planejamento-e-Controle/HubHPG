@@ -501,14 +501,6 @@ def _acumulado_grupo(safra: str = SAFRA_ATUAL) -> dict:
 OBS_BLOQUEIA_SAIDA = ("FALTANDO EXAME",)
 
 
-# Status que significam "ainda está aqui". VENDIDO PENDENTE SAIDA conta: o animal
-# está vendido mas não saiu, e o relatório o inclui no headcount.
-STATUS_NO_PLANTEL = ("PLANTEL", STATUS_VENDIDO_PENDENTE)
-# Categoria que não é animal do headcount: embrião não nasceu; receptora é contada
-# pela planilha de receptoras, e somar aqui duplicaria.
-CATEGORIAS_FORA_DO_HEADCOUNT = ("EMBRIAO", "RECEPTORA")
-
-
 def _sem_cotista(n) -> str:
     """'PARIS DA PAO GRANDE (EDUARDO)' -> 'PARIS DA PAO GRANDE'.
 
@@ -932,18 +924,16 @@ def _receptoras_por_local() -> dict:
 
 
 def build_headcount(rep: Report):
-    # 1) animais: COUNTIF por LOCAL no roster
-    wb = _load(_controle_plantel())
-    ws = wb["PLANTEL"]
+    # 1) animais por LOCAL, do MESMO roster que o resto do fechamento usa.
+    #    Relia a planilha aqui dentro e contava linha a linha sem filtro nenhum —
+    #    funcionava porque a planilha semanal já vinha curada. Com o roster mensal
+    #    isso contaria vendido, morto, embrião e a linha repetida por cotista.
     animais: dict[str, int] = {}
-    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-        if i < 2 or r[0] is None or not str(r[0]).strip():
-            continue
-        local = _norm(r[4])
+    for linha in _plantel_por_status()["linhas"]:
+        local = _norm(linha["local"])
         if not local:
             continue
         animais[local] = animais.get(local, 0) + 1
-    wb.close()
 
     # 2) receptoras: contadas da fonte de receptoras
     receptoras = _receptoras_por_local()
@@ -1200,6 +1190,24 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
 # e 06 animais vendidos pendentes — os números do MENSAL.
 STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"
 STATUS_TERCEIRO = "TERCEIRO"
+
+# Status que significam "o animal AINDA ESTÁ AQUI".
+#
+# Vendido conta: a venda foi fechada mas o animal não saiu da fazenda, e enquanto
+# não sai ele é headcount. O que tira da conta é a ENTREGA — por isso 'VENDIDO E
+# ENTREGUE' fica de fora, junto de DOADO, OBITO e DE TERCEIRO.
+#
+# A comparação é EXATA, não por substring: 'VENDIDO' como pedaço de texto casaria
+# com 'VENDIDO E ENTREGUE' e traria de volta justamente quem já foi embora.
+STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA")
+# Categoria que não é animal do headcount: embrião não nasceu; receptora é contada
+# pela planilha de receptoras, e somar aqui duplicaria.
+CATEGORIAS_FORA_DO_HEADCOUNT = ("EMBRIAO", "RECEPTORA")
+# Colunas do mensal usadas só aqui. COTAS (%) é a fatia que a PG ainda tem; CONDICAO
+# ATUAL registra a movimentação física do animal.
+COL_MENSAL_COTAS = 16
+COL_MENSAL_CONDICAO = 18
+CONDICAO_SAIU = "SAIU DO HARAS"
 # LOCAL que significa "está aqui". 'OUTROS' fica de fora de propósito: apesar de a
 # CONTAGEM usar esse rótulo para o Centro de Treinamento, na prática ele é o destino
 # de quem sai ("MUDOU O LOCAL PARA OUTROS" na aba MOVIMENTAÇÕES). Se o haras confirmar
@@ -1237,12 +1245,22 @@ def _plantel_por_status() -> dict:
         nome = _s(r[L["nome"]])
         if not nome:
             continue
-        if not any(x in _norm(r[L["status"]]) for x in STATUS_NO_PLANTEL):
+        if _norm(r[L["status"]]) not in STATUS_NO_PLANTEL:
             fora["status"] += 1
             continue
         categoria = _norm(r[L["categoria"]])
         if categoria in CATEGORIAS_FORA_DO_HEADCOUNT:
             fora["categoria"] += 1
+            continue
+        # Saiu do haras E a PG não tem cota nenhuma: acabou. Uma coisa só não basta —
+        # animal no sócio segue no plantel enquanto a PG tem parte dele (29 estão
+        # nessa situação), e vendido de cota zero que ainda não saiu continua aqui
+        # (os 5 'vendido pendente saída', o PRADO, a ELEITA). Juntas, as duas dizem
+        # que o animal não é mais da casa nem está mais nela.
+        cota = r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None
+        condicao = _norm(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else ""
+        if condicao == CONDICAO_SAIU and (cota is None or not cota):
+            fora["saiu_sem_cota"] = fora.get("saiu_sem_cota", 0) + 1
             continue
         mae = _s(r[COL_MENSAL_MAE]) if len(r) > COL_MENSAL_MAE else None
         pai = _s(r[COL_MENSAL_PAI]) if len(r) > COL_MENSAL_PAI else None
