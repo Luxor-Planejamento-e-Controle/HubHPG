@@ -752,6 +752,8 @@ def build_receptoras(rep: Report):
         "doadoras_plantel": doadoras_plantel,
         "doadoras_plantel_fpg": doadoras_fpg,
         "indice_eficiencia": round(vaz / doadoras, 1) if doadoras else None,
+        # preenchido em bases/semanal_manual.json (ver _manual): sem fonte de dado
+        "doadoras_ciclando": None,
     }
     if DOADORAS_INDICE and DOADORAS_INDICE != doadoras_plantel:
         print(f"  [receptoras] índice usa {DOADORAS_INDICE} doadoras (fixo); "
@@ -1556,6 +1558,7 @@ def build_report(ini: date, fim: date) -> Report:
     rep.docx_ref = _load_docx_ref()               # relatórios oficiais (validação + seed do 1º caso)
     _compute_movimento(rep)                       # saídas/entradas = diff da população contada
     _paricoes_do_roster(rep)                      # potro no roster sem parição na ESTAÇÃO
+    _aplica_manual(rep)                           # campos sem fonte de planilha
     _acumulado_nunca_cai(rep)                     # agregador da safra, nao cai
     # UMA vez, no fim: chamado no meio do caminho ele via as entradas ainda sem os
     # nascimentos e acusava movimentacao fantasma que se resolvia duas linhas depois
@@ -1727,6 +1730,26 @@ def _limpa_socio(v) -> str | None:
 # CONTROLE_DE_PLANTEL mensal, aba PLANTEL: 'NOME SOCIO' ('50% RENATA CAZZANI DE
 # CARVALHO'). Fora do PLANTEL_LAYOUT_MENSAL de proposito — só as parições usam.
 COL_MENSAL_NOME_SOCIO = 17
+
+# Dado que NENHUMA planilha tem e que muda toda semana. Fica versionado, por
+# semana, para congelar no snapshot e aparecer na auditoria como o que é: input
+# humano. Não usar os overrides do dashboard para isto — eles vivem no localStorage
+# de um navegador só.
+MANUAL = BASE_DIR / "bases" / "semanal_manual.json"
+
+
+def _manual(semana: str) -> dict:
+    """Campos manuais da semana. Semana sem entrada devolve {} — e o campo fica
+    vazio no dashboard, nunca herdado da semana anterior: 'ciclando' de outra semana
+    é um número errado com cara de certo."""
+    if not MANUAL.exists():
+        return {}
+    try:
+        return (json.loads(MANUAL.read_text(encoding="utf-8")) or {}).get(semana) or {}
+    except Exception as exc:
+        print(f"  [manual] {MANUAL.name} ilegível ({exc!r}) — campos manuais vazios")
+        return {}
+
 
 PARICOES_EXTRA = BASE_DIR / "_cache" / "paricoes_extra.json"
 # assinatura de nome de produto no roster: "... RECEP 309", "MACHO ... RECEP 258"
@@ -1942,6 +1965,20 @@ def _paricoes_do_roster(rep: Report):
     for k in sorted(da_safra):
         marca = "  <- nesta semana" if k in desta else ""
         print(f"    - {k} (recep {da_safra[k]['receptora']}){marca}")
+
+
+def _aplica_manual(rep: Report):
+    """Traz os campos manuais da semana para o relatório.
+
+    Roda depois de a semana estar definida, porque o arquivo é indexado por semana —
+    e de propósito NÃO cai para a semana anterior quando falta: número de outra
+    semana passaria por atual sem ninguém notar."""
+    m = _manual(rep.semana_atual)
+    ciclando = m.get("doadoras_ciclando")
+    rep.receptoras["doadoras_ciclando"] = ciclando
+    if ciclando is None:
+        print(f"  [manual] doadoras ciclando não preenchida para {rep.semana_atual} "
+              f"— escreva em {MANUAL.name}; o card fica vazio")
 
 
 def _conferir_delta(rep: Report):
