@@ -717,9 +717,12 @@ def build_producao(rep: Report, ini: date, fim: date):
         "acumulado_estacao_split_confirmados": _split(confirmados),  # split antigo (estação)
         "confirmados_semana": None,   # _compute_confirmados_diff
         "acumulado_mes": None,        # _compute_confirmados_diff
-        "nascimentos": len(nascimentos),
+        "nascimentos": None,          # _nascimentos_do_roster, abaixo
         "abortos_obitos": len(abortos) + len(obitos) + len(mortes_plantel),
     }
+    def _publica_nascimentos():
+        rep.producao["nascimentos"] = len(rep.detalhe.get("nascimentos_semana") or [])
+
     def _produto(e):   # nome do animal nascido (ou descrição sexo — doadora × garanhão)
         base = f"{e.get('doadora') or ''} × {e.get('garanhao') or ''}".strip(" ×")
         sx = {"M": "Macho", "F": "Fêmea"}.get((e.get("sexo_potro") or "").upper(), e.get("sexo_potro") or "")
@@ -730,10 +733,21 @@ def build_producao(rep: Report, ini: date, fim: date):
         soc = _limpa_socio(e.get("comprador")) or _limpa_socio(e.get("socio"))
         if soc and e.get("receptora"):
             _SOCIO_POR_RECEP[_norm(e["receptora"])] = soc
-    rep.detalhe["nascimentos_semana"] = [
+    # Nascimento vem do roster mensal (data + filiação). A parição lançada na aba
+    # ESTAÇÃO fica como conferência: divergir significa lançamento faltando em um dos
+    # dois lados, e isso tem de aparecer em vez de escolher um número calado.
+    nasc_roster = _nascimentos_do_roster(ini, fim)
+    rep.producao["nascimentos_estacao"] = len(nascimentos)
+    if len(nasc_roster) != len(nascimentos):
+        print(f"  [nascimentos] roster mensal {len(nasc_roster)} x aba ESTAÇÃO "
+              f"{len(nascimentos)} — publicando o roster (é onde o potro entra); "
+              f"a diferença é parição não lançada em um dos dois")
+    rep.detalhe["nascimentos_semana"] = nasc_roster
+    rep.detalhe["nascimentos_estacao"] = [
         dict(e, produto=_produto(e),
              socio=_limpa_socio(e.get("comprador")) or _limpa_socio(e.get("socio")))
         for e in nascimentos]
+    _publica_nascimentos()
     rep.detalhe["abortos_obitos_semana"] = abortos + obitos + mortes_plantel
     rep.detalhe["embrioes_confirmados"] = confirmados
     # listas COMPLETAS datadas (o dashboard filtra por semana no cliente)
@@ -1200,6 +1214,45 @@ def _plantel_por_status() -> dict:
                        "status_plantel": _s(r[L["status"]]), "local": _s(r[L["local"]])})
     wb.close()
     return {"roster": sorted(set(roster)), "linhas": linhas, "fonte": src.name}
+
+
+# CONTROLE_DE_PLANTEL mensal, aba PLANTEL: colunas que não estão no layout mínimo.
+# MAE/PAI/NASCIMENTO são o que permite achar o potro sem depender do nome dele.
+COL_MENSAL_MAE = 8
+COL_MENSAL_PAI = 9
+COL_MENSAL_NASCIMENTO = 10
+
+
+def _nascimentos_do_roster(ini: date, fim: date) -> list:
+    """Nascimentos da janela pela coluna NASCIMENTO do roster mensal.
+
+    Por data e filiação, nunca por nome: o potro entra no roster com nome próprio
+    (`PRINCIPE MN DA PAO GRANDE`) ou com o cruzamento (`MACHO LIBRA x OLIMPO`),
+    e as duas formas convivem. Data e MAE/PAI existem nas duas."""
+    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
+    wb = _load(src)
+    ws = wb["PLANTEL"]
+    L = PLANTEL_LAYOUT_MENSAL
+    out = []
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i < L["linha1"] or r[L["nome"]] is None:
+            continue
+        d = _dt(r[COL_MENSAL_NASCIMENTO]) if len(r) > COL_MENSAL_NASCIMENTO else None
+        if not d or not (ini <= d <= fim):
+            continue
+        nome = _s(r[L["nome"]])
+        m = RE_PRODUTO.search(_norm(nome))
+        out.append({
+            "produto": nome,
+            "mae": _s(r[COL_MENSAL_MAE]), "pai": _s(r[COL_MENSAL_PAI]),
+            "receptora": m.group(1) if m else None,
+            "socio": _limpa_socio(r[COL_MENSAL_NOME_SOCIO])
+                     if len(r) > COL_MENSAL_NOME_SOCIO else None,
+            "data": d.isoformat(),
+            "local": _s(r[L["local"]]),
+        })
+    wb.close()
+    return out
 
 
 def _status_plantel_mensal() -> dict:
@@ -1963,7 +2016,10 @@ def _paricoes_do_roster(rep: Report):
         for k in sem_fatia:
             print(f"    - {k}")
     if desta:
-        rep.producao["nascimentos"] = (rep.producao.get("nascimentos") or 0) + len(desta)
+        # NÃO soma em nascimentos: a contagem publicada vem do roster mensal, por data
+        # de nascimento, e o potro desta lista já está lá. Somar aqui contaria duas
+        # vezes. Este bloco existe só para o ACUMULADO da safra, que precisa da parição
+        # que a aba ESTAÇÃO não tem.
         def _socio_da_recep(rec):
             r = _norm(rec)
             if r in _SOCIO_ROSTER:
@@ -1979,7 +2035,7 @@ def _paricoes_do_roster(rep: Report):
                   f"({len(sem_socio)}) — o relatório publica esse nome, aqui fica vazio:")
             for k in sem_socio:
                 print(f"    - {k} (recep {da_safra[k]['receptora']})")
-        rep.detalhe["nascimentos_semana"] = rep.detalhe.get("nascimentos_semana", []) + [
+        rep.detalhe["nascimentos_so_roster"] = [
             {"produto": _produto_do_roster(k), "receptora": da_safra[k]["receptora"],
              "socio": _socio_da_recep(da_safra[k]["receptora"]),
              "origem": "roster"} for k in desta]

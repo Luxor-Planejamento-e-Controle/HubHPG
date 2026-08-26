@@ -259,7 +259,8 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   fatia:"Fatia",data_ia:"IA / Cobrição",receptora:"Receptora",data_confirmacao:"Confirmação",
   sexo_potro:"Sexo",nome_potro:"Potro",data_paricao:"Parição",data_aborto:"Aborto",data_obito:"Óbito",
   status:"Status",categoria:"Categoria",comprador:"Comprador / Sócio",nome:"Nome",cota:"Cota",
-  tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)"};
+  tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)",
+  mae:"Mãe",pai:"Pai"};
 const HIDE=new Set(["key","confirmado","reposicao","origem","especie","chave",
   "afeta_headcount","era_receptora_contada"]);   // internos, não exibir
 const DATECOLS=new Set(["data","data_ia","data_confirmacao","data_paricao","data_aborto","data_obito"]);
