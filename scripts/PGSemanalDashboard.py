@@ -311,7 +311,9 @@ function render(){
     const det=(sec.det||[]).map(([t,key,opts])=>detTable(t,key,opts)).join("");
     const sub=sec.sub?`<div class="sub">${sec.sub(snap())}</div>`:"";
     const vis=sec.kpis.filter(k=>!(k.skip && k.skip(snap()))).length;
-    const cols=sec.wide?Math.min(vis,6):3;   // half=3 (receptoras/headcount iguais)
+    // teto 7: com a transição de estação a produção tem 7 KPIs, e 6 jogava o
+    // último para uma segunda linha, deixando meia faixa vazia
+    const cols=sec.wide?Math.min(vis,7):3;   // half=3 (receptoras/headcount iguais)
     return `<div class="panel${sec.wide?' full':''}"><h2><span class="n">${sec.n})</span>${sec.t}</h2>${sub}
       <div class="kpis" style="grid-template-columns:repeat(${cols},minmax(0,1fr))">${kpis}</div>${det}</div>`;
   }).join("");
