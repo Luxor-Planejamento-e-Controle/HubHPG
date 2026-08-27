@@ -96,14 +96,15 @@ POR_SLIDE = {
     37: ("snapshot local", "semanal_snapshots.json",
          "Último fechamento semanal DO MÊS do deck. Era a aba CONTAGEM, que não tem dimensão de mês e trazia a contagem de hoje para qualquer deck."),
     38: ("_docs/comite_conteudo.json", "manejo", "Escrito à mão."),
-    39: ("_docs/comite_conteudo.json", "fotos",
-         "Fotos do mês, embutidas no spec. Escritas à mão."),
+    39: ("fotos do mês", "ATA & APRESENTACOES MENSAIS/<ano>/FOTOS",
+         "12 por mês (2 slides), embutidas no spec. Mês vem da data no nome do arquivo do WhatsApp — que é a data do encaminhamento, não da foto: nenhum dos 80 arquivos tem EXIF e 9 pares são byte-idênticos com nomes de dias diferentes. Dedup por hash; com mais de 12 fotos, escolhe um dia por vez para o slide cobrir o mês. Antes vinha de 28 imagens extraídas do PPTX de junho e declaradas à mão, e TODO mês herdava as de junho."),
 }
 
 # O que cada fonte alimenta. Metadado estável: muda quando a origem muda.
 ALIMENTA = {
     "DRE histórico": "Haras competência, custos, despesas, YTD, caixa e Casa/FPG",
     "DRE anual (Haras)": "Investimentos do ano, com a descrição de cada compra",
+    "fotos do mês": "Registros de manejo do mês",
     "estacao de monta": "Embriões e prenhezes, garanhões, comparativo, doadoras A e B",
     "coberturas de fora": "Coberturas disponíveis por garanhão de fora",
     "mapa de vendas": "Resultado acumulado e detalhamento por mês e evento",

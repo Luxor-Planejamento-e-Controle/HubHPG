@@ -149,7 +149,9 @@ const R = {
   },
 
   /* S39+ — fotos do mês */
-  fotos: s => head(s) + `<div class="s-body"><div class="fotos">` +
+  // a grade vem do spec (s.grade = [colunas, linhas]) para bater com a do PPTX; o
+  // último slide do mês raramente fecha com 6 fotos, e julho/26 tem uma só
+  fotos: s => head(s) + `<div class="s-body"><div class="fotos" style="grid-template-columns:repeat(${(s.grade||[3])[0]},1fr)">` +
     // f ja vem como data URI: as fotos nao existem como arquivo no site (repo e
     // site sao publicos), vem embutidas no spec, que sai do bucket privado.
     s.fotos.map(f => `<div class="f" style="background-image:url('${f}')"></div>`).join('') +
@@ -459,11 +461,16 @@ function pptSlide(p, s, i, logo, imgs){
     return;
   }
   if (s.t === 'fotos'){
-    const cols = 3, w = (9.2 - 0.24) / cols, alt = (4.15 - 0.24) / 2;
+    // mesma grade do HTML, vinda do spec — não recalcular aqui, senão as duas saídas
+    // divergem quando o mês fecha com menos de 6 fotos
+    const [cols, linhas] = s.grade || [3, 2];
+    const gap = 0.12;
+    const w = (9.2 - gap * (cols - 1)) / cols;
+    const alt = (4.15 - gap * (linhas - 1)) / linhas;
     s.fotos.forEach((f, k) => {
       const d = imgs && imgs[f];
       if (!d) return;
-      sl.addImage({data:d, x:0.41 + (k % cols) * (w + 0.12), y:0.95 + Math.floor(k / cols) * (alt + 0.12),
+      sl.addImage({data:d, x:0.41 + (k % cols) * (w + gap), y:0.95 + Math.floor(k / cols) * (alt + gap),
                    w, h:alt, sizing:{type:'cover', w, h:alt}});
     });
     return;

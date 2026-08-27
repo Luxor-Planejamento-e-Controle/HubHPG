@@ -1009,18 +1009,28 @@ FOTO_EXTS = (".jpeg", ".jpg", ".png")
 
 # 6 fotos por slide: mais que isso e cada foto vira selo; menos, sobra tela.
 FOTOS_POR_SLIDE = 6
-# 12 por mês = 2 slides. Junho de 2026 tem 54 arquivos na pasta; a maioria é rajada
-# (14.31.01 até 14.31.08, mesma cena) e 6 são reencaminhamento do que já estava lá.
+# Grade por quantidade, porque o último slide raramente fecha com 6 — e julho de 2026
+# tem UMA foto no mês. Com as 3 colunas fixas de antes, essa foto virava uma tira de
+# 1/3 de largura no canto. A grade vai no spec, e não em cada renderizador, para o
+# HTML e o PPTX não divergirem.
+GRADE_FOTOS = {1: (1, 1), 2: (2, 1), 3: (3, 1), 4: (2, 2), 5: (3, 2), 6: (3, 2)}
+# 12 por mês = 2 slides. Junho de 2026 tem 54 arquivos, 45 depois do dedup por hash.
 FOTOS_POR_MES = 12
-# Duas fotos do mesmo dia dentro dessa janela contam como a mesma cena. O WhatsApp
-# nomeia por segundo, então rajada aparece como sequência de segundos consecutivos.
-RAJADA_SEGUNDOS = 90
 
 # "WhatsApp Image 2026-06-19 at 14.31.07 (2).jpeg" — data e hora estão no nome porque
-# o WhatsApp REMOVE o EXIF (confirmado: 0 dos 80 arquivos tem tag de data). O nome é a
-# hora do encaminhamento, não a da foto: 9 pares são byte-idênticos com nomes de dias
-# diferentes (08/06 07.31.42 == 19/06 14.31.03), alguém reenviou o mesmo lote. Serve
-# como mês porque é quando o registro chegou ao grupo, que é o que o comitê discute.
+# o WhatsApp REMOVE o EXIF (confirmado: 0 dos 80 arquivos tem tag de data).
+#
+# O nome marca o ENCAMINHAMENTO, não a foto. Duas medições mostram isso:
+#   * 9 pares são byte-idênticos com nomes de dias diferentes (08/06 07.31.42 ==
+#     19/06 14.31.03) — alguém reenviou o mesmo lote;
+#   * as 45 fotos únicas de junho ocupam 8 minutos distintos de nome, porque um lote
+#     inteiro sai com segundos consecutivos.
+# Consequência prática: a hora não separa cenas. Colapsar "rajada" por janela de tempo
+# derrubou junho de 45 para 6 e jogou fora foto legítima. Comparei as 45 por dHash e a
+# distância mínima entre quaisquer duas passa de 22 bits: são 45 imagens distintas, não
+# há rajada nenhuma. Só o hash de bytes remove repetição de verdade.
+# A DATA continua servindo: é o mês em que o registro chegou ao grupo, que é o que o
+# comitê discute.
 _RE_FOTO_DT = re.compile(r"(20\d\d)-(\d\d)-(\d\d)(?:\D+(\d\d)\.(\d\d)\.(\d\d))?")
 
 
@@ -1036,13 +1046,12 @@ def _foto_quando(p: Path) -> datetime:
 def _fotos_do_mes(ano: int, mes: int) -> list[Path]:
     """Fotos do mês, sem repetição e espalhadas pelos dias.
 
-    Três filtros, nesta ordem, porque cada um só faz sentido depois do anterior:
+    Dois filtros:
 
       1. hash — arquivo byte-idêntico reenviado noutro dia é uma foto só;
-      2. rajada — fotos seguidas em segundos são a mesma cena, fica a primeira;
-      3. espalhamento — com mais cenas que vaga, roda um dia por vez em vez de
-         pegar as primeiras, senão dois dias movimentados tomam o slide inteiro e
-         o resto do mês desaparece.
+      2. espalhamento — com mais foto que vaga, roda um dia por vez em vez de pegar
+         as primeiras. Sem isso junho seria 12 fotos do dia 19, que tem 28 das 45; os
+         dias 02, 08, 11 e 24 sumiriam do slide.
     """
     pasta = FOTOS_DIR_BASE / str(ano) / "FOTOS"
     if not pasta.exists():
@@ -1057,20 +1066,11 @@ def _fotos_do_mes(ano: int, mes: int) -> list[Path]:
     por_hash: dict[str, Path] = {}
     for p in sorted(do_mes, key=_foto_quando):
         por_hash.setdefault(hashlib.md5(p.read_bytes()).hexdigest(), p)
-    unicas = sorted(por_hash.values(), key=_foto_quando)
-
-    # 2. rajada: a primeira de cada sequência de segundos consecutivos
-    cenas, ultimo = [], None
-    for p in unicas:
-        q = _foto_quando(p)
-        if ultimo is None or (q - ultimo).total_seconds() > RAJADA_SEGUNDOS:
-            cenas.append(p)
-        ultimo = q
-
+    cenas = sorted(por_hash.values(), key=_foto_quando)
     if len(cenas) <= FOTOS_POR_MES:
         return cenas
 
-    # 3. round-robin pelos dias até fechar a cota
+    # 2. round-robin pelos dias até fechar a cota
     por_dia: dict[int, list[Path]] = {}
     for p in cenas:
         por_dia.setdefault(_foto_quando(p).day, []).append(p)
@@ -1148,9 +1148,14 @@ def slides_fotos(c, m, ano):
           f"({kb // 1024 or 1} MB) — dias {', '.join(f'{d:02d}' for d in dias)}")
     fs = embutidas
     n = (len(fs) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
-    return [{"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
-             "sub": f"Registros de {MESES[m-1]} {ano}" + (f" · {k+1}/{n}" if n > 1 else ""),
-             "fotos": fs[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]} for k in range(n)]
+    out = []
+    for k in range(n):
+        bloco = fs[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]
+        cols, rows = GRADE_FOTOS[len(bloco)]
+        out.append({"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
+                    "sub": f"Registros de {MESES[m-1]} {ano}" + (f" · {k+1}/{n}" if n > 1 else ""),
+                    "grade": [cols, rows], "fotos": bloco})
+    return out
 
 
 # ==================================================================== deck
