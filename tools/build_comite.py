@@ -19,6 +19,7 @@ Uso:
 """
 import json
 import base64
+import hashlib
 import io
 import re
 import sys
@@ -36,7 +37,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 # Caminhos do Drive e helpers vêm do pipeline que já roda — não duplicar.
 from PGSemanalReport import (                                    # noqa: E402
-    EMB_COMERCIAIS, MAPA_VENDAS_DIR, SAFRA_ATUAL, _controle_plantel,
+    DRIVE_ROOT, EMB_COMERCIAIS, MAPA_VENDAS_DIR, SAFRA_ATUAL, _controle_plantel,
     _latest_by_yymmdd, _latest_estacao_master, _load, _norm, _s, _to_num,
     caminho_curto,
 )
@@ -1002,8 +1003,84 @@ def slide_manejo(c, m, ano):
             "sub": f"Histórico de intervenções Jan–{ABR[m-1]} {ano}", "itens": itens}
 
 
+# Fotos do mês, como o haras as manda: pasta única por ano, arquivos do WhatsApp.
+FOTOS_DIR_BASE = DRIVE_ROOT / "ATA & APRESENTACOES MENSAIS"   # /<ano>/FOTOS
+FOTO_EXTS = (".jpeg", ".jpg", ".png")
+
 # 6 fotos por slide: mais que isso e cada foto vira selo; menos, sobra tela.
 FOTOS_POR_SLIDE = 6
+# 12 por mês = 2 slides. Junho de 2026 tem 54 arquivos na pasta; a maioria é rajada
+# (14.31.01 até 14.31.08, mesma cena) e 6 são reencaminhamento do que já estava lá.
+FOTOS_POR_MES = 12
+# Duas fotos do mesmo dia dentro dessa janela contam como a mesma cena. O WhatsApp
+# nomeia por segundo, então rajada aparece como sequência de segundos consecutivos.
+RAJADA_SEGUNDOS = 90
+
+# "WhatsApp Image 2026-06-19 at 14.31.07 (2).jpeg" — data e hora estão no nome porque
+# o WhatsApp REMOVE o EXIF (confirmado: 0 dos 80 arquivos tem tag de data). O nome é a
+# hora do encaminhamento, não a da foto: 9 pares são byte-idênticos com nomes de dias
+# diferentes (08/06 07.31.42 == 19/06 14.31.03), alguém reenviou o mesmo lote. Serve
+# como mês porque é quando o registro chegou ao grupo, que é o que o comitê discute.
+_RE_FOTO_DT = re.compile(r"(20\d\d)-(\d\d)-(\d\d)(?:\D+(\d\d)\.(\d\d)\.(\d\d))?")
+
+
+def _foto_quando(p: Path) -> datetime:
+    """Data do nome; sem data no nome, o mtime do arquivo."""
+    m = _RE_FOTO_DT.search(p.name)
+    if not m:
+        return datetime.fromtimestamp(p.stat().st_mtime)
+    a, s_, d, hh, mm, ss = m.groups()
+    return datetime(int(a), int(s_), int(d), int(hh or 0), int(mm or 0), int(ss or 0))
+
+
+def _fotos_do_mes(ano: int, mes: int) -> list[Path]:
+    """Fotos do mês, sem repetição e espalhadas pelos dias.
+
+    Três filtros, nesta ordem, porque cada um só faz sentido depois do anterior:
+
+      1. hash — arquivo byte-idêntico reenviado noutro dia é uma foto só;
+      2. rajada — fotos seguidas em segundos são a mesma cena, fica a primeira;
+      3. espalhamento — com mais cenas que vaga, roda um dia por vez em vez de
+         pegar as primeiras, senão dois dias movimentados tomam o slide inteiro e
+         o resto do mês desaparece.
+    """
+    pasta = FOTOS_DIR_BASE / str(ano) / "FOTOS"
+    if not pasta.exists():
+        return []
+    todas = [p for p in pasta.rglob("*") if p.suffix.lower() in FOTO_EXTS]
+    do_mes = [p for p in todas
+              if (q := _foto_quando(p)).year == ano and q.month == mes]
+    if not do_mes:
+        return []
+
+    # 1. mesma foto reenviada: fica a de nome mais antigo (primeira aparição)
+    por_hash: dict[str, Path] = {}
+    for p in sorted(do_mes, key=_foto_quando):
+        por_hash.setdefault(hashlib.md5(p.read_bytes()).hexdigest(), p)
+    unicas = sorted(por_hash.values(), key=_foto_quando)
+
+    # 2. rajada: a primeira de cada sequência de segundos consecutivos
+    cenas, ultimo = [], None
+    for p in unicas:
+        q = _foto_quando(p)
+        if ultimo is None or (q - ultimo).total_seconds() > RAJADA_SEGUNDOS:
+            cenas.append(p)
+        ultimo = q
+
+    if len(cenas) <= FOTOS_POR_MES:
+        return cenas
+
+    # 3. round-robin pelos dias até fechar a cota
+    por_dia: dict[int, list[Path]] = {}
+    for p in cenas:
+        por_dia.setdefault(_foto_quando(p).day, []).append(p)
+    escolhidas = []
+    while len(escolhidas) < FOTOS_POR_MES:
+        rodada = [fila.pop(0) for _, fila in sorted(por_dia.items()) if fila]
+        if not rodada:
+            break
+        escolhidas += rodada[:FOTOS_POR_MES - len(escolhidas)]
+    return sorted(escolhidas, key=_foto_quando)
 # As fotos NAO ficam no repo (publico) nem no site (publico): entram embutidas no
 # spec.json, que sai pelo bucket privado. Cru sao 12 MB em 28 arquivos; reduzidas
 # pro tamanho em que o deck as mostra (6 por slide, ~1/3 de tela) dao ~2 MB.
@@ -1034,23 +1111,41 @@ def _foto_embutida(caminho: Path) -> str | None:
 
 
 def slides_fotos(c, m, ano):
-    fs = c.get("fotos") or []
-    if not fs:
+    """Fotos do mês pedido. Sem herdar mês anterior — é isso que estava errado.
+
+    `c` é o conteúdo do mês, e o resolvedor dele cai no mês anterior mais recente
+    quando o pedido não existe. Para texto isso é razoável (o histórico de manejo é
+    cumulativo); para foto, não: o deck de janeiro saía com as fotos de junho. A
+    pasta do Drive é a fonte, e mês sem foto na pasta fica pendente."""
+    caminhos = _fotos_do_mes(ano, m)
+    fonte = FOTOS_DIR_BASE / str(ano) / "FOTOS"
+    if caminhos:
+        _registra("fotos do mês", fonte)
+    else:
+        # legado: as 28 extraídas do PPTX de junho, em assets/comite/fotos/. Só valem
+        # para o mês em que estão declaradas — 5 delas não existem na pasta do Drive.
+        legado = c.get("fotos") or []
+        caminhos = [OUT / f for f in legado]
+        if caminhos:
+            print(f"  [fotos] {MESES[m-1]}: pasta do Drive sem foto, usando as "
+                  f"{len(caminhos)} do comite_conteudo.json")
+    if not caminhos:
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
-                     "_docs/comite_conteudo.json → fotos (assets/comite/fotos/)",
-                     "rode tools/extrair_conteudo.py ou solte as fotos do mês na pasta")]
-    # troca o nome do arquivo pela imagem embutida; some quem nao carregou
+                     caminho_curto(fonte),
+                     f"nenhuma foto de {MESES[m-1].lower()}/{str(ano)[2:]} na pasta")]
+    # troca o caminho pela imagem embutida; some quem nao carregou
     embutidas, kb = [], 0
-    for f in fs:
-        uri = _foto_embutida(OUT / f)   # f ja vem como "fotos/fotoNN.jpg"
+    for f in caminhos:
+        uri = _foto_embutida(f)
         if uri:
             embutidas.append(uri)
             kb += len(uri) // 1024
     if not embutidas:
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
-                     "assets/comite/fotos/ (fora do repo, por serem imagens da fazenda)",
-                     "solte as fotos do mes na pasta local")]
-    print(f"  [fotos] {len(embutidas)} embutidas no spec ({kb // 1024 or 1} MB)")
+                     caminho_curto(fonte), "nenhuma das fotos do mês pôde ser lida")]
+    dias = sorted({_foto_quando(f).day for f in caminhos})
+    print(f"  [fotos] {MESES[m-1]}: {len(embutidas)} de {len(caminhos)} "
+          f"({kb // 1024 or 1} MB) — dias {', '.join(f'{d:02d}' for d in dias)}")
     fs = embutidas
     n = (len(fs) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
     return [{"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
