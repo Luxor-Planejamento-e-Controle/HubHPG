@@ -38,6 +38,68 @@ DONO = {
     "inadimplência (faixas)": "Controladoria",
 }
 
+# Slide -> (rótulo da fonte, aba, regra). Metadado ESTÁVEL, chaveado pelo número do
+# slide, que não muda de mês para mês — a posição muda, porque tabela longa vira duas
+# ou três páginas conforme o volume.
+POR_SLIDE = {
+    4:  ("DRE histórico", "Base DRE Geral",
+         "CC = HPG, modelo Competência, mês da referência. Só linhas marcadas 'É Subtotal', que é o resumo que o comitê discute."),
+    5:  ("DRE histórico", "Base DRE Geral",
+         "Grupo = CUSTOS E DESPESAS OPERACIONAIS, aberto por natureza. Natureza zerada no mês fica de fora — encheria o slide de linha sem informação."),
+    6:  ("DRE histórico", "Base DRE Geral",
+         "Grupo = DESPESAS, mesma regra do slide de custos."),
+    7:  ("DRE histórico", "Base YTD",
+         "Acumulado do ano até o mês da referência, só subtotais. É o número que o comitê trimestral olha — por isso este slide fica nos dois decks."),
+    8:  ("_docs/comite_conteudo.json", "comentarios",
+         "Escrito à mão por mês. Não sai de planilha: é a leitura de quem fechou o mês sobre as variações do YTD."),
+    9:  ("DRE 2026 HPG - HARAS.xlsx", "Investimentos",
+         "Única parte do financeiro fora do histórico: a descrição de cada compra só existe no arquivo do ano."),
+    10: ("DRE histórico", "Base DRE Geral",
+         "CC = HPG, modelo Caixa, mês da referência. Regime de caixa, não competência."),
+    11: ("base_bi.parquet", "fato_plantel",
+         "Consolidado dos controles mensais do plantel: uma linha por animal por mês, com cota e avaliação."),
+    12: ("mov_cascata.parquet", "—",
+         "Movimentação do ano em cascata. Vem de outro repositório (LuxorMonthlyP-CRoutines): se aquele não rodar, este slide congela."),
+    13: ("DRE histórico", "Base DRE Geral",
+         "Organização FPG, modelo Caixa. Só linhas com valor no mês."),
+    14: ("DRE histórico", "Base YTD",
+         "Casa/FPG acumulado no ano. Também fica no deck trimestral."),
+    16: ("estacao de monta", "ESTAÇÃO",
+         "Funil da safra: coberturas, confirmados aos 60 dias, absorções e abortos. Absorção é perda antes dos 60d; aborto é embrião já confirmado."),
+    17: ("estacao de monta", "GARANHOES",
+         "Embriões por garanhão na safra corrente."),
+    18: ("estacao de monta", "ESTAÇÃO",
+         "Mesma contagem aplicada às safras anteriores, para comparar o ritmo."),
+    19: ("estacao de monta", "PLANEJAMENTO",
+         "Doadoras do time A: meta contra realizado. O time vem da coluna TIME da própria planilha."),
+    20: ("estacao de monta", "PLANEJAMENTO", "Doadoras do time B, mesma regra."),
+    21: ("coberturas de fora", "Planilha2",
+         "Saldo de cobertura comprada ou de direito, por garanhão de fora."),
+    23: ("_docs/comite_conteudo.json", "exposicoes.programacao",
+         "Escrito à mão. A fonte declarada no próprio slide é o grupo da equipe mais o site da ABCCMM."),
+    24: ("_docs/comite_conteudo.json", "exposicoes.resultados",
+         "Escrito à mão, uma tabela por exposição."),
+    29: ("mapa de vendas", "MAPA VENDAS",
+         "Filtro do guia: vendedor CARLA, sem contrato cancelado. Meta anual de R$ 4,5M."),
+    30: ("mapa de vendas", "MAPA VENDAS",
+         "Mesmo filtro, aberto por mês e evento."),
+    31: ("inadimplência (KPI)", "—",
+         "Só agregados — nenhum nome de devedor entra no deck. A saída vem do repositório controle-de-inadimplencia, o mesmo que o hub do P&C lê; havia uma cópia no Drive e o build escolhe a mais recente."),
+    32: ("embriões a entregar", "ENTREGAR",
+         "Embrião vendido e ainda não gestado, com pagamento quitado ou em curso."),
+    33: ("embriões a entregar", "ENTREGAR",
+         "Mesma aba, recorte de pagamento pausado ou após confirmação."),
+    34: ("embriões a entregar", "ENTREGAR",
+         "Embrião de direito, troca ou reposição — não é venda."),
+    35: ("embriões a entregar", "RECEBER",
+         "Embrião que a PG comprou e ainda vai receber."),
+    37: ("snapshot local", "semanal_snapshots.json",
+         "Último fechamento semanal DO MÊS do deck. Era a aba CONTAGEM, que não tem dimensão de mês e trazia a contagem de hoje para qualquer deck."),
+    38: ("_docs/comite_conteudo.json", "manejo", "Escrito à mão."),
+    39: ("_docs/comite_conteudo.json", "fotos",
+         "Fotos do mês, embutidas no spec. Escritas à mão."),
+}
+
 # O que cada fonte alimenta. Metadado estável: muda quando a origem muda.
 ALIMENTA = {
     "DRE histórico": "Haras competência, custos, despesas, YTD, caixa e Casa/FPG",
@@ -72,12 +134,37 @@ def _linha_fonte(rotulo: str, f: dict) -> str:
         </tr>"""
 
 
-def _linha_pendente(sl: dict) -> str:
+def _linha_slide(sl: dict, fontes: dict) -> str:
+    """Uma linha por slide com dado: de onde vem, por qual regra, e se saiu.
+
+    Mesmo formato da auditoria semanal — lá a chave é o indicador, aqui é o número
+    do slide."""
+    n = sl.get("n")
+    rotulo, aba, regra = POR_SLIDE.get(n, ("—", "—", ""))
+    pendente = sl.get("t") == "pendente"
+    if pendente:
+        situacao = '<span class="chip bad">pendente</span>'
+        regra = f'<b>{html.escape(sl.get("motivo") or "")}</b><br>{html.escape(regra)}'
+    else:
+        situacao = '<span class="chip ok">com dado</span>'
+        regra = html.escape(regra)
+    # caminho e data vêm do que o build LEU; fonte escrita à mão não tem registro
+    f = fontes.get(rotulo) or {}
+    caminho = f.get("caminho") or rotulo
+    dias, idade = _idade(f.get("modificado"))
+    if dias is not None and dias > DIAS_VELHA:
+        idade = f'<span class="chip warn">{html.escape(idade)}</span>'
+    else:
+        idade = html.escape(idade)
     return f"""        <tr>
-          <td class="num">{sl.get("n")}</td>
-          <td>{html.escape(sl.get("titulo") or "")}</td>
-          <td class="file">{html.escape(sl.get("fonte") or "—")}</td>
-          <td class="obs">{html.escape(sl.get("motivo") or "")}</td>
+          <td class="num">{n}</td>
+          <td>{html.escape((sl.get("titulo") or "").split(" (")[0])}</td>
+          <td>{situacao}</td>
+          <td class="file">{html.escape(rotulo)}<br>
+              <span class="aba">{html.escape(aba)}</span><br>
+              <span class="cam">{html.escape(caminho)}</span></td>
+          <td class="num tight">{idade}</td>
+          <td class="obs">{regra}</td>
         </tr>"""
 
 
@@ -171,6 +258,18 @@ def build(destino: Path | None = None) -> Path:
                  if s.get("t") not in ("capa", "agenda", "divisor", "encerramento")]
     meses = spec.get("meses") or []
 
+    # um slide por número: tabela longa vira '(1/3)', '(cont. 2/3)'… e todas as
+    # partes têm a mesma fonte e a mesma regra
+    por_slide, vistos = [], set()
+    for x in deck:
+        n = x.get("n")
+        if x.get("t") in ("capa", "agenda", "divisor", "encerramento") or n is None:
+            continue
+        if n in vistos:
+            continue
+        vistos.add(n)
+        por_slide.append(x)
+
     conteudo = []
     if CONTEUDO.exists():
         try:
@@ -229,14 +328,16 @@ def build(destino: Path | None = None) -> Path:
 </section>
 
 <section>
-  <h2>O que está pendente</h2>
-  <p class="lede">Slide que o deck monta mas não preenche, com a fonte que falta e o
-  motivo — os dois vêm do próprio build, não de anotação à parte.</p>
+  <h2>Slide a slide</h2>
+  <p class="lede">Cada slide que carrega número: a fonte, a aba, o caminho do arquivo
+  que o build abriu, a idade dele e a regra que produz o conteúdo. Capa, agenda,
+  divisores e encerramento ficam de fora — são estrutura do deck, não têm dado.</p>
   <div class="scroll">
-    <table class="legend">
-      <thead><tr><th class="num">#</th><th>Slide</th><th>Fonte que falta</th><th>Motivo</th></tr></thead>
+    <table class="main">
+      <thead><tr><th class="num">#</th><th>Slide</th><th>Situação</th>
+      <th>Fonte &middot; aba &middot; caminho</th><th class="num">Idade</th><th>Regra</th></tr></thead>
       <tbody>
-{chr(10).join(_linha_pendente(s) for s in pendentes) or '<tr><td colspan="4">Nenhuma pendência neste mês.</td></tr>'}
+{chr(10).join(_linha_slide(x, fontes) for x in por_slide)}
       </tbody>
     </table>
   </div>
@@ -327,6 +428,9 @@ td.num,th.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-sp
 td.file{font-family:var(--mono);font-size:.76rem;line-height:1.45;word-break:break-word;
 max-width:38ch}
 td.tight{white-space:nowrap}
+td.file .aba{color:var(--ink-mute)}
+td.file .cam{display:block;color:var(--ink-mute);font-size:.68rem;margin-top:2px;
+word-break:break-word}
 td.obs{color:var(--ink-soft);font-size:.84rem;min-width:240px}
 tfoot td{padding:9px 13px;color:var(--ink-mute);font-size:.8rem;background:var(--surface-alt)}
 .chip{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;
