@@ -43,13 +43,33 @@ from PGSemanalReport import (                                    # noqa: E402
 # os resolvedores de fonte compartilhados anotam ali o arquivo que escolheram
 from PGSemanalReport import _FONTES_USADAS as _FONTES_COMPARTILHADAS   # noqa: E402
 
-DRE_DIR = Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes/DRE Data")
-DRE_HARAS = DRE_DIR / "DRE 2026 HPG - HARAS.xlsx"
+ROTINAS = Path(r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines")
+# Saída do extractor: ele grava AO LADO DE SI MESMO (ver DRE_HIST, abaixo).
+DRE_DIR = ROTINAS / "DRE Data"
+PLANTEL_DIR = ROTINAS / "PlantelHPG"
+
+# Os xlsx anuais do DRE, na pasta que o próprio LxDREdataExtractor usa como fonte
+# (BASE_REPORTS). Havia cópia deles em `Ambiente de testes`, e era de lá que o slide de
+# Investimentos lia — a de 2026 estava parada em 18/03/2026, cinco meses atrás, sem
+# nada sinalizando: `pend()` só dispara quando o arquivo SOME, e a cópia velha existe.
+# `Ambiente de testes` está deprecated (26/08/2026): a Controladoria migrou para os
+# repositórios do GitHub e o que ficou lá ninguém mais atualiza.
+DRE_ANUAL_DIR = Path(
+    r"G:/Drives compartilhados/Luxor Controladoria/Relatórios Gerenciais"
+    r"/RELATORIOS - OPERAÇÃO HARAS E FAZENDA PG"
+)
+
+
+def _dre_anual(ano: int, entidade: str) -> Path:
+    """xlsx anual do DRE. `entidade` é o sufixo do nome: 'HPG - HARAS', 'FPG - CASA'."""
+    return DRE_ANUAL_DIR / str(ano) / "Fluxo de Caixa e DRE" / f"DRE {ano} {entidade}.xlsx"
+
+
+DRE_HARAS = _dre_anual(2026, "HPG - HARAS")
 # NÃO é fonte do comitê — a seção CASA/FPG sai do DRE_Historico, igual ao resto do
 # financeiro (ver _docs/COMITE_MAPEAMENTO.md, pendência 3). Fica declarada só para
 # quem for procurar o arquivo do ano não concluir que ele foi esquecido.
-DRE_CASA = DRE_DIR / "DRE 2026 FPG - CASA.xlsx"  # noqa: F401
-PLANTEL_DIR = Path(r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines/PlantelHPG")
+DRE_CASA = _dre_anual(2026, "FPG - CASA")  # noqa: F401
 BASE_BI = REPO / "bases" / "base_bi.parquet"
 
 MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -104,18 +124,17 @@ def brl_curto(v):
 #   - o histórico traz os 12 meses, Haras (HPG) e Casa (FPG), Competência e
 #     Caixa, com Orçado e Realizado de verdade (jun/26 bate com o deck oficial).
 # O DRE_Historico é DERIVADO: quem o gera é o LxDREdataExtractor, e ele grava o
-# resultado AO LADO DE SI MESMO (OUTPUT_PATH = pasta do próprio script). Existem duas
-# cópias do extractor — uma no repo de rotinas mensais, outra na pasta do Drive —, então
-# existem duas saídas, e quem rodar a do repo não atualiza a do Drive.
-# Foi o que aconteceu: em 18/08/2026 a cópia do repo estava em 11/08 com julho fechado
-# (R$ 4,7M) e a do Drive em 15/07 com julho zerado. O comitê lia a do Drive e parava em
-# junho, sem nada indicando que existia versão mais nova.
-# Aqui vale a MAIS RECENTE, não uma pasta canônica: as duas são o mesmo artefato
-# derivado e o que importa é o fechamento mais novo.
-DRE_HIST_CANDIDATOS = (
-    PLANTEL_DIR.parent / "DRE Data" / "DRE_Historico.xlsx",   # repo de rotinas mensais
-    DRE_DIR / "DRE_Historico.xlsx",                            # Drive da Controladoria
-)
+# resultado AO LADO DE SI MESMO (OUTPUT_PATH = pasta do próprio script). Havia uma
+# segunda cópia do extractor no Drive e, portanto, uma segunda saída; o build escolhia a
+# mais recente das duas. Não escolhe mais — a do Drive é a saída de um extractor de
+# 15/07, versão anterior à do repo, e a pasta está deprecated.
+#
+# Fonte única cobra um preço: ela pode estar velha sem parecer velha. Daí a guarda em
+# `_dre_hist` — se o xlsx anual mudou DEPOIS do último rebuild, o fechamento novo ainda
+# não entrou na base. Foi exatamente o caso em 26/08/2026: julho ajustado em 18/08 e a
+# base do repo parada em 11/08, sem EMBRIÕES PRODUZIDOS (82.500) nem as baixas de
+# estoque. O deck sairia com julho pela metade e sem reclamar de nada.
+DRE_HIST = DRE_DIR / "DRE_Historico.xlsx"
 _hist_cache = {}
 
 # rótulo -> arquivo efetivamente aberto neste run. Vai para o spec e de lá para a
@@ -133,23 +152,32 @@ def _registra(rotulo, caminho):
 _dre_hist_cache = []
 
 
+def _quando(p: Path) -> datetime:
+    return datetime.fromtimestamp(p.stat().st_mtime)
+
+
 def _dre_hist():
-    """Cópia mais recente do DRE_Historico, dizendo qual usou. O aviso sai UMA vez por
-    run: a função é chamada tanto na checagem de existência quanto na leitura."""
+    """A base do repo de rotinas, avisando se ela ficou para trás dos xlsx anuais.
+
+    O aviso sai UMA vez por run: a função é chamada tanto na checagem de existência
+    quanto na leitura."""
     if _dre_hist_cache:
         return _dre_hist_cache[0]
-    existentes = [p for p in DRE_HIST_CANDIDATOS if p.exists()]
-    if not existentes:
+    if not DRE_HIST.exists():
         return None
-    d = lambda p: datetime.fromtimestamp(p.stat().st_mtime).strftime("%d/%m/%Y")
-    escolhido = max(existentes, key=lambda p: p.stat().st_mtime)
-    atrasadas = [o for o in existentes if o != escolhido]
-    msg = f"  [dre] lendo a cópia de {escolhido.parents[1].name} ({d(escolhido)})"
-    if atrasadas:
-        msg += " — mais nova que " + ", ".join(f"{o.parents[1].name} ({d(o)})" for o in atrasadas)
-    print(msg)
-    _dre_hist_cache.append(_registra("DRE histórico", escolhido))
-    return escolhido
+    dia = lambda p: _quando(p).strftime("%d/%m/%Y")
+    # a base é derivada dos anuais; anual mais novo que ela = fechamento fora da base
+    atrasos = [f for f in (DRE_HARAS, DRE_CASA)
+               if f.exists() and _quando(f) > _quando(DRE_HIST)]
+    if atrasos:
+        aviso(f"DRE_Historico é de {dia(DRE_HIST)}, mais antigo que "
+              + ", ".join(f"{f.name} ({dia(f)})" for f in atrasos)
+              + f" — o fechamento novo NÃO está na base. Rode LxDREdataExtractor.py "
+                f"em {DRE_DIR} e responda TUDO (o modo incremental não recalcula mês "
+                f"que já existe; _rebuild.py não serve, derruba Base DRE Geral e Base YTD)")
+    print(f"  [dre] base de {dia(DRE_HIST)} — {DRE_HIST}")
+    _dre_hist_cache.append(_registra("DRE histórico", DRE_HIST))
+    return DRE_HIST
 
 
 def le_historico():
@@ -170,14 +198,24 @@ def le_historico():
 
 
 def meses_fechados(cc="HPG", modelo="Competência", ano=2026):
-    """Mês só entra no deck quando tem realizado lançado — mês futuro tem só
-    orçado, e um deck com realizado zerado engana mais do que informa."""
+    """Mês só entra no deck quando ACABOU e tem realizado lançado.
+
+    Duas condições, e a primeira não era necessária até 26/08/2026. O
+    `_rebuild.py` corta o mês corrente (`r["data"] <= cutoff`); o `rebuild_all()`
+    do próprio extractor, não — e é ele que precisa ser usado, porque o
+    `_rebuild.py` só escreve a Base DRE. Resultado: rodar o rebuild no dia 26
+    trouxe agosto com 26 dias de lançamento, e o deck padrão virou um mês pela
+    metade. Mês corrente parece fechado porque tem realizado; só a data diz que
+    não está."""
     h = le_historico()
     if not h:
         return []
+    hoje = datetime.now()
+    limite = 12 if ano < hoje.year else hoje.month - 1   # ano futuro não chega aqui
     g = h["geral"]
     g = g[(g["Centro de Custo"] == cc) & (g["Modelo"] == modelo) & (g["ano"] == ano)]
-    return sorted(int(m) for m, s in g.groupby("mes")["Realizado"].apply(lambda x: x.abs().sum()).items() if s)
+    lancados = g.groupby("mes")["Realizado"].apply(lambda x: x.abs().sum())
+    return sorted(int(m) for m, s in lancados.items() if s and int(m) <= limite)
 
 
 def pct(orc, real):
@@ -267,6 +305,9 @@ def slide_investimentos(m, ano):
     if not DRE_HARAS.exists():
         return pend(9, f"INVESTIMENTOS — COMENTÁRIOS {ano}", "", DRE_HARAS.name, "arquivo não encontrado")
     import openpyxl
+    # único slide que não sai do DRE_Historico; sem registrar, o caminho dele não
+    # aparecia na auditoria — e foi por isso que a cópia de março passou meses despercebida
+    _registra("DRE anual (Haras)", DRE_HARAS)
     wb = openpyxl.load_workbook(DRE_HARAS, data_only=True, read_only=True)
     ws = wb["Investimentos"]
     BLOCOS = ("INFRAESTRUTURA", "COMPRA DE ANIMAIS E PRODUTOS", "MÁQUINAS E EQUIPAMENTOS",
@@ -733,41 +774,31 @@ def slide_coberturas():
 # O ControleInadimplencia.py já grava os agregados; não é preciso print do
 # dashboard nem tocar em linha identificável — aqui só entram KPI e faixa etária,
 # que não têm nome de devedor.
-# Mesmo problema do DRE_Historico: a saída é derivada e existe em mais de um lugar.
-# O `ControleInadimplencia.py` grava em output_pbi ao lado do próprio script (é o que
-# o hub do P&C lê); a pasta do Drive é uma cópia que envelhece — em 26/08/2026 estava
-# em 20/07 enquanto o repo tinha 13/08. Ficam as duas candidatas e vence a mais nova.
-INAD_DIRS = (
-    Path(r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi"),
-    Path(r"G:/Drives compartilhados/Luxor Controladoria/Ambiente de testes"
-         r"/Controle de inadimplência/output_pbi"),
-)
+# Mesmo caso do DRE_Historico: saída derivada que existia em dois lugares. O
+# `ControleInadimplencia.py` grava em output_pbi ao lado do próprio script — é o que o
+# hub do P&C lê, e é a única cópia daqui em diante. A do Drive ficava em
+# `Ambiente de testes`, deprecated, e envelhecia calada (20/07 contra 13/08 do repo).
+INAD_DIR = Path(r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi")
 
 
 def _inad_dir():
-    """Pasta com o par de saídas mais recente. Diz no log qual venceu."""
-    achadas = [d for d in INAD_DIRS
-               if (d / "indicadores_kpi.xlsx").exists() and (d / "resumo_por_faixa.xlsx").exists()]
-    if not achadas:
+    """A pasta de saída do repo, se o par de arquivos estiver lá."""
+    if not ((INAD_DIR / "indicadores_kpi.xlsx").exists()
+            and (INAD_DIR / "resumo_por_faixa.xlsx").exists()):
         return None
-    escolhida = max(achadas, key=lambda d: (d / "indicadores_kpi.xlsx").stat().st_mtime)
-    quando = lambda d: datetime.fromtimestamp(
-        (d / "indicadores_kpi.xlsx").stat().st_mtime).strftime("%d/%m/%Y")
-    msg = f"  [inad] lendo {escolhida.parents[1].name} ({quando(escolhida)})"
-    atrasadas = [d for d in achadas if d != escolhida]
-    if atrasadas:
-        msg += " — mais nova que " + ", ".join(f"{d.parents[1].name} ({quando(d)})" for d in atrasadas)
-    print(msg)
-    return escolhida
+    quando = datetime.fromtimestamp(
+        (INAD_DIR / "indicadores_kpi.xlsx").stat().st_mtime).strftime("%d/%m/%Y")
+    print(f"  [inad] saída de {quando} — {INAD_DIR}")
+    return INAD_DIR
 
 
 def slide_inadimplencia(m, ano):
-    INAD_DIR = _inad_dir()
-    if INAD_DIR is None:
+    pasta = _inad_dir()
+    if pasta is None:
         return pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
                     "controle-de-inadimplencia → output_pbi/indicadores_kpi.xlsx",
-                    "saída não encontrada em nenhuma das cópias; rode o ControleInadimplencia.py")
-    kpi_f, faixa_f = INAD_DIR / "indicadores_kpi.xlsx", INAD_DIR / "resumo_por_faixa.xlsx"
+                    "saída não encontrada; rode o ControleInadimplencia.py")
+    kpi_f, faixa_f = pasta / "indicadores_kpi.xlsx", pasta / "resumo_por_faixa.xlsx"
     k = pd.read_excel(_registra("inadimplência (KPI)", kpi_f)).iloc[0]
     fx = pd.read_excel(_registra("inadimplência (faixas)", faixa_f))
     ref = pd.to_datetime(k["data_referencia"]).strftime("%d/%m/%Y")
@@ -1187,9 +1218,8 @@ def build(so_mes=None):
     ano = so_mes.year if so_mes else 2026
     ctx = {}
     if _dre_hist() is None:
-        aviso("DRE_Historico.xlsx não encontrado em nenhuma das cópias conhecidas "
-              f"({' | '.join(str(c.parent) for c in DRE_HIST_CANDIDATOS)}) "
-              "— seção financeira fica pendente")
+        aviso(f"DRE_Historico.xlsx não encontrado em {DRE_DIR} — seção financeira fica "
+              "pendente. É saída do LxDREdataExtractor.py, que grava na pasta dele mesmo")
         meses = []
     else:
         meses = meses_fechados(ano=ano)

@@ -52,8 +52,8 @@ POR_SLIDE = {
          "Acumulado do ano até o mês da referência, só subtotais. É o número que o comitê trimestral olha — por isso este slide fica nos dois decks."),
     8:  ("_docs/comite_conteudo.json", "comentarios",
          "Escrito à mão por mês. Não sai de planilha: é a leitura de quem fechou o mês sobre as variações do YTD."),
-    9:  ("DRE 2026 HPG - HARAS.xlsx", "Investimentos",
-         "Única parte do financeiro fora do histórico: a descrição de cada compra só existe no arquivo do ano."),
+    9:  ("DRE anual (Haras)", "Investimentos",
+         "Única parte do financeiro fora do histórico: a descrição de cada compra só existe no arquivo do ano. Lia a cópia em 'Ambiente de testes', parada em 18/03/2026; passou a ler o original em Relatórios Gerenciais."),
     10: ("DRE histórico", "Base DRE Geral",
          "CC = HPG, modelo Caixa, mês da referência. Regime de caixa, não competência."),
     11: ("base_bi.parquet", "fato_plantel",
@@ -103,6 +103,7 @@ POR_SLIDE = {
 # O que cada fonte alimenta. Metadado estável: muda quando a origem muda.
 ALIMENTA = {
     "DRE histórico": "Haras competência, custos, despesas, YTD, caixa e Casa/FPG",
+    "DRE anual (Haras)": "Investimentos do ano, com a descrição de cada compra",
     "estacao de monta": "Embriões e prenhezes, garanhões, comparativo, doadoras A e B",
     "coberturas de fora": "Coberturas disponíveis por garanhão de fora",
     "mapa de vendas": "Resultado acumulado e detalhamento por mês e evento",
