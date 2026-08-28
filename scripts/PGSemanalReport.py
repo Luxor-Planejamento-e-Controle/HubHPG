@@ -1556,9 +1556,16 @@ def build_pendentes(rep: Report):
     # receptora e embriões de terceiro que passaram pela estação: em 14/08/2026 dava 8
     # e batia com o relatório por coincidência de número, não por ser a mesma coisa.
     # Nenhuma das 8 linhas está no roster do plantel, e 7 das 8 estão fora da fazenda.
-    terceiros = vendidos          # o relatorio publica o mesmo numero nas duas linhas
-    terc_embrioes = [t for t in terceiros if t.get("especie") == "EMBRIAO"]
-    terc_animais = [t for t in terceiros if t.get("especie") != "EMBRIAO"]
+    #
+    # "NA PROPRIEDADE" é presença física — embrião não ocupa espaço, então não conta
+    # aqui mesmo sendo 'vendido pendente'. Em 14/08 os dois totais empatavam (8 e 8,
+    # sem embrião no lote), o que escondia a diferença; em 28/08 o relatório abriu os
+    # dois: linha 4 "05 (vendidos pendentes)" só animal, linha 5 "07 (05 animais e 02
+    # embriões)" com embrião. `terceiros = vendidos` tratava as duas linhas como a
+    # mesma contagem e ficou errado assim que apareceu embrião no lote.
+    terc_embrioes = [t for t in vendidos if t.get("especie") == "EMBRIAO"]
+    terc_animais = [t for t in vendidos if t.get("especie") != "EMBRIAO"]
+    terceiros = terc_animais
 
     # DOADORAS DE TERCEIROS: doadora de terceiro que está NA PROPRIEDADE — fazenda ou
     # arrendamento. As marcadas em LOCAL 'OUTROS' não contam: 'OUTROS' é para onde o
