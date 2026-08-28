@@ -269,10 +269,10 @@ const SECTIONS = [
     {p:"hc.soc", l:"Sócios", get:s=>s.headcount?.socio},
  ]},
  {n:"4", t:"TERCEIROS NA PROPRIEDADE", wide:true, kpis:[
-    // terceiros != vendidos pendentes: são duas marcações distintas no STATUS PLANTEL
-    // ('DE TERCEIRO' e 'VENDIDO PENDENTE SAIDA'). O rótulo antigo dizia que eram a
-    // mesma coisa porque o cálculo copiava um no outro.
-    // a abertura (animais x embrioes) fica na tabela de detalhe, nao dentro do card
+    // "Total terceiros" É "vendidos pendentes" (o próprio relatório oficial escreve
+    // "05 (vendidos pendentes)" nesta linha) — só animal, embrião não ocupa espaço
+    // físico e tem lista própria na seção 5. A lista de detalhe fica logo abaixo,
+    // nesta seção, não na 5 — pedido de 28/08/2026.
     {p:"ter.tot", l:"Total terceiros", get:s=>s.terceiros?.terceiros_propriedade},
     {p:"ter.doa", l:"Doadoras terceiros", get:s=>s.terceiros?.doadoras_terceiros},
     {p:"ter.out", l:"Outros terceiros (cavalgada / treino)", get:s=>s.terceiros?.outros_terceiros},
@@ -302,7 +302,7 @@ const SECTIONS = [
     {p:"sai.en", l:"Entradas na semana",
      get:s=>movVal(s,s.movimento?.entradas,(s.detalhe||{}).entradas)},
  ], det:[["Saídas na semana","saidas"],["Entradas na semana","entradas"],
-         ["Vendidos pendentes de saída","terceiros_vendidos"],
+         ["Embriões pendentes de saída","terceiros_vendidos_embrioes"],
          ["Em sociedade pendentes de saída","terceiros_sociedade"]]},
 ];
 
