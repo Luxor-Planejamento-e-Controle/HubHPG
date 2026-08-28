@@ -407,6 +407,7 @@ function render(){
       delOv(e.target.dataset.path); render();
     }));
   }
+  renderPdfs();
 }
 
 document.getElementById("semana").addEventListener("change",e=>{semana=e.target.value; saveState(KEY_WK,semana); render();});
