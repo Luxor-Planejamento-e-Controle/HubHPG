@@ -1078,7 +1078,7 @@ def _saidas_entradas_planilha(wb, ini: date, fim: date):
         if not d or not (ini <= d <= fim):
             continue
         classif = _norm(r[5])
-        alvo, afeta = _classificar_se(classif)
+        alvo, afeta = _classificar_se(classif, _s(r[1]))
         if alvo is None:
             # classificação nova na planilha: avisar, nunca virar zero calado
             desconhecidas.append(f"linha {i} ({_s(r[1])}): {_s(r[5])!r}")
