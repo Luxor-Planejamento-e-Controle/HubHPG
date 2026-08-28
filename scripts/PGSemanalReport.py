@@ -1527,32 +1527,13 @@ def build_pendentes(rep: Report):
               f"(congelado em 24/07/2026)")
 
     # SOCIEDADE pendente = animais + embriões (regra do relatório desde 07/08/2026).
-    # Continua no "Animais para sair" porque o STATUS PLANTEL não marca sociedade —
-    # MUSICA e NOBRE estão lá como 'PLANTEL' puro.
-    soc_todos = [p for p in pend if p["tipo"] == "SOCIEDADE"]
-    bloqueados = [p for p in soc_todos
-                  if any(b in _norm(p.get("obs")) for b in OBS_BLOQUEIA_SAIDA)]
-    if bloqueados:
-        print("  [pendentes] em sociedade com pendência documental, fora da conta: "
-              + "; ".join(f'{p["nome"]} ({p["obs"]})' for p in bloqueados))
-    # O "Animais para sair" esta congelado desde 24/07/2026, entao um animal listado la
-    # pode ja ter saido. O teste e a PRESENCA no roster mensal (fresco), nao a marca de
-    # status: sociedade nunca recebe marca — MUSICA e NOBRE estao la como 'PLANTEL'
-    # puro, e exigir marca derrubava os dois por construcao (foi o que zerou a sociedade
-    # de 21/08, onde o relatorio publica justamente 1 animal = MUSICA). Sumiu do roster
-    # = saiu da fazenda = nao esta mais pendente.
-    nomes_roster = {_nucleo_nome(n) for n in rep.roster}
-    fantasmas = [p for p in soc_todos
-                 if p not in bloqueados and _nucleo_nome(p["nome"]) not in nomes_roster]
-    if fantasmas:
-        print("  [pendentes] em sociedade pelo 'Animais para sair' (24/07) mas fora do "
-              "roster mensal — ja saiu, tratado como nao pendente: "
-              + "; ".join(p["nome"] for p in fantasmas))
-    # Animal em sociedade pendente: o 'Animais para sair' está congelado em 24/07 e
-    # o roster mensal não marca sociedade. Sem fonte viva, a lista fica vazia — e o
-    # relatório de 21/08 confirma: "01 (embrião)", nenhum animal. Os nomes de lá
-    # continuam saindo como aviso acima, para não sumirem calados.
-    soc_animais = []
+    # Até 28/08/2026 não havia marca viva pra animal em sociedade — só o "Animais
+    # para sair", congelado em 24/07 — e soc_animais ficava sempre vazio (o
+    # relatório de 21/08 confirmava: "01 (embrião)", nenhum animal). O haras passou
+    # a marcar direto na coluna OBS do roster mensal com a frase
+    # STATUS_SOCIEDADE_PENDENTE, mesma ideia do VENDIDO PENDENTE SAIDA — então a
+    # fonte agora é viva e o teste vira leitura direta, igual aos vendidos.
+    soc_animais = mensal["sociedade_pendentes"]
     # Embrião de sociedade vem da aba de sócios do grupo, não do 'EMBRIOES A
     # ENTREGAR' — ver _embrioes_sociedade_pendentes.
     soc_embrioes = _embrioes_sociedade_pendentes()
