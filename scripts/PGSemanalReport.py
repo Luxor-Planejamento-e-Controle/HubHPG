@@ -833,30 +833,28 @@ def build_receptoras(rep: Report):
         elif st.startswith("VAZIA"):
             vaz += 1
     wb.close()
-    doadoras_plantel = _count_doadoras()             # CATEGORIA='DOADORA' no plantel
-    doadoras_fpg = _count_doadoras("FAZENDA PAO GRANDE")   # só referência
+    doadoras_plantel = _count_doadoras()             # linhas da aba PLANEJAMENTO
     doadoras = DOADORAS_INDICE or doadoras_plantel
     rep.receptoras = {
         "total": pren + vaz,
         "prenhas": pren,
         "vazias": vaz,
-        # Índice = vazias ÷ doadoras (CATEGORIA='DOADORA' no roster). Confirmado
+        # Índice = vazias ÷ doadoras (linhas da aba PLANEJAMENTO). Confirmado
         # contra os dois pontos do histórico (21/08: doadoras=12, ciclando=10,
         # índice=2,5 — só 30÷12 fecha; 30÷10 dá 3,0) depois de eu ter "corrigido"
         # isto errado em 28/08/2026 pra usar ciclando, sem checar contra semana
         # nenhuma. Revertido. 'doadoras_ciclando' é indicador PRÓPRIO no relatório
         # (card ao lado), não entra nesta conta.
         "doadoras": doadoras,
-        "doadoras_fonte": "fixo" if DOADORAS_INDICE else "plantel",
+        "doadoras_fonte": "fixo" if DOADORAS_INDICE else "planejamento",
         "doadoras_plantel": doadoras_plantel,
-        "doadoras_plantel_fpg": doadoras_fpg,
         "indice_eficiencia": round(vaz / doadoras, 1) if doadoras else None,
         # preenchido em bases/semanal_manual.json (ver _manual): sem fonte de dado
         "doadoras_ciclando": None,
     }
     if DOADORAS_INDICE and DOADORAS_INDICE != doadoras_plantel:
         print(f"  [receptoras] índice usa {DOADORAS_INDICE} doadoras (fixo); "
-              f"no plantel há {doadoras_fpg} na FPG e {doadoras_plantel} no total")
+              f"PLANEJAMENTO tem {doadoras_plantel}")
 
 
 # Denominador do índice de eficiência.
