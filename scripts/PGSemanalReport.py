@@ -2206,16 +2206,13 @@ def _paricoes_do_roster(rep: Report):
              "socio": _socio_da_recep(da_safra[k]["receptora"]),
              "origem": "roster"} for k in desta]
 
-        # Potro que nasce ENTRA no plantel: o roster cresce e o headcount sobe —
-        # então ele conta no Δ ('+02 / -01' = 2 nascimentos, 1 venda), e por isso vai
-        # para `entradas_no_headcount`, que é o que o Δ usa.
-        #
-        # Mas NÃO é "entrada na semana": entrada é animal que chega de fora. O potro
-        # já aparece em 'Nascimentos'; somá-lo às entradas colocava o mesmo animal em
-        # duas linhas do relatório. Fica fora de `entradas_semana` e da lista da
-        # seção 5, e continua registrado aqui para quem precisar da abertura do Δ.
-        rep.saidas["entradas_no_headcount"] = (
-            rep.saidas.get("entradas_no_headcount") or 0) + len(desta)
+        # Nascimento NÃO é entrada — entrada e saída no Δ do headcount são
+        # FÍSICAS: animal que chega de fora ou que sai da fazenda de verdade.
+        # Potro nascido aqui não "entra" de lugar nenhum, já está na conta.
+        # Errado antes: somava a `entradas_no_headcount`, dando '+02' quando o
+        # relatório de 28/08/2026 diz '+00' — confirmado direto: 2 saídas físicas
+        # na semana (GIM MATIZA + PODIO), nenhuma entrada. Fica só registrado
+        # aqui pra quem precisar da abertura de nascimento-só-por-roster.
         rep.saidas["entradas_nascimento"] = len(desta)
     print(f"  [nascimentos] {len(da_safra)} parição(ões) da safra conhecidas só pelo "
           f"roster, somadas ao acumulado (a aba ESTAÇÃO não as tem):")
