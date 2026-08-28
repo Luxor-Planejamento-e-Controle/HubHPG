@@ -1468,6 +1468,52 @@ def _status_plantel_mensal() -> dict:
             "sociedade_pendentes": soc_pend, "socio_por_recep": socio_por_recep}
 
 
+# Marca DIRETA na ESTAÇÃO — ajuste combinado com o haras em 28/08/2026, ainda sem
+# nenhuma linha lançada nos dois arquivos daquela data. Coluna OBSERVAÇÃO (AF,
+# índice 31) = 'pendente de saída' quando STATUS (AG, índice 32) é VENDIDO ou
+# SOCIO. Vira A fonte assim que tiver linha marcada — mais direta que os dois
+# jeitos indiretos abaixo (ENTREGAR pra venda, COTAS/SÓCIO EMBRIÃO pra
+# sociedade), que ficam só de fallback enquanto a coluna está vazia.
+COL_ESTACAO_OBS = 31
+COL_ESTACAO_STATUS = 32
+STATUS_ESTACAO_VENDA = "VENDIDO"
+STATUS_ESTACAO_SOCIO = "SOCIO"
+
+
+def _embrioes_pendentes_estacao() -> list:
+    """Embriões marcados pendentes de saída direto na ESTAÇÃO. Vazio até o haras
+    começar a marcar — quem chama trata lista vazia como 'ainda sem marca',
+    não como 'não há pendência'."""
+    master = _latest_estacao_master()
+    wb = _load(master)
+    ws = wb["ESTAÇÃO"]
+    out = []
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i < 3 or r[2] is None:
+            continue
+        obs = _norm(r[COL_ESTACAO_OBS]) if len(r) > COL_ESTACAO_OBS else ""
+        if "PENDENTE" not in obs or "SAIDA" not in obs:
+            continue
+        status = _norm(r[COL_ESTACAO_STATUS]) if len(r) > COL_ESTACAO_STATUS else ""
+        if status == STATUS_ESTACAO_VENDA:
+            tipo = "VENDA"
+        elif status == STATUS_ESTACAO_SOCIO:
+            tipo = "SOCIEDADE"
+        else:
+            print(f"  [embriões] {_s(r[2])} x {_s(r[3])}: OBS marca pendente de "
+                  f"saída mas STATUS ({_s(r[COL_ESTACAO_STATUS])!r}) não é "
+                  f"VENDIDO nem SOCIO — fora da conta, conferir")
+            continue
+        out.append({
+            "nome": f"{_s(r[2])} x {_s(r[3])}", "local": None, "cota": None,
+            "comprador": _s(r[34]) if len(r) > 34 else None,
+            "tipo": tipo, "obs": _s(r[COL_ESTACAO_OBS]), "reposicao": False,
+            "especie": "EMBRIAO",
+        })
+    wb.close()
+    return out
+
+
 # Embrião comercial pendente de saída: aba ENTREGAR do "EMBRIOES A ENTREGAR - A
 # RECEBER". 'Cota PG' < 1 = sociedade; = 1 = venda 100%.
 #
@@ -1548,7 +1594,11 @@ def build_pendentes(rep: Report):
     # sido corrigido por coincidência igual). O embrião de venda pendente de
     # verdade é o de cota 100% em EMB_COMERCIAIS/ENTREGAR, 'Pronto - Aguardando
     # Entrega' — é o que _embrioes_pendentes() já lia, sem ninguém consumir.
-    vend_embrioes = [e for e in pend_emb if e["tipo"] == "VENDA"]
+    emb_estacao = _embrioes_pendentes_estacao()
+    if emb_estacao:
+        vend_embrioes = [e for e in emb_estacao if e["tipo"] == "VENDA"]
+    else:
+        vend_embrioes = [e for e in pend_emb if e["tipo"] == "VENDA"]
     # REPOSIÇÃO não é venda pendente: o animal está saindo para repor outro, não para
     # um comprador. O STATUS PLANTEL não tem essa marca — ela vive na coluna de obs do
     # Animais para sair —, então cruzamos os dois pelo núcleo do nome. Essa regra
@@ -1583,9 +1633,14 @@ def build_pendentes(rep: Report):
     # STATUS_SOCIEDADE_PENDENTE, mesma ideia do VENDIDO PENDENTE SAIDA — então a
     # fonte agora é viva e o teste vira leitura direta, igual aos vendidos.
     soc_animais = mensal["sociedade_pendentes"]
-    # Embrião de sociedade vem da aba de sócios do grupo, não do 'EMBRIOES A
-    # ENTREGAR' — ver _embrioes_sociedade_pendentes.
-    soc_embrioes = _embrioes_sociedade_pendentes()
+    # Embrião de sociedade: preferência é a marca direta na ESTAÇÃO (ver
+    # _embrioes_pendentes_estacao, ajuste de 28/08/2026). Sem marca ainda, cai no
+    # jeito indireto anterior — aba de sócios do grupo (COTAS/SÓCIO EMBRIÃO,
+    # sem parto nem aborto).
+    if emb_estacao:
+        soc_embrioes = [e for e in emb_estacao if e["tipo"] == "SOCIEDADE"]
+    else:
+        soc_embrioes = _embrioes_sociedade_pendentes()
     sociedade = soc_animais + soc_embrioes
     rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
 
