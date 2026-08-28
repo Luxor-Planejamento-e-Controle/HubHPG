@@ -145,7 +145,7 @@ async function loadData(dashboards){
     // frente do bucket serve HIT mesmo com o objeto marcado 'Cache-Control:
     // no-store' (achado em 28/08/2026, checando os headers direto: CF-Cache-
     // Status: HIT). Uma correção nova podia ficar presa na borda por um tempo,
-    # parecendo cache do navegador quando na verdade nem chegava lá.
+    // parecendo cache do navegador quando na verdade nem chegava lá.
     // URL assinada + query de cache-busting força os dois: o `cb=` muda a URL
     // completa a cada load (o CDN nunca acha a entrada velha) e `cache:
     // no-store` no fetch ignora o cache do navegador também.
