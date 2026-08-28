@@ -141,10 +141,24 @@ async function loadData(dashboards){
   await Promise.all(dashboards.map(async d => {
     const spec = HUB_DATASETS[d];
     if(!spec) return;
-    const { data, error } = await sb.storage.from(bucket).download(spec.file);
-    if(error){ console.warn('[hub] snapshot ausente:', spec.file, error.message); return; }
+    // `.download()` do supabase-js não dá controle de cache, e o Cloudflare na
+    // frente do bucket serve HIT mesmo com o objeto marcado 'Cache-Control:
+    // no-store' (achado em 28/08/2026, checando os headers direto: CF-Cache-
+    // Status: HIT). Uma correção nova podia ficar presa na borda por um tempo,
+    # parecendo cache do navegador quando na verdade nem chegava lá.
+    // URL assinada + query de cache-busting força os dois: o `cb=` muda a URL
+    // completa a cada load (o CDN nunca acha a entrada velha) e `cache:
+    // no-store` no fetch ignora o cache do navegador também.
+    const { data: signed, error: signErr } =
+      await sb.storage.from(bucket).createSignedUrl(spec.file, 60);
+    if(signErr){ console.warn('[hub] snapshot ausente:', spec.file, signErr.message); return; }
+    const bust = signed.signedUrl + (signed.signedUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+    let res;
+    try { res = await fetch(bust, { cache: 'no-store' }); }
+    catch(e){ console.warn('[hub] falha ao baixar:', spec.file, e); return; }
+    if(!res.ok){ console.warn('[hub] snapshot ausente:', spec.file, res.status); return; }
     try {
-      const txt = await data.text();
+      const txt = await res.text();
       // Dado do plantel nunca vira arquivo público: fica só em memória. O HTML
       // do semanal entra por srcdoc; o spec do comitê é lido pelo iframe do deck
       // via window.parent.HUB.comiteSpec.
