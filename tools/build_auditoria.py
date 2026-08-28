@@ -161,6 +161,14 @@ def _porque(lab, calc, alvo, snap, dx, hist, semana):
         hc = snap.get("headcount") or {}
         ant = max((w for w in sorted(hist) if R._is_iso(w) and w < semana), default=None)
         nosso_ant = (hist[ant].get("headcount") or {}).get("total") if ant else None
+        if hc.get("delta_animais") is None:
+            return (f"O diff de roster foi pulado nesta semana — a fonte trocou de "
+                    f"controle semanal para mensal e o nome de potro difere entre as duas "
+                    f"planilhas, então não dá pra casar linha a linha. Volta a calcular "
+                    f"sozinho a partir da próxima semana. O Δ do relatório "
+                    f"({dx['headcount'].get('delta_txt')}) conta só ANIMAIS; o total "
+                    f"({nosso_ant} -> {hc.get('total')}) inclui receptora, e por isso os "
+                    f"dois já divergiam antes mesmo do diff ser pulado.")
         return (f"O Δ do relatório conta ANIMAIS ({dx['headcount'].get('delta_txt')}), não o "
                 f"total: receptora que vai pro sócio sai da contagem e não aparece ali. "
                 f"Nesta semana os animais foram {hc.get('delta_animais'):+d} e as receptoras "
