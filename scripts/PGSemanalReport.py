@@ -1847,6 +1847,21 @@ def _compute_movimento(rep: Report):
     """
     if rep.saidas_planilha:
         ent, sai = rep.saidas_planilha["ENTRADA"], rep.saidas_planilha["SAIDA"]
+        # A aba SAIDAS-ENTRADAS registra a VENDA quando ela é fechada, não quando o
+        # animal fisicamente sai — e o STATUS PLANTEL pode continuar 'VENDIDO
+        # PENDENTE SAIDA' depois disso. Achado em 28/08/2026: INUSITADA DA PAO GRANDE
+        # tinha SAIDA-VENDA lançada nesta semana E status ainda pendente — contada
+        # como saída E como pendente ao mesmo tempo. O relatório oficial só conta
+        # como saída quando ela DE FATO sai (03 saídas, não 04) — então quem ainda
+        # está pendente sai da conta de saídas e fica só na de pendentes.
+        pendentes_nomes = {_norm(p["nome"]) for p in rep.detalhe.get("terceiros_propriedade") or []}
+        sai_pendente = [e for e in sai if _norm(e.get("animal")) in pendentes_nomes]
+        if sai_pendente:
+            print(f"  [saídas] {len(sai_pendente)} lançamento(s) de venda com STATUS "
+                  f"ainda 'VENDIDO PENDENTE SAIDA' — venda fechada mas animal não "
+                  f"saiu de fato, fora da conta de saídas: "
+                  + "; ".join(e["animal"] for e in sai_pendente))
+            sai = [e for e in sai if _norm(e.get("animal")) not in pendentes_nomes]
         rep.saidas["saidas_semana"] = len(sai)
         rep.saidas["entradas_semana"] = len(ent)
         rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
