@@ -2344,6 +2344,11 @@ def _snap_from_rep(rep: Report) -> dict:
         # 'acumulado no mês' (esse é confirmação nova no mês corrente, qualquer
         # safra; aquele é confirmação nova desde que a safra nova começou).
         "acumulado_estacao_proxima": rep.producao.get("acumulado_estacao_proxima"),
+        # Mesmo esquecimento, quarta vez: sem isto o card do dashboard nunca aparecia
+        # — o skip é 'sem safra_proxima_rotulo, esconde', e o rótulo nunca chegava
+        # no snapshot pra além de ser calculado em rep.producao.
+        "safra_atual_rotulo": rep.producao.get("safra_atual_rotulo"),
+        "safra_proxima_rotulo": rep.producao.get("safra_proxima_rotulo"),
         "confirmados_semana": rep.producao.get("confirmados_semana"),
         "acumulado_mes": rep.producao.get("acumulado_mes"),
         "nascimentos": rep.producao.get("nascimentos"),
