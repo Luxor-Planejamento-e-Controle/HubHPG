@@ -2366,6 +2366,12 @@ def _snap_from_rep(rep: Report) -> dict:
             "saidas": rep.detalhe.get("saidas_diff"),
             "entradas": rep.detalhe.get("entradas_diff"),
             "pendentes_saida": rep.detalhe.get("pendentes_saida"),
+            # Faltava esta — mesmo esquecimento do fontes_caminhos e do
+            # acumulado_estacao_proxima: existe em rep.detalhe, nunca chegava no
+            # dict congelado. É a lista que a seção 4 (Terceiros na propriedade /
+            # vendidos pendentes) mostra; sem isto ela renderiza vazia mesmo com o
+            # KPI certo ao lado, porque o KPI lê rep.terceiros e a tabela lê o snapshot.
+            "terceiros_propriedade": rep.detalhe.get("terceiros_propriedade"),
             "terceiros_vendidos": rep.detalhe.get("terceiros_vendidos"),
             "terceiros_vendidos_embrioes": rep.detalhe.get("terceiros_vendidos_embrioes"),
             "terceiros_sociedade": rep.detalhe.get("terceiros_sociedade"),
