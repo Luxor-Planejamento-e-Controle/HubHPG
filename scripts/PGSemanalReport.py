@@ -1491,6 +1491,14 @@ def _embrioes_pendentes_estacao() -> list:
     """Embriões marcados pendentes de saída direto na ESTAÇÃO. Vazio até o haras
     começar a marcar — quem chama trata lista vazia como 'ainda sem marca',
     não como 'não há pendência'."""
+    # AJUSTE NA MARRETADA (28/08/2026) — só nesta exibição do hub, pra liberar o
+    # relatório sem esperar o haras corrigir a fonte: LIBRA DA PAO GRANDE x LATINO
+    # DA PAO GRANDE está com STATUS='SOCIO' na ESTAÇÃO, mas o comprador (LAEL) é
+    # 100% dono, não é sociedade de verdade — STATUS mal marcado na origem. TIRAR
+    # esta exclusão assim que o STATUS da linha virar VENDIDO na planilha (aí ela
+    # entra sozinha em 'vendidos', sem precisar disto aqui).
+    EXCECAO_TEMP_NAO_SOCIEDADE = {("LIBRA DA PAO GRANDE", "LATINO DA PAO GRANDE")}
+
     locais = _receptoras_locais()
     master = _latest_estacao_master()
     wb = _load(master)
@@ -1501,6 +1509,8 @@ def _embrioes_pendentes_estacao() -> list:
             continue
         obs = _norm(r[COL_ESTACAO_OBS]) if len(r) > COL_ESTACAO_OBS else ""
         if "PENDENTE" not in obs or "SAIDA" not in obs:
+            continue
+        if (_s(r[2]), _s(r[3])) in EXCECAO_TEMP_NAO_SOCIEDADE:
             continue
         status = _norm(r[COL_ESTACAO_STATUS]) if len(r) > COL_ESTACAO_STATUS else ""
         if status == STATUS_ESTACAO_VENDA:
