@@ -1601,6 +1601,11 @@ def build_pendentes(rep: Report):
     rep.detalhe["doadoras_terceiros"] = doadoras_terc
     rep.detalhe["terceiros_propriedade"] = terceiros
     rep.detalhe["terceiros_vendidos"] = vendidos          # vendidos pendentes (KPI seção 5)
+    # A lista de vendidos pendentes vai logo abaixo da seção 4 (é o mesmo conjunto do
+    # "Total terceiros", já que o relatório oficial escreve "05 (vendidos pendentes)"
+    # — as duas linhas SÃO a mesma coisa). Embrião pendente de venda tem lista própria
+    # na seção 5, porque não é "terceiro na propriedade": embrião não ocupa espaço.
+    rep.detalhe["terceiros_vendidos_embrioes"] = terc_embrioes
     rep.detalhe["terceiros_sociedade"] = sociedade        # sociedade pendente de saída, listada igual
     # lista completa da seção 5 = o que os dois KPIs contam. Era `pend + pend_emb` (só
     # o "Animais para sair"), então os marcados no STATUS PLANTEL não apareciam.
@@ -2362,6 +2367,7 @@ def _snap_from_rep(rep: Report) -> dict:
             "entradas": rep.detalhe.get("entradas_diff"),
             "pendentes_saida": rep.detalhe.get("pendentes_saida"),
             "terceiros_vendidos": rep.detalhe.get("terceiros_vendidos"),
+            "terceiros_vendidos_embrioes": rep.detalhe.get("terceiros_vendidos_embrioes"),
             "terceiros_sociedade": rep.detalhe.get("terceiros_sociedade"),
             "transferencias": rep.detalhe.get("transferencias_internas"),
         },

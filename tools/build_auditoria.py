@@ -62,8 +62,8 @@ FONTES = {
     "Receptoras vazias": ("2 · Receptoras", "ARRENDAMENTOS E RECEPTORAS · ANIMAIS",
         "STATUS começando com VAZIA."),
     "Índice eficiência": ("2 · Receptoras",
-        "ARRENDAMENTOS E RECEPTORAS · ANIMAIS\nCONTROLE_DE_PLANTEL mensal · PLANTEL",
-        "Vazias ÷ doadoras contadas (CATEGORIA = DOADORA). O relatório já oscilou entre divisor fixo 10 e o contado."),
+        "ARRENDAMENTOS E RECEPTORAS · ANIMAIS\n_cache/semanal_manual.json (input humano)",
+        "Vazias ÷ doadoras CICLANDO (disponíveis pra doar óvulo naquela semana) — não CATEGORIA = DOADORA do roster, que é cadastro, coisa diferente. Sem o manual preenchido o índice fica vazio; achado em 28/08/2026 que ele caía no divisor do roster (11) e batia 2,7 contra o 2,5 do relatório, que usa ciclando (12)."),
     "Headcount total": ("3 · Headcount",
         "CONTROLE_DE_PLANTEL mensal · PLANTEL\nARRENDAMENTOS E RECEPTORAS · ANIMAIS",
         "Animais por LOCAL mais receptoras do mesmo local. Reproduz o COUNTIF da aba CONTAGEM, que fica só como conferência."),
@@ -161,15 +161,19 @@ def _porque(lab, calc, alvo, snap, dx, hist, semana):
         hc = snap.get("headcount") or {}
         ant = max((w for w in sorted(hist) if R._is_iso(w) and w < semana), default=None)
         nosso_ant = (hist[ant].get("headcount") or {}).get("total") if ant else None
+        # delta_txt vem do docx já com o ')' de fechamento do parêntese da fonte
+        # ("... vs semana passada: +00 / -02)") — embrulhar de novo em "(...)" dava
+        # "(+00 / -02))", parêntese duplicado. Achado em 28/08/2026.
+        delta_txt = (dx["headcount"].get("delta_txt") or "").rstrip(")")
         if hc.get("delta_animais") is None:
             return (f"O diff de roster foi pulado nesta semana — a fonte trocou de "
                     f"controle semanal para mensal e o nome de potro difere entre as duas "
                     f"planilhas, então não dá pra casar linha a linha. Volta a calcular "
                     f"sozinho a partir da próxima semana. O Δ do relatório "
-                    f"({dx['headcount'].get('delta_txt')}) conta só ANIMAIS; o total "
+                    f"({delta_txt}) conta só ANIMAIS; o total "
                     f"({nosso_ant} -> {hc.get('total')}) inclui receptora, e por isso os "
                     f"dois já divergiam antes mesmo do diff ser pulado.")
-        return (f"O Δ do relatório conta ANIMAIS ({dx['headcount'].get('delta_txt')}), não o "
+        return (f"O Δ do relatório conta ANIMAIS ({delta_txt}), não o "
                 f"total: receptora que vai pro sócio sai da contagem e não aparece ali. "
                 f"Nesta semana os animais foram {hc.get('delta_animais'):+d} e as receptoras "
                 f"{hc.get('delta_receptoras'):+d}, então o total foi de {nosso_ant} para "

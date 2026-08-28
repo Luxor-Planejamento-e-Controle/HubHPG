@@ -276,7 +276,7 @@ const SECTIONS = [
     {p:"ter.tot", l:"Total terceiros", get:s=>s.terceiros?.terceiros_propriedade},
     {p:"ter.doa", l:"Doadoras terceiros", get:s=>s.terceiros?.doadoras_terceiros},
     {p:"ter.out", l:"Outros terceiros (cavalgada / treino)", get:s=>s.terceiros?.outros_terceiros},
- ], det:[["Terceiros na propriedade","terceiros_propriedade"]]},
+ ], det:[["Vendidos pendentes","terceiros_propriedade"]]},
  {n:"5", t:"SAÍDAS", wide:true, kpis:[
     {p:"sai.sa", l:"Saídas na semana",
      get:s=>movVal(s,s.movimento?.saidas,(s.detalhe||{}).saidas)},
