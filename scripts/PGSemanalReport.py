@@ -864,16 +864,39 @@ DOADORAS_INDICE = None
 
 
 def _count_doadoras(local: str | None = None) -> int:
-    """Doadoras no plantel = CATEGORIA 'DOADORA' no roster mensal, com as mesmas
-    regras do headcount (status, dedup por cotista). Com `local`, só as daquele LOCAL.
+    """Doadoras no plantel = CATEGORIA 'DOADORA', STATUS ativo, no roster mensal.
 
-    Divide o roster já montado em vez de reler a planilha: a contagem tem de vir do
-    MESMO conjunto que o headcount, senão o índice de eficiência usa um denominador
-    que não existe em lugar nenhum."""
-    linhas = _plantel_por_status()["linhas"]
-    return sum(1 for x in linhas
-               if _norm(x["categoria"]) == "DOADORA"
-               and (local is None or _norm(x["local"]) == local))
+    NÃO usa o roster já deduplicado do headcount — achado em 28/08/2026: a fonte
+    tem 'XARDA DO SALTO (CARLA)' e 'XARDA DO SALTO (EDUARDO)' como DUAS linhas
+    (duas cotistas da mesma égua), e o relatório oficial conta as duas (12
+    doadoras). O dedup por cotista do headcount existe porque lá é 1 animal físico
+    só; aqui o relatório conta LINHA, não animal — usar o roster deduplicado
+    derrubava 12 pra 11. Por isso relê a planilha direto, sem passar por
+    `_plantel_por_status()`."""
+    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
+    wb = _load(src)
+    ws = wb["PLANTEL"]
+    L = PLANTEL_LAYOUT_MENSAL
+    n = 0
+    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i < L["linha1"] or r[L["nome"]] is None:
+            continue
+        if _norm(r[L["categoria"]]) != "DOADORA":
+            continue
+        if _norm(r[L["status"]]) not in STATUS_NO_PLANTEL:
+            continue
+        # mesma exclusão do roster principal: saiu do haras e a PG não tem cota
+        # nenhuma = acabou, mesmo com STATUS ainda dizendo 'VENDIDO'. Pegou a
+        # CANCAO DA ILHA (SAIU DO HARAS, cota 0) que ficaria contada sem isto.
+        cota = r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None
+        condicao = _norm(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else ""
+        if condicao == CONDICAO_SAIU and (cota is None or not cota):
+            continue
+        if local is not None and _norm(r[L["local"]]) != local:
+            continue
+        n += 1
+    wb.close()
+    return n
 
 
 # ------------------------------------------------------------------
