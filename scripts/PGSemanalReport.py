@@ -2258,7 +2258,26 @@ def _compute_confirmados_diff(rep: Report):
             prev_keys = hist[wid]["confirmed_keys"]
     cur = {e["key"]: e for e in rep.confirmed}
     if prev_keys is not None:
-        novos = [e for k, e in cur.items() if k not in set(prev_keys)]
+        candidatos = [e for k, e in cur.items() if k not in set(prev_keys)]
+        # Uma cobrição confirmada não pode ter IA no futuro — confirmação é IA+60d.
+        # Achado em 28/08/2026: FACEIRA MAPEJO x IMPERIO SAPECADO só existe na cópia
+        # do master na pasta da safra NOVA (a antiga nunca teve a linha), com IA
+        # 26/09/2026 e parição JÁ LANÇADA em 15/08/2026 — nasceu antes de cobrir.
+        # É erro de digitação na planilha do haras (ano da cobrição), não confirmação
+        # nova; contar isso como "confirmado esta semana" é publicar lixo de dado.
+        hoje = date.today()
+        novos, suspeitos = [], []
+        for e in candidatos:
+            ia = date.fromisoformat(e["data_ia"]) if e.get("data_ia") else None
+            if ia and ia > hoje:
+                suspeitos.append(e)
+            else:
+                novos.append(e)
+        if suspeitos:
+            print(f"  [confirmados] {len(suspeitos)} confirmação(ões) com IA no futuro, "
+                  f"fora da contagem (provável erro de digitação na fonte): " +
+                  "; ".join(f"{e['doadora']} x {e['garanhao']} (IA {e['data_ia']})"
+                            for e in suspeitos))
         rep.producao["confirmados_semana"] = len(novos)
         rep.detalhe["confirmados_semana"] = novos
     else:
