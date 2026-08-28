@@ -870,36 +870,25 @@ def build_receptoras(rep: Report):
 DOADORAS_INDICE = None
 
 
-def _count_doadoras(local: str | None = None) -> int:
-    """Doadoras no plantel = CATEGORIA 'DOADORA', STATUS ativo, no roster mensal.
+def _count_doadoras() -> int:
+    """Doadoras = linhas da aba PLANEJAMENTO (ESTAÇÃO DE MONTA), não CATEGORIA
+    'DOADORA' no plantel.
 
-    NÃO usa o roster já deduplicado do headcount — achado em 28/08/2026: a fonte
-    tem 'XARDA DO SALTO (CARLA)' e 'XARDA DO SALTO (EDUARDO)' como DUAS linhas
-    (duas cotistas da mesma égua), e o relatório oficial conta as duas (12
-    doadoras). O dedup por cotista do headcount existe porque lá é 1 animal físico
-    só; aqui o relatório conta LINHA, não animal — usar o roster deduplicado
-    derrubava 12 pra 11. Por isso relê a planilha direto, sem passar por
-    `_plantel_por_status()`."""
-    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
-    wb = _load(src)
-    ws = wb["PLANTEL"]
-    L = PLANTEL_LAYOUT_MENSAL
+    Achado em 28/08/2026, pelo próprio haras: 'não devemos puxar as doadoras
+    pelo plantel, mas sim pela estação de monta'. Faz sentido — PLANEJAMENTO é
+    quem está sendo trabalhada na safra corrente; o plantel é cadastro histórico
+    e trazia gente que já vendeu, já saiu ou nunca fez parte deste time (RELIQUIA,
+    CANCAO, INUSITADA, BISCA, MEIRELLES, XARDA, XICA apareciam lá e NENHUMA está
+    em PLANEJAMENTO). As duas listas não têm quase nada em comum — não é ajuste
+    fino, é fonte errada desde o início. PLANEJAMENTO tem exatamente 12 linhas
+    (header na linha 3, dado 4 em diante), batendo com o índice oficial (30÷12
+    = 2,5) sem precisar de nenhuma exclusão adicional."""
+    master = _latest_estacao_master()
+    wb = _load(master)
+    ws = wb["PLANEJAMENTO"]
     n = 0
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-        if i < L["linha1"] or r[L["nome"]] is None:
-            continue
-        if _norm(r[L["categoria"]]) != "DOADORA":
-            continue
-        if _norm(r[L["status"]]) not in STATUS_NO_PLANTEL:
-            continue
-        # mesma exclusão do roster principal: saiu do haras e a PG não tem cota
-        # nenhuma = acabou, mesmo com STATUS ainda dizendo 'VENDIDO'. Pegou a
-        # CANCAO DA ILHA (SAIU DO HARAS, cota 0) que ficaria contada sem isto.
-        cota = r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None
-        condicao = _norm(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else ""
-        if condicao == CONDICAO_SAIU and (cota is None or not cota):
-            continue
-        if local is not None and _norm(r[L["local"]]) != local:
+        if i < 4 or r[1] is None or not str(r[1]).strip():
             continue
         n += 1
     wb.close()
@@ -2438,7 +2427,15 @@ def _compute_confirmados_diff(rep: Report):
             prev_month_keys = hist[wid]["confirmed_keys"]
     if prev_month_keys is not None:
         pm = set(prev_month_keys)
-        rep.producao["acumulado_mes"] = sum(1 for k in cur if k not in pm)
+        # Mesmo filtro de IA-no-futuro do "Confirmados semana" logo acima — esquecido
+        # aqui até 28/08/2026: a FACEIRA MAPEJO (IA 26/09/2026, erro de digitação)
+        # ficava fora de "Confirmados semana" mas ainda inflava "Acumulado no mês"
+        # em +1, porque este bloco fazia o próprio diff sem reaproveitar `novos`.
+        hoje = date.today()
+        def _ia_no_futuro(k):
+            ia_iso = cur[k].get("data_ia")
+            return bool(ia_iso and date.fromisoformat(ia_iso) > hoje)
+        rep.producao["acumulado_mes"] = sum(1 for k in cur if k not in pm and not _ia_no_futuro(k))
     else:
         dxp = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("producao", {})
         rep.producao["acumulado_mes"] = dxp.get("acumulado_mes") or 0   # "--" = 0
