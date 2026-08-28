@@ -681,7 +681,14 @@ def build_producao(rep: Report, ini: date, fim: date):
     _LINHAS_BRUTAS["grupo"] = grupo["linhas"]
     acumulado_planejamento = _acumulado_planejamento(wb)
 
-    confirmados = [e for e in embrioes if e["confirmado"]]
+    # "Confirmados semana" é diff contra o snapshot anterior (ver
+    # _compute_confirmados_diff) e tem de enxergar as DUAS safras — o relatório
+    # oficial conta confirmação nova independente de qual estação ela é (foi
+    # assim que a confirmação do Java x Xodó, 1ª da safra 26/27, virou "01" pra
+    # ele). Até 28/08/2026 só entrava `embrioes` (SAFRA_ATUAL, filtrado ali em
+    # cima) — uma confirmação nova de safra NOVA nunca aparecia aqui, mesmo já
+    # lançada na fonte, e o indicador ficava preso em 0 na transição de safra.
+    confirmados = [e for e in embrioes + embrioes_proxima if e["confirmado"]]
     for e in confirmados:
         e["key"] = f"{e['doadora']}|{e['garanhao']}|{e['receptora']}|{e['data_ia']}"
     rep.confirmed = confirmados
