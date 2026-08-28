@@ -1540,14 +1540,15 @@ def build_pendentes(rep: Report):
     _SOCIO_ROSTER.update(mensal.get("socio_por_recep") or {})
     mensal_terceiros_embrioes = [t for t in mensal["terceiros"]
                                  if t.get("especie") == "EMBRIAO"]
-    # O embrião dos vendidos pendentes vem do ROSTER MENSAL, não do EMBRIOES A
-    # ENTREGAR. O relatório abre "07 (05 animais e 02 embriões)" e o roster tem
-    # exatamente 5 com VENDIDO PENDENTE SAIDA e 2 com DE TERCEIRO + CATEGORIA=EMBRIAO
-    # — mesma fonte, mesmo número, mesma abertura, e é o mesmo conjunto que ele
-    # publica em "Total terceiros: 07 (vendidos pendentes)".
-    # Antes puxávamos o embrião de cota integral do ENTREGAR (1 em vez de 2): aquilo
-    # é a fila de entrega comercial, outra coisa.
-    vend_embrioes = [t for t in mensal_terceiros_embrioes]
+    # ERRADO até 28/08/2026: usava DE TERCEIRO + CATEGORIA=EMBRIAO do roster mensal,
+    # porque coincidiu em número (2) com o relatório de uma semana ("07 = 05 animais
+    # e 02 embriões"). O haras confirmou direto: essas 2 linhas (HORAH..., BEGONIA...)
+    # NÃO são pendência de saída — são embrião de TERCEIRO na propriedade, outra
+    # coisa (mesmo raciocínio de 'terceiros = vendidos' logo abaixo, que já tinha
+    # sido corrigido por coincidência igual). O embrião de venda pendente de
+    # verdade é o de cota 100% em EMB_COMERCIAIS/ENTREGAR, 'Pronto - Aguardando
+    # Entrega' — é o que _embrioes_pendentes() já lia, sem ninguém consumir.
+    vend_embrioes = [e for e in pend_emb if e["tipo"] == "VENDA"]
     # REPOSIÇÃO não é venda pendente: o animal está saindo para repor outro, não para
     # um comprador. O STATUS PLANTEL não tem essa marca — ela vive na coluna de obs do
     # Animais para sair —, então cruzamos os dois pelo núcleo do nome. Essa regra

@@ -102,11 +102,6 @@ FONTES = {
 
 # Indicadores que o dashboard publica mas o relatório não tem linha para comparar.
 SEM_CONTRAPARTE = [
-    ("1 · Produção", "Aberto · PG / sócio / vendido",
-     lambda s: " · ".join(str(s.get("acumulado_estacao_split", {}).get(k, 0))
-                          for k in ("pg", "socio", "vendido")),
-     "ESTACAO DE MONTA · ESTAÇÃO",
-     "Fatia por cota e STATUS. Parição cuja cota não foi recuperada no arquivo da semana anterior fica fora, e a soma sai abaixo do acumulado."),
     ("2 · Receptoras", "Doadoras ciclando",
      lambda s: (s.get("receptoras") or {}).get("doadoras_ciclando"),
      "_cache/semanal_manual.json (input humano)",

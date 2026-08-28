@@ -243,7 +243,6 @@ const SECTIONS = [
      get:s=>s.acumulado_estacao},
     {p:"prod.acum2", l:s=>`Acumulado na estação ${s.safra_proxima_rotulo||""}`.trim(),
      skip:s=>!s.safra_proxima_rotulo, get:s=>s.acumulado_estacao_proxima},
-    {p:"prod.aberto", l:"Aberto (PG / sócio / vend.)", get:s=>{const sp=s.acumulado_estacao_split; return sp?`${sp.pg||0} · ${sp.socio||0} · ${sp.vendido||0}`:null;}},
     {p:"prod.mes", l:"Acumulado no mês", get:s=>s.acumulado_mes},
     {p:"prod.nasc", l:"Nascimentos na semana", get:s=>s.nascimentos},
     {p:"prod.abor", l:"Abortos / óbitos na semana", get:s=>s.abortos_obitos},
