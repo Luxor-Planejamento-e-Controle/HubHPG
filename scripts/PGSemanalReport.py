@@ -2375,8 +2375,14 @@ def _compute_confirmados_diff(rep: Report):
         rep.producao["confirmados_semana"] = (rep.producao.get("confirmados_semana") or 0) + 1
         rep.producao["acumulado_estacao_proxima"] = (
             rep.producao.get("acumulado_estacao_proxima") or 0) + 1
+        # "obs" fica só no manual (nota pra quem mexe no arquivo depois) — não vai
+        # pro dashboard, que é visto pelo time. A linha ali é doadora/garanhão/safra,
+        # igual às outras, sem comentário solto no meio do dado.
         rep.detalhe.setdefault("confirmados_semana", []).append({
-            **placeholder, "placeholder": True,
+            "doadora": placeholder.get("doadora"),
+            "garanhao": placeholder.get("garanhao"),
+            "safra": placeholder.get("safra"),
+            "placeholder": True,
         })
         print(f"  [manual] placeholder de confirmação aplicado: "
               f"{placeholder.get('doadora')} x {placeholder.get('garanhao')} "
