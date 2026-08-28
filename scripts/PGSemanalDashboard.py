@@ -16,6 +16,7 @@ Uso:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # raiz do projeto (scripts/ fica 1 nível abaixo)
@@ -439,11 +440,16 @@ document.getElementById("btnPdf").onclick=()=>{
   window.print();
 };
 
-/* Os PDFs de embriões da semana, embutidos como data URI pelo build. */
-(function(){
-  const cx=document.getElementById("pdfEmb"), lista=DATA.pdfs||[];
-  if(!lista.length) return;
-  for(const p of lista){
+/* Os PDFs de embriões, embutidos como data URI pelo build — um par por semana.
+   A pasta de origem acumula todas as semanas já geradas, então filtra pela
+   selecionada e refaz a cada troca (chamado de dentro de render()); sem isso os
+   botões de toda semana já processada ficavam empilhados na barra, sem sumir
+   quando o filtro mudava. */
+function renderPdfs(){
+  const cx=document.getElementById("pdfEmb");
+  cx.innerHTML="";
+  for(const p of (DATA.pdfs||[])){
+    if(p.semana!==semana) continue;
     const a=document.createElement("a");
     a.href=p.uri; a.download=p.nome; a.className="btn-pdf";
     // rótulo curto: o nome do arquivo tem a data e não cabe na barra
@@ -451,7 +457,7 @@ document.getElementById("btnPdf").onclick=()=>{
     a.title=p.nome;
     cx.appendChild(a);
   }
-})();
+}
 
 document.getElementById("btnImg").onclick=async(ev)=>{
   const btn=ev.target, rotulo=btn.textContent;
@@ -531,12 +537,21 @@ render();
 """
 
 
-def _pdfs_embrioes(data: dict) -> list:
-    """Os dois PDFs de embriões da semana, como data URI.
+_RE_PDF_DATA = re.compile(r"(\d{2})-(\d{2})-(\d{4})\.pdf$")
 
-    Gerados por tools/build_pdf_embrioes.py em _cache/pdf. Embutidos no HTML porque
-    o dashboard é servido por srcdoc a partir de um bucket privado: link para
-    arquivo externo não chegaria a lugar nenhum."""
+
+def _pdfs_embrioes(data: dict) -> list:
+    """Os PDFs de embriões, um par por semana, como data URI.
+
+    Gerados por tools/build_pdf_embrioes.py em _cache/pdf — a pasta ACUMULA (não
+    apaga o PDF da semana passada), então achado em 28/08/2026: sem a tag de
+    semana, o seletor do dash ficava com os botões de TODAS as semanas empilhados,
+    sem filtrar pela que estava selecionada. Cada entrada carrega 'semana' (ISO,
+    tirado do nome do arquivo) — o JS filtra por isso e refaz os botões a cada
+    troca de semana, igual ao resto do dash.
+
+    Embutidos como data URI porque o dashboard é servido por srcdoc a partir de um
+    bucket privado: link para arquivo externo não chegaria a lugar nenhum."""
     import base64
 
     pasta = BASE_DIR / "_cache" / "pdf"
@@ -544,8 +559,14 @@ def _pdfs_embrioes(data: dict) -> list:
         return []
     out = []
     for f in sorted(pasta.glob("*.pdf")):
+        m = _RE_PDF_DATA.search(f.name)
+        if not m:
+            print(f"  [pdf] {f.name}: nome sem data DD-MM-AAAA, não entra no dash")
+            continue
+        dd, mm, aaaa = m.groups()
+        semana = f"{aaaa}-{mm}-{dd}"
         b64 = base64.b64encode(f.read_bytes()).decode()
-        out.append({"nome": f.name,
+        out.append({"nome": f.name, "semana": semana,
                     "uri": "data:application/pdf;base64," + b64,
                     "kb": len(b64) // 1024})
     return out
