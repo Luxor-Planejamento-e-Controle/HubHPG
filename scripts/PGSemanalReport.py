@@ -1312,12 +1312,23 @@ def _plantel_por_status() -> dict:
         # Saiu do haras E a PG não tem cota nenhuma: acabou. Uma coisa só não basta —
         # animal no sócio segue no plantel enquanto a PG tem parte dele (29 estão
         # nessa situação), e vendido de cota zero que ainda não saiu continua aqui
-        # (os 5 'vendido pendente saída', o PRADO, a ELEITA). Juntas, as duas dizem
-        # que o animal não é mais da casa nem está mais nela.
+        # (os 5 'vendido pendente saída', o PRADO). Juntas, as duas dizem que o
+        # animal não é mais da casa nem está mais nela.
         cota = r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None
         condicao = _norm(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else ""
         if condicao == CONDICAO_SAIU and (cota is None or not cota):
             fora["saiu_sem_cota"] = fora.get("saiu_sem_cota", 0) + 1
+            continue
+        # STATUS='VENDIDO' cobre dois sentidos opostos: venda NOSSA ainda não
+        # entregue (conta — animal continua aqui) e COMPRA ainda não entregue pelo
+        # vendedor (NÃO conta — animal ainda não chegou). Achado em 28/08/2026: a
+        # ELEITA tinha STATUS='VENDIDO' e entrava no headcount como se já estivesse
+        # na fazenda, mas a OBS diz "o vendedor entregará" — é compra, não saiu daqui
+        # coisa nenhuma porque nunca chegou. Único marcador vivo hoje é essa frase
+        # na OBS; se aparecer outro caso com texto diferente, ajustar aqui.
+        obs = _norm(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else ""
+        if _norm(r[L["status"]]) == "VENDIDO" and "VENDEDOR ENTREGARA" in obs:
+            fora["compra_nao_entregue"] = fora.get("compra_nao_entregue", 0) + 1
             continue
         mae = _s(r[COL_MENSAL_MAE]) if len(r) > COL_MENSAL_MAE else None
         pai = _s(r[COL_MENSAL_PAI]) if len(r) > COL_MENSAL_PAI else None
@@ -1333,9 +1344,11 @@ def _plantel_por_status() -> dict:
                        "status_plantel": _s(r[L["status"]]), "local": _s(r[L["local"]]),
                        "mae": mae, "pai": pai})
     wb.close()
+    compra_pend = fora.get("compra_nao_entregue", 0)
+    extra = f", {compra_pend} compra(s) ainda não entregue(s)" if compra_pend else ""
     print(f"  [roster] {len(vistos)} animais em {src.name} "
           f"(fora: {fora['status']} por status, {fora['categoria']} embrião/receptora, "
-          f"{fora['duplicado']} linha(s) repetida(s) por cotista)")
+          f"{fora['duplicado']} linha(s) repetida(s) por cotista{extra})")
     return {"roster": sorted(set(vistos.values())), "linhas": linhas,
             "fonte": src.name, "roster_fonte": ROSTER_FONTE}
 
