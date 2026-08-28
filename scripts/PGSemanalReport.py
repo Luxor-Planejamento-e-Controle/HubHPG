@@ -79,9 +79,7 @@ ANIMAIS_SAIR_DIRS = (
 ANIMAIS_SAIR_GLOB = "Animais para sair*.xlsx"
 
 EMB_COMERCIAIS = DRIVE_ROOT / "REPRODUÇÃO" / "EMBRIOES A ENTREGAR - A RECEBER.xlsx"
-ESTACAO_MASTER_DIR = (
-    DRIVE_ROOT / "REPRODUÇÃO" / "ESTAÇÃO DE MONTA" / "Estação 2025-2026"
-)
+ESTACAO_MONTA_BASE = DRIVE_ROOT / "REPRODUÇÃO" / "ESTAÇÃO DE MONTA"
 # O plantel e as receptoras vivem em PLANTEL/Estação <ano>-<ano>, e a copia de
 # trabalho MUDA DE PASTA quando a estacao vira: em 21/08/2026 os arquivos "EDITAR
 # SETEMBRO" passaram para "Estação 2026-2027", porque setembro abre estacao nova.
@@ -355,8 +353,23 @@ def _latest_no_plantel(pattern: str, rotulo: str) -> Path:
 
 
 def _latest_estacao_master() -> Path:
-    return _registra_fonte("estacao de monta",
-                           _latest_by_mtime(ESTACAO_MASTER_DIR, "*ESTACAO DE MONTA.xlsx"))
+    """Master da estação de monta, na pasta 'Estação <ano>-<ano>' certa.
+
+    Era fixo em 'Estação 2025-2026'. Na virada de safra o haras passa a atualizar o
+    arquivo em 'Estação 2026-2027', e esse caminho fixo nunca ia ver — igual ao bug
+    já corrigido pro roster/receptoras (ver comentário de PLANTEL_ESTACAO_GLOB).
+    Mesma solução: varre TODAS as pastas de safra e fica com a mais nova por mtime."""
+    if not ESTACAO_MONTA_BASE.exists():
+        raise FileNotFoundError(f"Pasta não encontrada: {ESTACAO_MONTA_BASE}")
+    dirs = sorted((d for d in ESTACAO_MONTA_BASE.glob("Estação *") if d.is_dir()),
+                  reverse=True)
+    cands = [f for d in dirs for f in d.glob("*ESTACAO DE MONTA.xlsx")
+             if not f.name.startswith("~$")]
+    if not cands:
+        raise FileNotFoundError(
+            "Nenhum '*ESTACAO DE MONTA.xlsx' (estacao de monta) em: "
+            + " | ".join(str(d) for d in dirs))
+    return _registra_fonte("estacao de monta", max(cands, key=lambda f: f.stat().st_mtime))
 
 
 def _latest_by_yymmdd(folder: Path, pattern: str, rotulo: str | None = None) -> Path:
