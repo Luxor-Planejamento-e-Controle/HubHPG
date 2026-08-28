@@ -833,11 +833,18 @@ def build_receptoras(rep: Report):
         "total": pren + vaz,
         "prenhas": pren,
         "vazias": vaz,
+        # 'doadoras' e 'doadoras_plantel' são CATEGORIA='DOADORA' no roster — cadastro,
+        # não estado hormonal. Ficam só de referência (linha própria no relatório);
+        # o índice de eficiência usa 'doadoras_ciclando', não este número. Achado
+        # em 28/08/2026: bateu 2,7 aqui contra 2,5 do relatório porque o índice
+        # estava usando esta contagem como fallback quando ciclando faltava.
         "doadoras": doadoras,
         "doadoras_fonte": "fixo" if DOADORAS_INDICE else "plantel",
         "doadoras_plantel": doadoras_plantel,
         "doadoras_plantel_fpg": doadoras_fpg,
-        "indice_eficiencia": round(vaz / doadoras, 1) if doadoras else None,
+        # placeholder — _aplica_manual recalcula com doadoras_ciclando assim que o
+        # manual é lido (roda depois, porque o manual é indexado por semana)
+        "indice_eficiencia": None,
         # preenchido em bases/semanal_manual.json (ver _manual): sem fonte de dado
         "doadoras_ciclando": None,
     }
@@ -2188,9 +2195,16 @@ def _aplica_manual(rep: Report):
     m = _manual(rep.semana_atual)
     ciclando = m.get("doadoras_ciclando")
     rep.receptoras["doadoras_ciclando"] = ciclando
+    # Índice de eficiência = vazias / doadoras CICLANDO (disponíveis pra doar óvulo),
+    # não CATEGORIA='DOADORA' do roster — são conceitos diferentes: cadastro vs
+    # estado hormonal da semana. Sem o manual preenchido não há como calcular o
+    # índice de verdade, então ele fica vazio também, em vez de usar um denominador
+    # que não é o do relatório.
+    vaz = rep.receptoras.get("vazias")
+    rep.receptoras["indice_eficiencia"] = round(vaz / ciclando, 1) if ciclando else None
     if ciclando is None:
         print(f"  [manual] doadoras ciclando não preenchida para {rep.semana_atual} "
-              f"— escreva em {MANUAL.name}; o card fica vazio")
+              f"— escreva em {MANUAL.name}; o card e o índice ficam vazios")
 
 
 def _conferir_delta(rep: Report):
