@@ -1409,10 +1409,15 @@ def _status_plantel_mensal() -> dict:
             terceiros.append({"nome": nome, "local": local, "categoria": categoria,
                               "status_plantel": _s(r[L["status"]]),
                               "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
+        obs = _norm(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else ""
+        if STATUS_SOCIEDADE_PENDENTE in obs:
+            soc_pend.append({"nome": nome, "local": local, "categoria": categoria,
+                             "obs": _s(r[COL_MENSAL_OBS]),
+                             "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
     wb.close()
     return {"fonte": src.name, "marcado": marcado,
             "vendidos_pendentes": vendidos_pend, "terceiros": terceiros,
-            "socio_por_recep": socio_por_recep}
+            "sociedade_pendentes": soc_pend, "socio_por_recep": socio_por_recep}
 
 
 # Embrião comercial pendente de saída: aba ENTREGAR do "EMBRIOES A ENTREGAR - A
