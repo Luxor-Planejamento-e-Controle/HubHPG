@@ -91,16 +91,40 @@ function renderPlaceholder(el,r){
    O dashboard_semanal.html já é autocontido e já usa a paleta do haras — não há
    re-skin, só o embed. O build (hub/tools/build_semanal.py) copia a saída do
    pipeline e esconde o cabeçalho interno, que duplicaria o título da aba.
-   Na fase gold o HTML vem do bucket privado e entra por `srcdoc`. */
+   Na fase gold o HTML vem do bucket privado e entra por `srcdoc`.
+
+   Altura do iframe acompanha o conteúdo (classe .auto-h) — achado em 28/08/2026:
+   com altura fixa (100vh), o dashboard rolava por dentro do iframe E a página do
+   hub rolava por fora, duas barras pro mesmo conteúdo. srcdoc é mesma origem, dá
+   pra ler contentDocument e medir. Reajusta de novo quando o conteúdo muda de
+   altura (troca de semana, modo de edição), via ResizeObserver no body de dentro. */
+function _ajustaAlturaEmbed(f){
+  const doc=f.contentDocument;
+  if(!doc||!doc.documentElement) return;
+  const ajusta=()=>{
+    const h=Math.max(doc.documentElement.scrollHeight, doc.body?doc.body.scrollHeight:0);
+    f.style.setProperty('--embed-h', h+'px');
+  };
+  ajusta();
+  try{ new ResizeObserver(ajusta).observe(doc.body||doc.documentElement); }
+  catch(e){ /* sem ResizeObserver, fica só na medida inicial + no load */ }
+}
+
 function renderSemanal(el){
   el.classList.add('flush');
   const html=window.HUB&&window.HUB.semanalHtml;
   if(!html){
-    el.innerHTML=`<iframe class="embed" src="assets/semanal/dashboard.html" title="Atualização Semanal"></iframe>`;
+    const f=document.createElement('iframe');
+    f.className='embed auto-h'; f.title='Atualização Semanal';
+    f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
+    f.src='assets/semanal/dashboard.html';
+    el.appendChild(f);
     return;
   }
   const f=document.createElement('iframe');
-  f.className='embed'; f.title='Atualização Semanal'; f.srcdoc=html;
+  f.className='embed auto-h'; f.title='Atualização Semanal';
+  f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
+  f.srcdoc=html;
   el.appendChild(f);
 }
 
