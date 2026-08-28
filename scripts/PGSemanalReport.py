@@ -1034,17 +1034,23 @@ def _categorize_mov(obs: str):
 # que LINDEZA DA PAO GRANDE (12/08/2026) sumiu do fechamento de 14/08.
 CLASSIF_ENTRADA = ("NASCIMENTO", "COMPRA")
 CLASSIF_SAIDA = ("VENDA", "MORTE", "SOCIO")
-# Saída da FAZENDA que continua no PLANTEL: a aba CONTAGEM conta o sócio, então o
-# animal que vai pro sócio é saída na seção 5 e NÃO mexe no Δ do headcount. É o que o
-# relatório oficial faz em 14/08/2026: 'Saídas na semana: 01' com 'Δ +00 / -00'.
+# SAIDA-SOCIO só fica fora do Δ quando quem sai é RECEPTORA: ela só é contada em
+# PAO GRANDE/ARRENDAMENTO, então ir pro sócio a tira de lá mas não mexe no Δ de
+# ANIMAIS (é outro total, tratado à parte — ver _refina_afeta_headcount). Era regra
+# geral pra qualquer 'SOCIO' e estava errada: em 28/08/2026 a GIM MATIZA (GARANHÃO,
+# destino nomeado 'VALTER LIMA') saiu de verdade, física — Δ oficial contou as DUAS
+# saídas da semana (-02), não só a venda. Physical is physical: se o bicho deixou a
+# fazenda, conta, sócio ou não.
 CLASSIF_FORA_DO_DELTA = ("SOCIO",)
 
 
-def _classificar_se(classif: str):
+def _classificar_se(classif: str, animal: str = ""):
     """(sentido, afeta_headcount) da classificação da aba SAIDAS-ENTRADAS.
     (None, None) = vocabulário desconhecido; quem chama tem de avisar, não engolir."""
     def _sai():
-        return "SAIDA", not any(c in classif for c in CLASSIF_FORA_DO_DELTA)
+        eh_socio_exempt = (any(c in classif for c in CLASSIF_FORA_DO_DELTA)
+                           and _norm(animal).startswith("RECEPTORA"))
+        return "SAIDA", not eh_socio_exempt
     if classif.startswith("ENTRADA"):
         return "ENTRADA", True
     if classif.startswith("SAIDA"):
