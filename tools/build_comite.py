@@ -700,7 +700,9 @@ def doadoras(wb):
     for i, r in enumerate(ws2.iter_rows(values_only=True), 1):
         if i < 3 or r[2] is None:
             continue
-        lav[_norm(r[2])] = _to_num(r[5]) or 0
+        # linha às vezes é curta (só as colunas preenchidas) — a nova cópia do
+        # master (pasta da safra 26/27, achada em 28/08/2026) tem rows assim
+        lav[_norm(r[2])] = (_to_num(r[5]) or 0) if len(r) > 5 else 0
     out = []
     for time in ("A", "B"):
         rows = por_time[time]
@@ -1110,25 +1112,71 @@ def _foto_embutida(caminho: Path) -> str | None:
         return None
 
 
+def _fotos_grupo_por_tema(grupos, m, ano):
+    """Um ou mais slides por TEMA, igual ao deck oficial — 'Obras e melhorias
+    realizadas · Banqueta' com 1-6 fotos, nunca misturando tema no mesmo slide.
+    Tema com mais de FOTOS_POR_SLIDE vira '(1/2)' só dentro dele mesmo."""
+    out = []
+    for g in grupos:
+        tema, arquivos = g.get("tema") or "", g.get("arquivos") or []
+        embutidas = []
+        for f in arquivos:
+            uri = _foto_embutida(OUT / f)
+            if uri:
+                embutidas.append(uri)
+        if not embutidas:
+            continue
+        n = (len(embutidas) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
+        for k in range(n):
+            bloco = embutidas[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]
+            cols, rows = GRADE_FOTOS[len(bloco)]
+            sub = f"Obras e melhorias realizadas · {tema}" if tema else f"Registros de {MESES[m-1]} {ano}"
+            if n > 1:
+                sub += f" ({k+1}/{n})"
+            out.append({"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
+                        "sub": sub, "grade": [cols, rows], "fotos": bloco})
+    return out
+
+
 def slides_fotos(c, m, ano):
     """Fotos do mês pedido. Sem herdar mês anterior — é isso que estava errado.
 
     `c` é o conteúdo do mês, e o resolvedor dele cai no mês anterior mais recente
     quando o pedido não existe. Para texto isso é razoável (o histórico de manejo é
-    cumulativo); para foto, não: o deck de janeiro saía com as fotos de junho. A
-    pasta do Drive é a fonte, e mês sem foto na pasta fica pendente."""
+    cumulativo); para foto, não: o deck de janeiro saía com as fotos de junho.
+
+    Ordem de fonte, ao contrário do dashboard semanal:
+      1. comite_conteudo.json — extraído do PRÓPRIO deck oficial daquele mês
+         (tools/extrair_conteudo.py), com o agrupamento por TEMA que o comitê usa.
+      2. pasta do Drive (ATA & APRESENTACOES MENSAIS/<ano>/FOTOS) — só quando o
+         mês ainda não foi extraído. Achado em 28/08/2026: a pasta do Drive pra
+         julho/2026 tem 1 foto só (é alimentada semana a semana, sem curadoria);
+         o deck oficial de julho tem 47 fotos em 13 temas. Pra ESTE deck, o
+         extraído do oficial é o que importa — a pasta do Drive é o fallback
+         genérico, não o contrário."""
+    legado = c.get("fotos") or []
+    if legado and isinstance(legado[0], dict):
+        # formato novo: [{tema, arquivos}], extraído do PPTX oficial do mês
+        out = _fotos_grupo_por_tema(legado, m, ano)
+        if out:
+            _registra("fotos do mês", CONTEUDO)
+            n_fotos = sum(len(g["fotos"]) for g in out)
+            print(f"  [fotos] {MESES[m-1]}: {n_fotos} fotos em "
+                  f"{len({g['sub'].split(' (')[0] for g in out})} temas "
+                  f"(comite_conteudo.json)")
+            return out
+
     caminhos = _fotos_do_mes(ano, m)
     fonte = FOTOS_DIR_BASE / str(ano) / "FOTOS"
     if caminhos:
         _registra("fotos do mês", fonte)
     else:
-        # legado: as 28 extraídas do PPTX de junho, em assets/comite/fotos/. Só valem
-        # para o mês em que estão declaradas — 5 delas não existem na pasta do Drive.
-        legado = c.get("fotos") or []
-        caminhos = [OUT / f for f in legado]
+        # legado antigo (junho): lista solta de arquivos, sem tema, extraída do
+        # PPTX de junho antes deste agrupamento existir.
+        caminhos = [OUT / f for f in legado if isinstance(f, str)]
         if caminhos:
             print(f"  [fotos] {MESES[m-1]}: pasta do Drive sem foto, usando as "
-                  f"{len(caminhos)} do comite_conteudo.json")
+                  f"{len(caminhos)} do comite_conteudo.json (formato antigo, sem tema)")
     if not caminhos:
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
                      caminho_curto(fonte),
