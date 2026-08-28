@@ -2364,6 +2364,24 @@ def _compute_confirmados_diff(rep: Report):
         dxp = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("producao", {})
         rep.producao["acumulado_mes"] = dxp.get("acumulado_mes") or 0   # "--" = 0
 
+    # PLACEHOLDER manual: confirmação que o haras já anunciou mas ainda não lançou
+    # na ESTAÇÃO (falta detalhe, o Alexandre vai passar). Em 28/08/2026 é o 1º
+    # confirmado da safra 26/27 — sem isto "Confirmados semana" e "Acumulado
+    # estação (safra nova)" ficam 0 até o lançamento chegar, quando o relatório
+    # oficial já publica 1. Só vale para a semana em que foi escrito — semana sem
+    # entrada não herda nada, mesmo padrão do doadoras_ciclando.
+    placeholder = _manual(rep.semana_atual).get("confirmado_placeholder")
+    if placeholder:
+        rep.producao["confirmados_semana"] = (rep.producao.get("confirmados_semana") or 0) + 1
+        rep.producao["acumulado_estacao_proxima"] = (
+            rep.producao.get("acumulado_estacao_proxima") or 0) + 1
+        rep.detalhe.setdefault("confirmados_semana", []).append({
+            **placeholder, "placeholder": True,
+        })
+        print(f"  [manual] placeholder de confirmação aplicado: "
+              f"{placeholder.get('doadora')} x {placeholder.get('garanhao')} "
+              f"— {placeholder.get('obs', 'aguardando lançamento na ESTAÇÃO')}")
+
 
 def _snap_from_rep(rep: Report) -> dict:
     """Snapshot completo desta run (mesmo schema do _map_docx_to_snap)."""
