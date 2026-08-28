@@ -1484,6 +1484,7 @@ def _embrioes_pendentes_estacao() -> list:
     """Embriões marcados pendentes de saída direto na ESTAÇÃO. Vazio até o haras
     começar a marcar — quem chama trata lista vazia como 'ainda sem marca',
     não como 'não há pendência'."""
+    locais = _receptoras_locais()
     master = _latest_estacao_master()
     wb = _load(master)
     ws = wb["ESTAÇÃO"]
@@ -1504,9 +1505,14 @@ def _embrioes_pendentes_estacao() -> list:
                   f"saída mas STATUS ({_s(r[COL_ESTACAO_STATUS])!r}) não é "
                   f"VENDIDO nem SOCIO — fora da conta, conferir")
             continue
+        # categoria/local no mesmo formato das outras linhas da tabela (animal e
+        # sociedade-por-OBS) — sem isto a linha aparecia com LOCAL/CATEGORIA em
+        # branco no dashboard, e foi isso que gerou a dúvida do haras em 28/08/2026:
+        # a marca nova já tinha pego a linha certa, só faltava exibir completo.
+        local = _norm(locais.get(_norm(r[11]))) if len(r) > 11 else None
         out.append({
-            "nome": f"{_s(r[2])} x {_s(r[3])}", "local": None, "cota": None,
-            "comprador": _s(r[34]) if len(r) > 34 else None,
+            "nome": f"{_s(r[2])} x {_s(r[3])}", "local": local, "categoria": "EMBRIAO",
+            "cota": None, "comprador": _s(r[34]) if len(r) > 34 else None,
             "tipo": tipo, "obs": _s(r[COL_ESTACAO_OBS]), "reposicao": False,
             "especie": "EMBRIAO",
         })
