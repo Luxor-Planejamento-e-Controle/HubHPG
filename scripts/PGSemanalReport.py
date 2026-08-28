@@ -1185,6 +1185,12 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
 # e 06 animais vendidos pendentes — os números do MENSAL.
 STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"
 STATUS_TERCEIRO = "TERCEIRO"
+# Sociedade pendente de animal: até 28/08/2026 não tinha marca nenhuma (comentário
+# antigo em build_pendentes: "sociedade nunca recebe marca"), então soc_animais
+# ficava sempre vazio. O haras passou a marcar na coluna OBS (Y, índice 24) — mesma
+# ideia do STATUS_VENDIDO_PENDENTE, coluna diferente.
+STATUS_SOCIEDADE_PENDENTE = "EM SOCIEDADE PENDENTE DE SAIDA"
+COL_MENSAL_OBS = 24
 
 # Status que significam "o animal AINDA ESTÁ AQUI".
 #
@@ -1374,7 +1380,7 @@ def _status_plantel_mensal() -> dict:
     wb = _load(src)
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
-    vendidos_pend, terceiros, marcado = [], [], False
+    vendidos_pend, terceiros, soc_pend, marcado = [], [], [], False
     # NOME SOCIO / COTAS (%) ficam fora do layout mínimo porque só este trecho usa.
     # Indexado pela receptora do fim do nome: é o que o roster semanal e o mensal
     # têm em comum (o mensal escreve a data no meio e acentua o garanhão).
