@@ -2320,6 +2320,11 @@ def _snap_from_rep(rep: Report) -> dict:
     return {
         "source": "extractor",
         "acumulado_estacao": rep.producao.get("acumulado_estacao"),
+        # Mesmo esquecimento do fontes_caminhos: computado em rep.producao, nunca
+        # copiado pro snapshot. É a acumulada da SAFRA NOVA — conceito diferente de
+        # 'acumulado no mês' (esse é confirmação nova no mês corrente, qualquer
+        # safra; aquele é confirmação nova desde que a safra nova começou).
+        "acumulado_estacao_proxima": rep.producao.get("acumulado_estacao_proxima"),
         "confirmados_semana": rep.producao.get("confirmados_semana"),
         "acumulado_mes": rep.producao.get("acumulado_mes"),
         "nascimentos": rep.producao.get("nascimentos"),
