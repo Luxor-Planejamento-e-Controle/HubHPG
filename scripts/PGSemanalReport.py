@@ -2351,6 +2351,12 @@ def _snap_from_rep(rep: Report) -> dict:
         "receptoras_locais": rep.receptoras_locais,
         "populacao": rep.populacao,
         "confirmed_keys": [e["key"] for e in rep.confirmed],
+        # Sem isto o snapshot esquece de onde cada número saiu — achado em
+        # 28/08/2026 quando a auditoria publicou zero caminho de arquivo pra
+        # semana inteira: rep.fontes_caminhos existia, _registra_caminhos rodava,
+        # mas _snap_from_rep nunca copiava pro dict que de fato é congelado.
+        "fontes_caminhos": rep.fontes_caminhos,
+        "fontes_fora_de_lugar": rep.fontes_fora_de_lugar,
     }
 
 
