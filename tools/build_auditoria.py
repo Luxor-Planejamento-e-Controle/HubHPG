@@ -421,7 +421,7 @@ padding:14px 16px 16px;display:flex;flex-direction:column;gap:2px}}
 font-variant-numeric:tabular-nums}}
 .tile .lab{{font-size:.8rem;color:var(--ink-soft);line-height:1.4}}
 .tile.ok{{--h:var(--ok)}}.tile.bad{{--h:var(--bad)}}.tile.neu{{--h:var(--accent)}}
-.scroll{{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}}
+.scroll{{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);background:var(--surface)}}
 table{{border-collapse:collapse;width:100%;font-size:.86rem;min-width:1080px}}
 thead th{{text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
 color:var(--ink-mute);font-weight:600;padding:10px 13px;background:var(--surface-alt);
@@ -448,6 +448,18 @@ font-size:.88rem;color:var(--ink-soft);margin-top:18px}}
 code{{font-family:var(--mono);font-size:.88em}}
 footer{{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-family:var(--mono);
 font-size:11.5px;color:var(--ink-mute)}}
+@media(max-width:600px){{
+body{{padding:0 12px 40px;font-size:15px}}
+header{{padding:28px 0 16px;gap:8px}}
+section{{padding-top:24px}}
+.tiles{{gap:8px;margin-bottom:16px}}
+.tile{{padding:11px 12px 13px}}
+.tile .num{{font-size:1.6rem}}
+.tile .lab{{font-size:.75rem}}
+h2{{font-size:1.2rem;margin:0 0 10px;padding-bottom:6px}}
+.nota{{padding:10px 12px;font-size:.83rem}}
+footer{{margin-top:30px;padding-top:12px}}
+}}
 </style></head><body><div class="wrap">
 <header>
   <span class="eyebrow">Haras Pao Grande &middot; fechamento semanal e comitê mensal</span>

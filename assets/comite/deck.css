@@ -11,17 +11,24 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--font);overflow:hidden}
+body{display:flex;flex-direction:column}
 
-/* ---- moldura ---- */
-.stage{position:absolute;inset:0 0 54px 0;display:grid;place-items:center;padding:16px}
+/* ---- moldura ----
+   .stage e .bar formam uma coluna flex (bar embaixo, com altura própria;
+   stage ocupa o resto). Isso é o que permite a barra quebrar em 2+ linhas
+   em telas estreitas sem sobrepor o slide: o fit() em deck.js mede o
+   tamanho real de #stage via getBoundingClientRect, então ele já reage
+   sozinho a qualquer altura que a barra acabe usando — nada de número
+   mágico de altura reservada aqui. */
+.stage{position:relative;flex:1 1 auto;min-height:0;overflow:hidden;display:grid;place-items:center;padding:16px}
 .slide{
   width:var(--W);height:var(--H);flex:0 0 auto;position:relative;overflow:hidden;
   background:var(--bg);transform-origin:center center;
   box-shadow:0 10px 44px rgba(0,0,0,.55);border:1px solid var(--line);
 }
 .bar{
-  position:absolute;left:0;right:0;bottom:0;height:54px;display:flex;align-items:center;gap:10px;
-  padding:0 16px;background:var(--bg-2);border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);
+  flex:0 0 auto;min-height:54px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;
+  padding:8px 16px;background:var(--bg-2);border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);
 }
 .bar .spacer{flex:1}
 .bar button{
@@ -37,9 +44,18 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family
 .bar .pos{font-variant-numeric:tabular-nums;min-width:64px;text-align:center}
 .bar .aviso{color:var(--amber);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw}
 
+@media(max-width:480px){
+  .stage{padding:10px}
+  .bar{padding:8px 10px;gap:6px 8px}
+  .bar select{max-width:none;flex:1 1 100px;font-size:12px}
+  .bar button{padding:0 9px;font-size:12px}
+  .bar .aviso{max-width:100%;flex:1 1 100%;order:99;white-space:normal}
+  .bar .spacer{flex-basis:100%;height:0}
+}
+
 /* apresentação: só o slide, sem barra */
 body.play .bar{display:none}
-body.play .stage{inset:0;padding:0;background:#000}
+body.play .stage{padding:0;background:#000}
 body.play .slide{box-shadow:none;border:0}
 
 /* ---- elementos comuns do slide ---- */

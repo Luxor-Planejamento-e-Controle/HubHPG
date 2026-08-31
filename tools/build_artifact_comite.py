@@ -417,7 +417,7 @@ flex-direction:column;gap:2px}
 color:var(--tile-hue,var(--ink));font-variant-numeric:tabular-nums}
 .tile .lab{font-size:.8rem;color:var(--ink-soft);line-height:1.4}
 .tile.is-ok{--tile-hue:var(--ok)}.tile.is-warn{--tile-hue:var(--warn)}.tile.is-bad{--tile-hue:var(--bad)}
-.scroll{overflow-x:auto;border:1px solid var(--line);background:var(--surface)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);background:var(--surface)}
 table{border-collapse:collapse;width:100%;font-size:.86rem}
 table.main{min-width:1040px}table.legend{min-width:760px}
 thead th{text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
@@ -452,7 +452,17 @@ border-radius:2px}
 td code,.card code{background:transparent;padding:0}
 footer.page{margin-top:52px;padding-top:18px;border-top:1px solid var(--line);
 font-family:var(--mono);font-size:11.5px;color:var(--ink-mute)}
-@media (max-width:620px){header.page{padding-top:32px}section{padding-top:34px}}
+@media (max-width:620px){
+header.page{padding-top:32px}
+section{padding-top:34px}
+body{padding:0 12px 48px}
+.tiles{gap:8px;margin-bottom:16px}
+.tile{padding:11px 12px 13px}
+.tile .num{font-size:1.6rem}
+.cards{gap:10px}
+.card{padding:13px 14px 15px}
+footer.page{margin-top:36px;padding-top:14px}
+}
 """
 
 
