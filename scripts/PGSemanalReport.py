@@ -741,16 +741,20 @@ def build_producao(rep: Report, ini: date, fim: date):
               f"vs {acumulado_planejamento} na estação de monta")
 
     # Mesma regra da safra corrente, aplicada na que comeca: vivos na planilha do
-    # grupo + paricoes que ja sairam de la. Enquanto nao ha lancamento, da 0 — e 0
-    # aqui e o '--' do relatorio, nao um numero perdido.
-    grupo_prox = _acumulado_grupo(SAFRA_PROXIMA)
-    paridos_prox = [e for e in embrioes_proxima if e["data_paricao"]
-                    and _chave_embriao(e["doadora"], e["garanhao"], e["receptora"])
-                    not in grupo_prox["chaves"]]
-    acumulado_prox = grupo_prox["total"] + len(paridos_prox)
-    if acumulado_prox:
-        print(f"  [acumulado] safra {SAFRA_PROXIMA} ja tem {acumulado_prox} "
-              f"(grupo {grupo_prox['total']} + {len(paridos_prox)} parições)")
+    # grupo + paricoes que ja sairam de la. Sem SAFRA_PROXIMA (fora de transicao),
+    # nem le a planilha do grupo de novo — o card correspondente ja nasce None e
+    # some no dashboard (skip por falta de rotulo).
+    if SAFRA_PROXIMA:
+        grupo_prox = _acumulado_grupo(SAFRA_PROXIMA)
+        paridos_prox = [e for e in embrioes_proxima if e["data_paricao"]
+                        and _chave_embriao(e["doadora"], e["garanhao"], e["receptora"])
+                        not in grupo_prox["chaves"]]
+        acumulado_prox = grupo_prox["total"] + len(paridos_prox)
+        if acumulado_prox:
+            print(f"  [acumulado] safra {SAFRA_PROXIMA} ja tem {acumulado_prox} "
+                  f"(grupo {grupo_prox['total']} + {len(paridos_prox)} parições)")
+    else:
+        acumulado_prox = None
 
     rep.producao = {
         "acumulado_estacao": acumulado,

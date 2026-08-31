@@ -55,7 +55,30 @@ TEMPLATE = r"""<!doctype html>
   .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 22px;
     display:flex;flex-direction:column}
   .panel.full{grid-column:1 / -1}
-  @media(max-width:900px){.sections{grid-template-columns:1fr}}
+  /* mobile: o nº de colunas dos KPIs vem inline via JS (repeat(N,...), N até 7
+     nas seções largas — ver renderPanel no script) porque cada seção tem uma
+     contagem diferente de cards. !important pisa nesse inline pra achatar em
+     telas estreitas, senão o painel de PRODUÇÃO tenta encaixar 7 cards numa
+     coluna só e os números ficam espremidos/sobrepostos. */
+  @media(max-width:900px){
+    .sections{grid-template-columns:1fr}
+    .kpis{grid-template-columns:repeat(3,minmax(0,1fr)) !important}
+    .wrap{padding:16px 16px 40px}
+  }
+  @media(max-width:600px){
+    .kpis{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+    header{padding:14px 16px 12px;gap:10px}
+    .brand .logo{height:38px}
+    h1{font-size:16px}
+    .wrap{padding:14px 12px 32px}
+    .panel{padding:14px 16px}
+    select{min-width:0;flex:1 1 auto}
+    .kpi{min-height:88px;padding:11px 12px 10px}
+    .kpi .val{font-size:24px}
+    table{font-size:11px}
+    th,td{padding:5px 7px}
+  }
+  @media(max-width:380px){.kpis{grid-template-columns:1fr !important}}
   .panel h2{margin:0;font-size:16px;color:var(--amber);font-weight:600;letter-spacing:.3px}
   .panel h2 .n{color:var(--teal);font-weight:700;margin-right:4px}
   .panel .sub{color:var(--mut);font-size:12.5px;margin:4px 0 0}
