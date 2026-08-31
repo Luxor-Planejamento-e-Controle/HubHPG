@@ -16,7 +16,14 @@
   # avança `live` até `main` 1x/dia (ou sob demanda, via "Run workflow"), então
   # todos os pushes do dia em `main` viram UM deploy só. Push em `main` continua
   # livre e frequente — é o de `live` que custa crédito.
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)scripts' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes' ':(exclude)PGSemanal.py'"
+  # BUG achado no P&C em 31/08/2026 (mesmo padrao de ignore, mesmo risco aqui):
+  # "sem CACHED_COMMIT_REF o comando falha" (comentario acima) estava ERRADO —
+  # bash com variavel vazia OMITE o argumento, e `git diff --quiet $COMMIT_REF
+  # -- ...` (um ref so) compara o commit contra a arvore que o proprio build
+  # acabou de dar checkout dele: sempre vazio, sempre "sem mudanca", cancela
+  # build calado pra sempre depois do primeiro deploy manual via CLI (que nao
+  # registra commit_ref). Guarda explicita: sem CACHED_COMMIT_REF, forca build.
+  ignore = "[ -z \"$CACHED_COMMIT_REF\" ] && exit 1; git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)scripts' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes' ':(exclude)PGSemanal.py'"
 
 # Site interno: não indexar e não vazar referrer pra fora.
 [[headers]]
