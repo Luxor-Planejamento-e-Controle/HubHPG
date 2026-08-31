@@ -530,12 +530,18 @@ document.getElementById("btnImg").onclick=async(ev)=>{
     });
     clone.querySelectorAll(".rst").forEach(r=>r.remove());
     const largura=document.querySelector(".wrap").scrollWidth;
-    // mede a altura real renderizando fora da tela
+    // mede a altura real renderizando fora da tela. Tem de incluir cssCaptura na
+    // medição: sem isto o medidor usa só o CSS normal da página (fonte pequena) e
+    // o SVG final desenha com a fonte grande da captura — media sai baixa, desenho
+    // sai alto, e o rodapé corta fora do canvas.
     const medidor=document.createElement("div");
     medidor.style.cssText=`position:fixed;left:-99999px;top:0;width:${largura}px`;
+    const estiloMedidor=document.createElement("style");
+    estiloMedidor.textContent=cssCaptura;
+    medidor.appendChild(estiloMedidor);
     medidor.appendChild(clone.cloneNode(true));
     document.body.appendChild(medidor);
-    const altura=medidor.firstChild.scrollHeight+40;
+    const altura=medidor.lastChild.scrollHeight+40;
     document.body.removeChild(medidor);
 
     // o XMLSerializer já emite xmlns="http://www.w3.org/1999/xhtml" na raiz;
