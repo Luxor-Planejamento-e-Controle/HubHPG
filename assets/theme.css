@@ -48,6 +48,9 @@ a{color:inherit;text-decoration:none}
 .brand .mark{flex:0 0 auto;width:auto;height:32px;display:block}
 .brand .txt{display:flex;flex-direction:column;line-height:1;border-left:1px solid var(--line);padding-left:13px}
 .brand .txt span{font-size:11.5px;letter-spacing:.24em;color:var(--ink);font-weight:600}
+.nav-close{display:none;margin-left:auto;background:transparent;border:0;color:var(--ink-2);
+  width:34px;height:34px;border-radius:8px;cursor:pointer;flex:0 0 auto}
+.nav-close:hover{background:var(--surface-2);color:var(--ink)}
 .nav a{
   display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--r-sm);
   color:var(--ink-2);font-weight:500;transition:.13s;position:relative;
@@ -71,6 +74,27 @@ a{color:inherit;text-decoration:none}
 .app.collapsed .brand .txt,.app.collapsed .nav a span,.app.collapsed .foot{display:none}
 .app.collapsed .nav a{justify-content:center;padding:11px 0}
 .app.collapsed .nav a.active::before{left:-8px}
+/* mobile: sidebar vira DRAWER de verdade — some da tela por padrão (fora do
+   grid, sem tomar espaço do conteúdo) e desliza por cima quando o botão de
+   menu abre (JS em app.js: no desktop o mesmo #collapseBtn colapsa pra
+   ícone, em mobile abre/fecha este drawer). */
+@media(max-width:760px){
+  .app{grid-template-columns:1fr}
+  .sidebar{
+    position:fixed;top:0;left:0;bottom:0;height:auto;width:min(80vw,290px);
+    transform:translateX(-100%);transition:transform .22s ease;
+    z-index:60;box-shadow:4px 0 32px rgba(0,0,0,.55);
+  }
+  .app.nav-open .sidebar{transform:translateX(0)}
+  .nav-scrim{
+    display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .app.nav-open .nav-scrim{display:block}
+  .nav a{padding:12px 12px;font-size:15px}
+  .collapse-btn{width:42px;height:42px}
+  .nav-close{display:grid;place-items:center}
+}
 .topbar{
   display:flex;align-items:center;gap:16px;padding:16px 26px;border-bottom:1px solid var(--line);
   background:rgba(4,34,59,.75);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);position:sticky;top:0;z-index:5;
@@ -120,7 +144,24 @@ option{background:var(--surface);color:var(--ink)}
 .g-2{grid-template-columns:repeat(2,1fr)}
 @media(max-width:1300px){.g-6,.g-5{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:1100px){.g-4{grid-template-columns:repeat(2,1fr)}.g-3{grid-template-columns:repeat(2,1fr)}.g-2{grid-template-columns:1fr}}
-@media(max-width:760px){.g-6,.g-5,.g-4,.g-3,.g-2{grid-template-columns:repeat(2,1fr)}}
+/* auto-fit/minmax em vez de número fixo de colunas: cada card pede um mínimo
+   de 150px e o navegador encaixa quantos couberem, sozinho. Um corte rígido
+   de pixel (ex: 420px) faz aparelhos de largura bem próxima (Galaxy S20 Ultra
+   412px vs iPhone 15 Pro Max 430px) caírem em lados opostos do corte e
+   mostrarem layouts bem diferentes pra telas quase idênticas — achado em
+   31/08/2026 no LuxorP&CHub, mesmo bug aqui por ser a mesma estrutura. */
+@media(max-width:760px){
+  .g-6,.g-5,.g-4,.g-3,.g-2{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .topbar{gap:10px;padding:12px 16px}
+  .topbar h1{font-size:17px}
+  .content{padding:16px 16px 36px}
+  .hero{margin-bottom:18px}
+  .hero h1{font-size:22px}
+  .card{padding:14px}
+  .chart{height:260px}
+  .chart.tall{height:300px}
+  .toolbar{gap:10px}
+}
 .card{
   background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
   box-shadow:var(--shadow-card);padding:18px;transition:.15s;
@@ -156,7 +197,15 @@ table.data tbody tr:hover td{background:rgba(255,255,255,.04)}
 
 .chart{width:100%;height:340px}
 .chart.tall{height:420px}
-.embed{width:100%;height:calc(100vh - 63px);border:0;background:var(--bg);display:block}
+.embed{width:100%;height:calc(100vh - 63px);height:calc(100dvh - 63px);border:0;background:var(--bg);display:block}
+/* table.data em mobile: sem isto, coluna igual pra todas espremia número até
+   virar "5,..." ilegível, mesmo com .tbl-wrap tendo overflow:auto (nada
+   excedia a largura pra rolar, porque a tabela obedecia o container). Solta a
+   largura (max-content) pra crescer pelo conteúdo real e o scroll valer. */
+@media(max-width:760px){
+  table.data{width:max-content !important;min-width:100% !important}
+  table.data th,table.data td{white-space:nowrap !important}
+}
 /* Semanal e comitê são casos diferentes: o comitê é slide 16:9, quer a tela
    toda e rola por dentro (apresentação). O semanal é documento — altura fixa
    fazia ele rolar por dentro E a página do hub rolar por fora ao mesmo tempo,

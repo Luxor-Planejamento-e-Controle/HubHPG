@@ -137,12 +137,40 @@ function renderComite(el){
   el.innerHTML=`<iframe class="embed" src="comite.html" title="Comitê Mensal"></iframe>`;
 }
 
-/* ---- sidebar recolhível ---- */
+/* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----
+   Mesmo botão (#collapseBtn), comportamento diferente por breakpoint: em
+   ≤760px a sidebar sai do grid (CSS) e vira overlay fixo, então "colapsar"
+   não faz sentido — o botão abre/fecha o drawer por cima do conteúdo, com um
+   scrim pra fechar tocando fora e fechamento automático ao navegar. Mesma
+   receita do LuxorP&CHub — achado em 31/08/2026 que esta casca (HUB HPG) é um
+   site PRÓPRIO, separado, que nunca tinha recebido o fix (só o dashboard
+   embutido dentro dela tinha sido corrigido). */
 (function collapse(){
   const btn=document.getElementById('collapseBtn'), app=document.querySelector('.app');
-  if(localStorage.getItem('hpg-collapsed')==='1')app.classList.add('collapsed');
-  btn.onclick=()=>{app.classList.toggle('collapsed');
-    localStorage.setItem('hpg-collapsed',app.classList.contains('collapsed')?'1':'0');};
+  const mq=window.matchMedia('(max-width:760px)');
+  const scrim=document.createElement('div');
+  scrim.className='nav-scrim';
+  app.appendChild(scrim);
+  const closeDrawer=()=>{app.classList.remove('nav-open');document.body.style.overflow='';};
+  const openDrawer=()=>{app.classList.add('nav-open');document.body.style.overflow='hidden';};
+  const collapsedSalvo=()=>localStorage.getItem('hpg-collapsed')==='1';
+  if(!mq.matches && collapsedSalvo())app.classList.add('collapsed');
+  btn.onclick=()=>{
+    if(mq.matches){
+      app.classList.contains('nav-open')?closeDrawer():openDrawer();
+    }else{
+      app.classList.toggle('collapsed');
+      localStorage.setItem('hpg-collapsed',app.classList.contains('collapsed')?'1':'0');
+    }
+  };
+  scrim.onclick=closeDrawer;
+  document.getElementById('navCloseBtn').onclick=closeDrawer;
+  // #nav é recriado a cada buildNav() — delegação no container pega os links novos também
+  document.getElementById('nav').addEventListener('click',e=>{if(e.target.closest('a'))closeDrawer();});
+  mq.addEventListener('change',e=>{
+    closeDrawer();
+    app.classList.toggle('collapsed',!e.matches && collapsedSalvo());
+  });
 })();
 
 /* ---- boot ----
