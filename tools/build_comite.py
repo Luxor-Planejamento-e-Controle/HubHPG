@@ -28,6 +28,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import requests
+from dotenv import dotenv_values
 
 # tools/ vive na raiz do repo desde a reorganizacao: a raiz E o site.
 REPO = Path(__file__).resolve().parent.parent
@@ -943,18 +945,54 @@ def slides_embrioes():
 
 # ============================= Conteúdo escrito à mão (S08, S23–S27, S38, S39)
 # Comentário do DRE, exposição, manejo e foto não saem de planilha: são escritos
-# todo mês. Ficam em `_docs/comite_conteudo.json`, semeado do último deck
-# aprovado por `tools/extrair_conteudo.py`. Sem isso esses slides seriam
-# placeholder pra sempre.
+# todo mês. Até 31/08/2026 ficavam só em `_docs/comite_conteudo.json`, editado
+# na mão por quem tinha o repo aberto. Agora a fonte PRINCIPAL é a tabela
+# comite_conteudo no Supabase do hub — editável direto pelo hub (Ana/Aline/
+# Arthur). O JSON local virou seed/backup: só entra se o Supabase não
+# responder OU não tiver aquele mês ainda (ex.: mês seguinte, antes de
+# alguém editar pelo hub — sem isso o slide vira placeholder à toa se o
+# conteúdo já existe no JSON de uma migração antiga).
 CONTEUDO = REPO / "_docs" / "comite_conteudo.json"
-FALTA_CONTEUDO = "escreva o conteúdo desse mês em _docs/comite_conteudo.json"
+FALTA_CONTEUDO = "escreva o conteúdo desse mês pelo hub (aba Comitê) ou em _docs/comite_conteudo.json"
+
+
+def _supabase_env():
+    cfg = dotenv_values(REPO / ".env")
+    url = cfg.get("SUPABASE_URL", "").rstrip("/")
+    key = cfg.get("SUPABASE_SERVICE_ROLE_KEY")
+    return (url, key) if url and key else (None, None)
 
 
 def le_conteudo():
-    if not CONTEUDO.exists():
-        return {}
-    d = json.loads(CONTEUDO.read_text(encoding="utf-8"))
-    return {k: v for k, v in d.items() if re.fullmatch(r"\d{4}-\d{2}", k)}
+    """Supabase primeiro (fonte principal); JSON local só tapa buraco —
+    mês que o Supabase não tem ainda, ou o serviço fora do ar."""
+    local = {}
+    if CONTEUDO.exists():
+        d = json.loads(CONTEUDO.read_text(encoding="utf-8"))
+        local = {k: v for k, v in d.items() if re.fullmatch(r"\d{4}-\d{2}", k)}
+
+    url, key = _supabase_env()
+    if not url:
+        print("  [conteudo] sem SUPABASE_URL/SERVICE_ROLE no .env — usando só o JSON local")
+        return local
+    try:
+        r = requests.get(
+            f"{url}/rest/v1/comite_conteudo?select=mes,comentarios,exposicoes,manejo,fotos",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=15,
+        )
+        r.raise_for_status()
+        remoto = {row["mes"]: {k: row[k] for k in ("comentarios", "exposicoes", "manejo", "fotos")}
+                  for row in r.json()}
+    except Exception as exc:
+        print(f"  [conteudo] Supabase indisponível ({exc!r}) — usando só o JSON local")
+        return local
+
+    # remoto manda; mês que só existe no JSON (não migrado/editado ainda) sobrevive
+    faltando_no_remoto = sorted(set(local) - set(remoto))
+    if faltando_no_remoto:
+        print(f"  [conteudo] só no JSON local (não migrado pro Supabase ainda): "
+              f"{', '.join(faltando_no_remoto)}")
+    return {**local, **remoto}
 
 
 def conteudo_do_mes(todos, chave):
@@ -1112,6 +1150,29 @@ def _foto_embutida(caminho: Path) -> str | None:
         return None
 
 
+def _foto_do_bucket(path: str) -> str | None:
+    """Foto já reduzida (upload/edição pelo hub sempre grava otimizada — ver
+    tools/migrar_comite_conteudo.py e o upload do próprio hub) — baixa e
+    embute direto, sem passar pelo PIL de novo."""
+    url, key = _supabase_env()
+    if not url:
+        return None
+    try:
+        r = requests.get(f"{url}/storage/v1/object/comite-fotos/{path}",
+                          headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=15)
+        r.raise_for_status()
+        return "data:image/jpeg;base64," + base64.b64encode(r.content).decode()
+    except Exception as exc:
+        print(f"  [fotos] bucket {path}: {exc!r}")
+        return None
+
+
+# path no formato "AAAA-MM/arquivo.jpg" = veio do Supabase (comite_conteudo,
+# tools/migrar_comite_conteudo.py ou upload pelo hub). Formato antigo local
+# ("fotos/arquivo.jpg", só em conteúdo ainda não migrado) lê do disco.
+_RE_PATH_BUCKET = re.compile(r"^\d{4}-\d{2}/")
+
+
 def _fotos_grupo_por_tema(grupos, m, ano):
     """Um ou mais slides por TEMA, igual ao deck oficial — 'Obras e melhorias
     realizadas · Banqueta' com 1-6 fotos, nunca misturando tema no mesmo slide.
@@ -1121,7 +1182,7 @@ def _fotos_grupo_por_tema(grupos, m, ano):
         tema, arquivos = g.get("tema") or "", g.get("arquivos") or []
         embutidas = []
         for f in arquivos:
-            uri = _foto_embutida(OUT / f)
+            uri = _foto_do_bucket(f) if _RE_PATH_BUCKET.match(f) else _foto_embutida(OUT / f)
             if uri:
                 embutidas.append(uri)
         if not embutidas:
@@ -1156,7 +1217,8 @@ def slides_fotos(c, m, ano):
          genérico, não o contrário."""
     legado = c.get("fotos") or []
     if legado and isinstance(legado[0], dict):
-        # formato novo: [{tema, arquivos}], extraído do PPTX oficial do mês
+        # formato novo: [{tema, arquivos}], vindo do Supabase (hub) ou extraído
+        # do PPTX oficial do mês
         out = _fotos_grupo_por_tema(legado, m, ano)
         if out:
             _registra("fotos do mês", CONTEUDO)
@@ -1165,14 +1227,24 @@ def slides_fotos(c, m, ano):
                   f"{len({g['sub'].split(' (')[0] for g in out})} temas "
                   f"(comite_conteudo.json)")
             return out
+    if legado and isinstance(legado[0], str) and _RE_PATH_BUCKET.match(legado[0]):
+        # lista solta MAS já migrada pro Supabase (junho/2026, formato antigo
+        # sem tema — ver tools/migrar_comite_conteudo.py): trata como 1 grupo
+        # sem tema, mesmo caminho do formato novo (baixa do bucket).
+        out = _fotos_grupo_por_tema([{"tema": "", "arquivos": legado}], m, ano)
+        if out:
+            _registra("fotos do mês", CONTEUDO)
+            n_fotos = sum(len(g["fotos"]) for g in out)
+            print(f"  [fotos] {MESES[m-1]}: {n_fotos} fotos (comite_conteudo.json, sem tema)")
+            return out
 
     caminhos = _fotos_do_mes(ano, m)
     fonte = FOTOS_DIR_BASE / str(ano) / "FOTOS"
     if caminhos:
         _registra("fotos do mês", fonte)
     else:
-        # legado antigo (junho): lista solta de arquivos, sem tema, extraída do
-        # PPTX de junho antes deste agrupamento existir.
+        # legado antigo local (pré-migração): lista solta de arquivos, sem
+        # tema, ainda apontando pro disco (não pro bucket).
         caminhos = [OUT / f for f in legado if isinstance(f, str)]
         if caminhos:
             print(f"  [fotos] {MESES[m-1]}: pasta do Drive sem foto, usando as "

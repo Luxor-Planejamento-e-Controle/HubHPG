@@ -176,6 +176,394 @@ function vazio(glyph, tag, titulo, texto, fonte, motivo){
   </div></div>`;
 }
 
+/* ==================== conteúdo ao vivo (Supabase) ====================
+   Comentários, exposições, manejo e fotos são "sem fonte" (ver cabeçalho de
+   tools/build_comite.py) — editados pelo hub desde 31/08/2026, não mais só
+   no _docs/comite_conteudo.json. O SPEC (spec.js) é o que o PIPELINE gerou
+   da última vez que alguém rodou — pode estar atrasado em relação ao
+   Supabase, que é a fonte principal agora. Pra editor E visualizador verem
+   sempre o mais recente sem depender de alguém lembrar de rodar o build de
+   novo, o deck busca o mês corrente no Supabase toda vez que troca de mês
+   (ou salva algo) e RECONSTRÓI esses 4 tipos de slide na hora — mesma regra
+   de slide_comentarios/slides_exposicoes/slide_manejo/_fotos_grupo_por_tema
+   do build_comite.py, só que em JS. Se o Supabase não responder ou o mês
+   não tiver linha lá, o SPEC (baked) continua valendo — não quebra nada. */
+const FOTOS_POR_SLIDE = 6;
+const GRADE_FOTOS = {1:[1,1], 2:[2,1], 3:[3,1], 4:[2,2], 5:[3,2], 6:[3,2]};
+const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const ABR_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const TIPOS_EDITAVEIS = new Set(['comentarios', 'manejo', 'fotos', 'resultados']);
+const ehExposicaoProg = s => s.t === 'tabela' && s.n === 23;
+const ehEditavel = s => TIPOS_EDITAVEIS.has(s.t) || ehExposicaoProg(s);
+
+function hubSb(){ try { return window.parent.HUB && window.parent.HUB.sb; } catch (e) { return null; } }
+function hubEmail(){ try { return window.parent.HUB && window.parent.HUB.email; } catch (e) { return null; } }
+function hubIsAdmin(){ try { return window.parent.HUB && window.parent.HUB.role === 'admin'; } catch (e) { return false; } }
+
+let souEditor = false;
+async function checaEditor(){
+  if (hubIsAdmin()) {
+    souEditor = true;
+  } else {
+    const sb = hubSb(), email = hubEmail();
+    if (!sb || !email) {
+      souEditor = false;
+    } else {
+      try {
+        const { data } = await sb.from('comite_editores').select('email').eq('email', email).maybeSingle();
+        souEditor = !!data;
+      } catch (e) { souEditor = false; }
+    }
+  }
+  const btn = document.getElementById('editar');
+  if (btn) btn.hidden = !souEditor;
+}
+
+const conteudoCache = {};   // {mes: linha do Supabase | null} — invalidado ao salvar
+async function buscaConteudoAoVivo(mes){
+  if (mes in conteudoCache) return conteudoCache[mes];
+  const sb = hubSb();
+  if (!sb) { conteudoCache[mes] = null; return null; }
+  try {
+    const { data, error } = await sb.from('comite_conteudo').select('*').eq('mes', mes).maybeSingle();
+    conteudoCache[mes] = error ? null : data;
+  } catch (e) { conteudoCache[mes] = null; }
+  return conteudoCache[mes];
+}
+
+/* foto do bucket privado -> data URI, mesmo formato que o resto do arquivo já
+   usa (ver dataURI() mais abaixo, reaproveitada aqui) — assim a exportação
+   PPTX continua funcionando sem mudar nada nela (ela espera base64 embutido,
+   não URL remota). */
+async function fotoDataUri(path){
+  const sb = hubSb();
+  if (!sb) return null;
+  try {
+    const { data, error } = await sb.storage.from('comite-fotos').createSignedUrl(path, 3600);
+    if (error || !data) return null;
+    return await dataURI(data.signedUrl);
+  } catch (e) { return null; }
+}
+
+/* monta os slides sem fonte a partir do conteúdo ao vivo — mesma regra do
+   Python. Devolve {comentarios:[...], exposicoes:[...], manejo:[...],
+   fotos:[...]} só com as chaves que têm conteúdo; ausente = spec baked vale. */
+async function montaSlidesAoVivo(mes){
+  const c = await buscaConteudoAoVivo(mes);
+  if (!c) return null;
+  const [ano, mNum] = mes.split('-').map(Number);
+  const out = {};
+
+  if (c.comentarios && c.comentarios.length) {
+    out.comentarios = [{t:'comentarios', n:8,
+      titulo:`COMENTÁRIOS — VARIAÇÕES YTD JAN–${ABR_PT[mNum-1].toUpperCase()} ${ano}`,
+      sub:'DRE 2026 | HPG · principais destaques acumulados por categoria',
+      itens: c.comentarios}];
+  }
+
+  const exp = c.exposicoes || {}, prog = exp.programacao || [], res = exp.resultados || [];
+  if (prog.length || res.length) {
+    const s = [];
+    if (prog.length) s.push({t:'tabela', n:23, titulo:`EXPOSIÇÕES ${ano} — PROGRAMAÇÃO`,
+      sub:'Calendário de participações previstas', cols:['EVENTO','DATA','LOCAL','STATUS'], rows: prog});
+    res.forEach((r, k) => s.push({t:'resultados', n:24+k, titulo:r.titulo, sub:r.sub || '', animais:r.animais}));
+    out.exposicoes = s;
+  }
+
+  if (c.manejo && c.manejo.length) {
+    out.manejo = [{t:'manejo', n:38, titulo:'MANEJO — PONTOS DE MELHORIA E DECISÕES', itens: c.manejo}];
+  }
+
+  if (c.fotos && c.fotos.length) {
+    const grupos = typeof c.fotos[0] === 'string' ? [{tema:'', arquivos:c.fotos}] : c.fotos;
+    const s = [];
+    for (const g of grupos) {
+      const urls = (await Promise.all((g.arquivos || []).map(fotoDataUri))).filter(Boolean);
+      if (!urls.length) continue;
+      const n = Math.ceil(urls.length / FOTOS_POR_SLIDE);
+      for (let k = 0; k < n; k++) {
+        const bloco = urls.slice(k * FOTOS_POR_SLIDE, (k + 1) * FOTOS_POR_SLIDE);
+        const [cols, rows] = GRADE_FOTOS[bloco.length];
+        let sub = g.tema ? `Obras e melhorias realizadas · ${g.tema}` : `Registros de ${MESES_PT[mNum-1]} ${ano}`;
+        if (n > 1) sub += ` (${k+1}/${n})`;
+        s.push({t:'fotos', n:39, titulo:'MANEJO — FOTOS E REGISTROS', sub, grade:[cols, rows], fotos:bloco});
+      }
+    }
+    if (s.length) out.fotos = s;
+  }
+  return out;
+}
+
+/* troca, na lista `slides` já carregada, os slides de um tipo pelos novos —
+   por tipo (comentarios/manejo/fotos) ou pelo par tabela(n=23)+resultados
+   (exposições, que são dois tipos de slide pra 1 conteúdo só). */
+function substituiSlidesDoTipo(chave, novos){
+  let primeiro = -1;
+  slides = slides.filter((s, i) => {
+    const bate = chave === 'exposicoes' ? (ehExposicaoProg(s) || s.t === 'resultados') : s.t === chave;
+    if (bate && primeiro === -1) primeiro = i;
+    return !bate;
+  });
+  if (primeiro === -1) primeiro = slides.length;
+  slides.splice(primeiro, 0, ...novos);
+}
+
+async function aplicaConteudoAoVivo(mes){
+  const vivo = await montaSlidesAoVivo(mes);
+  if (mes !== mesAtual || !vivo) return;   // usuário já trocou de mês, ou nada pra aplicar
+  for (const [chave, novos] of Object.entries(vivo)) substituiSlidesDoTipo(chave, novos);
+  listaSlides();
+  go(Math.min(idx, slides.length - 1));
+}
+
+/* ==================== editor ====================
+   Um painel só, corpo diferente por tipo. `estado` guarda os dados sendo
+   editados (array de linhas, ou objeto — depende do tipo); os inputs
+   escrevem direto em `estado` via listener delegado (sem re-render a cada
+   tecla), e só reconstrói o HTML quando uma linha é adicionada/removida. */
+let estado = null, tipoAtual = null;
+
+function painelEditor(){
+  let el = document.getElementById('editorOverlay');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'editorOverlay';
+  el.innerHTML = `<div id="editorPanel">
+    <div class="ed-head"><h3 id="edTitulo"></h3>
+      <button type="button" id="edFechar" aria-label="Fechar">✕</button></div>
+    <div id="edCorpo"></div>
+    <div class="ed-rodape">
+      <span id="edStatus"></span>
+      <button type="button" id="edCancelar">Cancelar</button>
+      <button type="button" id="edSalvar" class="primary">Salvar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', e => { if (e.target === el) fechaEditor(); });
+  document.getElementById('edFechar').onclick = fechaEditor;
+  document.getElementById('edCancelar').onclick = fechaEditor;
+  document.getElementById('edSalvar').onclick = salvaEditor;
+  // delegado: linhas de comentários (data-i/data-f) escrevem direto em
+  // `estado` sem precisar de handler próprio por input. Os outros tipos
+  // (manejo/exposições/fotos) usam atributos diferentes (data-mi, data-pi,
+  // data-gi...) com oninput própria montada em cada render — não passam
+  // por aqui, o filtro abaixo já ignora.
+  document.getElementById('edCorpo').addEventListener('input', e => {
+    const t = e.target, i = t.dataset.i, f = t.dataset.f;
+    if (i == null) return;
+    estado[+i][f] = t.value;
+  });
+  return el;
+}
+function fechaEditor(){
+  const el = document.getElementById('editorOverlay');
+  if (el) el.style.display = 'none';
+}
+
+async function abreEditor(s){
+  if (!souEditor || !ehEditavel(s)) return;
+  const el = painelEditor();
+  el.style.display = 'flex';
+  document.getElementById('edStatus').textContent = 'carregando…';
+  document.getElementById('edSalvar').disabled = true;
+  const c = (await buscaConteudoAoVivo(mesAtual)) || {};
+
+  if (s.t === 'comentarios') {
+    tipoAtual = 'comentarios';
+    estado = JSON.parse(JSON.stringify(c.comentarios || []));
+    document.getElementById('edTitulo').textContent = `Comentários — ${SPEC.labels[mesAtual]}`;
+    renderComentarios();
+  } else if (s.t === 'manejo') {
+    tipoAtual = 'manejo';
+    estado = JSON.parse(JSON.stringify(c.manejo || []));
+    document.getElementById('edTitulo').textContent = `Manejo — ${SPEC.labels[mesAtual]}`;
+    renderManejo();
+  } else if (ehExposicaoProg(s) || s.t === 'resultados') {
+    tipoAtual = 'exposicoes';
+    const exp = c.exposicoes || {};
+    estado = {programacao: JSON.parse(JSON.stringify(exp.programacao || [])),
+              resultados: JSON.parse(JSON.stringify(exp.resultados || []))};
+    document.getElementById('edTitulo').textContent = `Exposições — ${SPEC.labels[mesAtual]}`;
+    renderExposicoes();
+  } else if (s.t === 'fotos') {
+    tipoAtual = 'fotos';
+    const fotos = c.fotos || [];
+    estado = JSON.parse(JSON.stringify(
+      typeof fotos[0] === 'string' ? [{tema:'', arquivos: fotos}] : fotos));
+    document.getElementById('edTitulo').textContent = `Fotos — ${SPEC.labels[mesAtual]}`;
+    await renderFotos();
+  }
+  document.getElementById('edStatus').textContent = '';
+  document.getElementById('edSalvar').disabled = false;
+}
+
+/* ---- comentários: linhas {cat, txt, delta} ---- */
+function renderComentarios(){
+  const corpo = document.getElementById('edCorpo');
+  corpo.innerHTML = estado.map((r, i) => `
+    <div class="ed-linha">
+      <input data-i="${i}" data-f="cat" value="${escAttr(r.cat)}" placeholder="Categoria">
+      <textarea data-i="${i}" data-f="txt" placeholder="Texto do comentário" rows="2">${esc(r.txt || '')}</textarea>
+      <input data-i="${i}" data-f="delta" value="${escAttr(r.delta)}" placeholder="+R$Xk" class="ed-curta">
+      <button type="button" class="ed-rm" data-rm="${i}">✕</button>
+    </div>`).join('') + `<button type="button" id="edAdd" class="ed-add">+ categoria</button>`;
+  corpo.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { estado.splice(+b.dataset.rm, 1); renderComentarios(); });
+  document.getElementById('edAdd').onclick = () => { estado.push({cat:'', txt:'', delta:''}); renderComentarios(); };
+}
+
+/* ---- manejo: linhas [mes, texto] ---- */
+function renderManejo(){
+  const corpo = document.getElementById('edCorpo');
+  corpo.innerHTML = estado.map((r, i) => `
+    <div class="ed-linha">
+      <input data-mi="${i}" data-mf="0" value="${escAttr(r[0])}" placeholder="Mês" class="ed-curta">
+      <textarea data-mi="${i}" data-mf="1" placeholder="Intervenções e decisões" rows="2">${esc(r[1] || '')}</textarea>
+      <button type="button" class="ed-rm" data-rm="${i}">✕</button>
+    </div>`).join('') + `<button type="button" id="edAdd" class="ed-add">+ mês</button>`;
+  corpo.querySelectorAll('[data-mi]').forEach(inp => inp.oninput = () => {
+    estado[+inp.dataset.mi][+inp.dataset.mf] = inp.value;
+  });
+  corpo.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { estado.splice(+b.dataset.rm, 1); renderManejo(); });
+  document.getElementById('edAdd').onclick = () => { estado.push(['', '']); renderManejo(); };
+}
+
+/* ---- exposições: programação (linhas [evento,data,local,status]) +
+   resultados ({titulo,sub,animais}, animais editado como texto "Nome:
+   prêmio1; prêmio2" por linha — mais simples que formulário aninhado) ---- */
+function animaisParaTexto(animais){
+  return (animais || []).map(a => `${a.nome}: ${(a.premios || []).join('; ')}`).join('\n');
+}
+function textoParaAnimais(txt){
+  return txt.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const [nome, resto] = l.split(':');
+    return {nome: (nome || '').trim(), premios: (resto || '').split(';').map(p => p.trim()).filter(Boolean)};
+  });
+}
+function renderExposicoes(){
+  const corpo = document.getElementById('edCorpo');
+  const prog = estado.programacao.map((r, i) => `
+    <div class="ed-linha ed-linha4">
+      <input data-pi="${i}" data-pf="0" value="${escAttr(r[0])}" placeholder="Evento">
+      <input data-pi="${i}" data-pf="1" value="${escAttr(r[1])}" placeholder="Data">
+      <input data-pi="${i}" data-pf="2" value="${escAttr(r[2])}" placeholder="Local">
+      <input data-pi="${i}" data-pf="3" value="${escAttr(r[3])}" placeholder="Status">
+      <button type="button" class="ed-rm" data-rmp="${i}">✕</button>
+    </div>`).join('');
+  const res = estado.resultados.map((r, i) => `
+    <div class="ed-bloco">
+      <input data-ri="${i}" data-rf="titulo" value="${escAttr(r.titulo)}" placeholder="Título do slide">
+      <input data-ri="${i}" data-rf="sub" value="${escAttr(r.sub)}" placeholder="Subtítulo">
+      <textarea data-ri="${i}" data-rf="animais" rows="4" placeholder="Um animal por linha: Nome: prêmio 1; prêmio 2">${esc(animaisParaTexto(r.animais))}</textarea>
+      <button type="button" class="ed-rm" data-rmr="${i}">✕ remover resultado</button>
+    </div>`).join('');
+  corpo.innerHTML = `<h4>Programação</h4>${prog}
+    <button type="button" id="edAddP" class="ed-add">+ evento</button>
+    <h4>Resultados</h4>${res}
+    <button type="button" id="edAddR" class="ed-add">+ resultado</button>`;
+  corpo.querySelectorAll('[data-pi]').forEach(inp => inp.oninput = () => {
+    estado.programacao[+inp.dataset.pi][+inp.dataset.pf] = inp.value;
+  });
+  corpo.querySelectorAll('[data-rmp]').forEach(b => b.onclick = () => { estado.programacao.splice(+b.dataset.rmp, 1); renderExposicoes(); });
+  corpo.querySelectorAll('[data-ri]').forEach(inp => inp.oninput = () => {
+    const r = estado.resultados[+inp.dataset.ri], f = inp.dataset.rf;
+    r[f === 'animais' ? '_txt' : f] = inp.value;
+  });
+  corpo.querySelectorAll('[data-rmr]').forEach(b => b.onclick = () => { estado.resultados.splice(+b.dataset.rmr, 1); renderExposicoes(); });
+  document.getElementById('edAddP').onclick = () => { estado.programacao.push(['', '', '', '']); renderExposicoes(); };
+  document.getElementById('edAddR').onclick = () => { estado.resultados.push({titulo:'', sub:'', animais:[]}); renderExposicoes(); };
+}
+
+/* ---- fotos: grupos {tema, arquivos[]} — upload direto no bucket ao
+   escolher arquivo (não espera o Salvar geral, senão perde o arquivo se
+   fechar sem salvar); remover/reordenar só mexe no array em memória até
+   Salvar gravar a lista final. ---- */
+async function renderFotos(){
+  const corpo = document.getElementById('edCorpo');
+  const blocos = await Promise.all(estado.map(async (g, gi) => {
+    const thumbs = await Promise.all((g.arquivos || []).map(async (p, ai) => {
+      const uri = await fotoDataUri(p);
+      return `<div class="ed-foto">
+        <img src="${uri || ''}" alt="">
+        <div class="ed-foto-acoes">
+          <button type="button" data-mv="${gi}:${ai}:-1" ${ai === 0 ? 'disabled' : ''}>↑</button>
+          <button type="button" data-mv="${gi}:${ai}:1" ${ai === g.arquivos.length - 1 ? 'disabled' : ''}>↓</button>
+          <button type="button" data-rmf="${gi}:${ai}">✕</button>
+        </div></div>`;
+    }));
+    return `<div class="ed-grupo">
+      <div class="ed-grupo-head">
+        <input data-gi="${gi}" value="${escAttr(g.tema)}" placeholder="Tema (opcional)">
+        <label class="ed-upload">+ foto<input type="file" accept="image/*" multiple data-up="${gi}" hidden></label>
+        <button type="button" class="ed-rm" data-rmg="${gi}">✕ remover grupo</button>
+      </div>
+      <div class="ed-fotos-grade">${thumbs.join('') || '<span class="ed-vazio">sem foto neste grupo</span>'}</div>
+    </div>`;
+  }));
+  corpo.innerHTML = blocos.join('') + `<button type="button" id="edAddG" class="ed-add">+ grupo (tema)</button>`;
+
+  corpo.querySelectorAll('[data-gi]').forEach(inp => inp.oninput = () => { estado[+inp.dataset.gi].tema = inp.value; });
+  corpo.querySelectorAll('[data-rmg]').forEach(b => b.onclick = () => { estado.splice(+b.dataset.rmg, 1); renderFotos(); });
+  corpo.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => {
+    const [gi, ai] = b.dataset.rmf.split(':').map(Number);
+    estado[gi].arquivos.splice(ai, 1); renderFotos();
+  });
+  corpo.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => {
+    const [gi, ai, dir] = b.dataset.mv.split(':').map(Number);
+    const arr = estado[gi].arquivos, novo = ai + dir;
+    if (novo < 0 || novo >= arr.length) return;
+    [arr[ai], arr[novo]] = [arr[novo], arr[ai]];
+    renderFotos();
+  });
+  corpo.querySelectorAll('[data-up]').forEach(inp => inp.onchange = async () => {
+    const gi = +inp.dataset.up;
+    document.getElementById('edStatus').textContent = 'enviando foto…';
+    for (const file of inp.files) {
+      const path = await sobeFoto(file);
+      if (path) estado[gi].arquivos.push(path);
+    }
+    document.getElementById('edStatus').textContent = '';
+    renderFotos();
+  });
+  document.getElementById('edAddG').onclick = () => { estado.push({tema:'', arquivos:[]}); renderFotos(); };
+}
+async function sobeFoto(file){
+  const sb = hubSb();
+  if (!sb) return null;
+  const nome = `${Date.now()}_${file.name}`.replace(/[^\w.-]/g, '_');
+  const path = `${mesAtual}/${nome}`;
+  try {
+    const { error } = await sb.storage.from('comite-fotos').upload(path, file, {contentType: file.type, upsert: true});
+    if (error) { alert('Falha no upload: ' + error.message); return null; }
+    return path;
+  } catch (e) { alert('Falha no upload: ' + e.message); return null; }
+}
+
+async function salvaEditor(){
+  const sb = hubSb();
+  if (!sb) { alert('Sem sessão do hub — não dá pra salvar.'); return; }
+  document.getElementById('edStatus').textContent = 'salvando…';
+  document.getElementById('edSalvar').disabled = true;
+  let coluna, valor;
+  if (tipoAtual === 'comentarios') { coluna = 'comentarios'; valor = estado; }
+  else if (tipoAtual === 'manejo') { coluna = 'manejo'; valor = estado; }
+  else if (tipoAtual === 'fotos') { coluna = 'fotos'; valor = estado; }
+  else if (tipoAtual === 'exposicoes') {
+    coluna = 'exposicoes';
+    valor = {
+      programacao: estado.programacao,
+      resultados: estado.resultados.map(r => ({titulo: r.titulo, sub: r.sub, animais: textoParaAnimais(r._txt ?? animaisParaTexto(r.animais))})),
+    };
+  }
+  const { error } = await sb.from('comite_conteudo').upsert({mes: mesAtual, [coluna]: valor});
+  document.getElementById('edSalvar').disabled = false;
+  if (error) { document.getElementById('edStatus').textContent = ''; alert('Falha ao salvar: ' + error.message); return; }
+  delete conteudoCache[mesAtual];
+  fechaEditor();
+  aplicaConteudoAoVivo(mesAtual);
+}
+
+function escAttr(s){ return esc(s).replace(/"/g, '&quot;'); }
+
 /* ---- navegação ---- */
 let mesAtual = SPEC.padrao;
 /* mensal = deck inteiro; trimestral = sem os slides que recortam o MÊS.
@@ -198,6 +586,8 @@ function render(){
   const sel = document.getElementById('ir');
   if (sel.value !== String(idx)) sel.value = String(idx);
   location.hash = `#${mesAtual}/${idx + 1}`;
+  const btnEditar = document.getElementById('editar');
+  if (btnEditar) btnEditar.disabled = !ehEditavel(s);
 }
 /* escala o slide de 1280×720 pra caber na área disponível, mantendo a proporção.
    translate(-50%,-50%) faz parte do transform (não só do CSS base) porque
@@ -226,6 +616,7 @@ function trocaMes(mes){
   listaSlides();
   atualizaAviso();
   go(Math.min(idx, slides.length - 1));
+  aplicaConteudoAoVivo(mes);   // async, de propósito — reflete quando chegar, sem travar a troca
 }
 function listaSlides(){
   document.getElementById('ir').innerHTML = slides
@@ -507,6 +898,9 @@ document.getElementById('ir').onchange = e => go(+e.target.value);
 document.getElementById('play').onclick = play;
 document.getElementById('pptx').onclick = e => exportarPptx(e.currentTarget);
 
+document.getElementById('editar').onclick = () => abreEditor(slides[idx]);
+
 const alvo = /^#([\d-]+)\/(\d+)$/.exec(location.hash);
 if (alvo && SPEC.decks[alvo[1]]) { idx = +alvo[2] - 1; mesAtual = alvo[1]; }
 trocaMes(mesAtual);
+checaEditor();
