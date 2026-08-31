@@ -79,6 +79,26 @@ TEMPLATE = r"""<!doctype html>
     th,td{padding:5px 7px}
   }
   @media(max-width:380px){.kpis{grid-template-columns:1fr !important}}
+  /* mobile de verdade, não desktop encolhido: tabela de detalhe vira lista de
+     cards (uma linha = um card, coluna vira rótulo:valor empilhado) em vez de
+     obrigar scroll horizontal — que é o "parece página de computador espremida"
+     que a gente queria matar. data-lab (posto no <td> pelo detTable) alimenta o
+     ::before; a 1ª coluna vira título do card, sem rótulo, maior. */
+  @media(max-width:680px){
+    .det-b{border:none;overflow:visible;border-radius:0}
+    .det-b table,.det-b thead,.det-b tbody,.det-b tr,.det-b th,.det-b td{display:block}
+    .det-b thead{display:none}
+    .det-b tr{background:#072B49;border:1px solid var(--line);border-radius:10px;
+      padding:11px 13px;margin-bottom:9px}
+    .det-b tr:last-child{margin-bottom:0}
+    .det-b td{border:none !important;padding:5px 0;display:flex;justify-content:space-between;
+      align-items:baseline;gap:14px;white-space:normal;overflow-wrap:break-word;text-align:right}
+    .det-b td::before{content:attr(data-lab);color:var(--mut);font-size:9.5px;
+      text-transform:uppercase;letter-spacing:.4px;font-weight:600;flex:0 0 auto;text-align:left}
+    .det-b td:first-child{font-weight:700;font-size:13.5px;text-align:left}
+    .det-b td:first-child::before{content:none}
+    .det-b td:not(:last-child):not(:first-child){border-bottom:1px dashed var(--line) !important}
+  }
   .panel h2{margin:0;font-size:16px;color:var(--amber);font-weight:600;letter-spacing:.3px}
   .panel h2 .n{color:var(--teal);font-weight:700;margin-right:4px}
   .panel .sub{color:var(--mut);font-size:12.5px;margin:4px 0 0}
@@ -376,10 +396,13 @@ function detTable(title, key, opts){
     cols=cols.filter(c=>rows.some(r=>r[c]!=null && String(r[c]).trim()!==""));
     nCols=cols.length; unica=cols[0];
     head=cols.map(c=>`<th>${lab(c)}</th>`).join("");
+    // data-lab: o rótulo da coluna, pra virar card empilhado no mobile sem
+    // precisar de outra tabela — mesma marcação serve pro desktop (ignora
+    // data-lab) e pro mobile (::before lê data-lab, ver @media max-width:680px)
     body=rows.map(r=>`<tr>${cols.map(c=>{let v=r[c];
       if(DATECOLS.has(c))v=br(v);
       else if(PCTCOLS.has(c)&&v!=null&&v!=="")v=Math.round(Number(v)*100)+"%";
-      return `<td>${v==null?"":v}</td>`;}).join("")}</tr>`).join("");
+      return `<td data-lab="${lab(c)}">${v==null?"":v}</td>`;}).join("")}</tr>`).join("");
   }
   // Uma coluna só não é tabela — é lista. Tabela de largura inteira com um
   // cabeçalho "ANIMAL" e uma célula "309" é pior que não mostrar nada.
