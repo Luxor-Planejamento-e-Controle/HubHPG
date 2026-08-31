@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Comitê Mensal — Haras Pao Grande</title>
 <link rel="icon" href="assets/pg-logo.png">
-<link rel="stylesheet" href="assets/comite/deck.css?v=202608281125">
+<link rel="stylesheet" href="assets/comite/deck.css?v=202608311358">
 </head>
 <body>
 <div class="stage" id="stage"></div>
@@ -28,13 +28,13 @@
 <!-- spec.js e gerado e gitignored: existe na maquina (demo offline), nao no
      site publico. Em producao o deck le o spec que o porteiro do hub baixou
      do bucket privado — iframe de mesmo origin, entao window.parent resolve. -->
-<script src="assets/comite/spec.js?v=202608281125" onerror="void 0"></script>
+<script src="assets/comite/spec.js?v=202608311358" onerror="void 0"></script>
 <script>
   if(!window.COMITE_SPEC){
     try { window.COMITE_SPEC = window.parent.HUB && window.parent.HUB.comiteSpec; }
     catch(e) { console.warn("[deck] sem spec: nem local nem do hub", e); }
   }
 </script>
-<script src="assets/comite/deck.js?v=202608281125"></script>
+<script src="assets/comite/deck.js?v=202608311358"></script>
 </body>
 </html>

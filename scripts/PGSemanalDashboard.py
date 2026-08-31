@@ -501,7 +501,9 @@ document.getElementById("btnImg").onclick=async(ev)=>{
       #capa .cap-per{font-size:26px;font-weight:700;color:var(--teal);white-space:nowrap}
       #capa .cap-per .rot{display:block;font-size:14px;font-weight:700;color:var(--mut);
         text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
-      #capa .kpi .lab{font-size:16px;font-weight:700}
+      #capa .kpi{min-height:160px;padding:17px 19px 16px}
+      #capa .kpi .lab{font-size:16px;font-weight:700;min-height:62px}
+      #capa .kpi .tag{font-size:10.5px;top:10px;right:12px}
       #capa .kpi .val{font-size:46px}
       #capa .kpi .val .nota{font-size:17px}
       #capa .panel h2{font-size:24px}
