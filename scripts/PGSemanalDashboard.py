@@ -117,7 +117,7 @@ TEMPLATE = r"""<!doctype html>
      do tema preservadas (senão sai um documento branco sem hierarquia). */
   /* espelha as regras de impressão que mudam a ALTURA, para a medição do zoom
      bater com o que vai para o papel */
-  .medindo-print .toolbar,.medindo-print .tag{display:none}
+  .medindo-print .toolbar{display:none}
   .medindo-print .panel{padding:8px 10px;margin:0 0 6px}
   .medindo-print .kpi{min-height:0;padding:6px 8px}
   .medindo-print .kpi .lab{font-size:9.5px;min-height:0}
@@ -141,7 +141,7 @@ TEMPLATE = r"""<!doctype html>
       print-color-adjust:exact;font-size:12.5px}
     body{padding:6mm !important}
     .wrap{max-width:none !important}
-    .toolbar,#btnEdit,#btnImg,#btnPdf,#pdfEmb,.rst,.tag{display:none !important}
+    .toolbar,#btnEdit,#btnImg,#btnPdf,#pdfEmb,.rst{display:none !important}
     .det-b,.scroll{overflow:visible !important;max-height:none !important}
     /* O painel INTEIRO com break-inside:avoid empurrava cada seção para uma folha
        nova e deixava meia página em branco — foi o que saiu na primeira tentativa.
@@ -508,7 +508,6 @@ document.getElementById("btnImg").onclick=async(ev)=>{
       #capa .kpis{gap:10px}
       #capa .kpi{min-height:118px;padding:14px 16px 13px}
       #capa .kpi .lab{font-size:13px;font-weight:700;min-height:36px}
-      #capa .kpi .tag{font-size:9.5px;top:9px;right:11px}
       #capa .kpi .val{font-size:34px}
       #capa .kpi .val .nota{font-size:13px;margin-top:5px}
       #capa .panel h2{font-size:19px}
