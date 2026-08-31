@@ -97,25 +97,27 @@ TEMPLATE = r"""<!doctype html>
   /* espelha as regras de impressão que mudam a ALTURA, para a medição do zoom
      bater com o que vai para o papel */
   .medindo-print .toolbar,.medindo-print .tag{display:none}
-  .medindo-print .panel{padding:10px 12px;margin:0 0 8px}
-  .medindo-print .kpi{min-height:0;padding:7px 9px}
-  .medindo-print .kpi .lab{font-size:8px;min-height:0}
-  .medindo-print .kpi .val{font-size:17px;margin-top:2px}
-  .medindo-print table{font-size:8.5px}
-  .medindo-print thead th,.medindo-print tbody td{padding:3px 6px}
+  .medindo-print .panel{padding:8px 10px;margin:0 0 6px}
+  .medindo-print .kpi{min-height:0;padding:6px 8px}
+  .medindo-print .kpi .lab{font-size:9.5px;min-height:0}
+  .medindo-print .kpi .val{font-size:21px;margin-top:1px}
+  .medindo-print .kpi .val .nota{font-size:9.5px;margin-top:2px}
+  .medindo-print .kpis{gap:8px;margin-top:8px}
+  .medindo-print table{font-size:10px}
+  .medindo-print thead th,.medindo-print tbody td{padding:2px 5px}
   .medindo-print .sections{display:block;gap:0}
-  .medindo-print .det{margin-top:8px;padding-top:6px}
-  .medindo-print .det-h{font-size:9px;margin-bottom:4px}
-  .medindo-print .panel h2{font-size:13px;margin-bottom:2px}
-  .medindo-print header{padding:6px 0 8px;min-height:0}
-  .medindo-print header .logo{height:26px}
-  .medindo-print header h1{font-size:15px}
+  .medindo-print .det{margin-top:6px;padding-top:4px}
+  .medindo-print .det-h{font-size:10.5px;margin-bottom:3px}
+  .medindo-print .panel h2{font-size:14px;margin-bottom:1px}
+  .medindo-print header{padding:4px 0 6px;min-height:0}
+  .medindo-print header .logo{height:24px}
+  .medindo-print header h1{font-size:16px}
   @media print{
     /* margem ZERO na folha: com margem, o papel branco aparece em volta do painel
        escuro. O respiro vira padding do body, que já é da cor do tema. */
     @page{size:A4 landscape;margin:0}
     html,body{background:var(--bg) !important;-webkit-print-color-adjust:exact;
-      print-color-adjust:exact;font-size:12px}
+      print-color-adjust:exact;font-size:12.5px}
     body{padding:6mm !important}
     .wrap{max-width:none !important}
     .toolbar,#btnEdit,#btnImg,#btnPdf,#pdfEmb,.rst,.tag{display:none !important}
@@ -137,18 +139,20 @@ TEMPLATE = r"""<!doctype html>
     /* cabe numa folha: o zoom é calculado no clique, medindo a altura real */
     body{zoom:var(--print-zoom,1)}
     .wrap{margin:0 !important;padding:0 !important}
-    header{padding:6px 0 8px !important;margin:0 !important;min-height:0 !important}
-    header .logo{height:26px}
-    header h1{font-size:15px}
-    .panel h2{font-size:13px;margin-bottom:2px}
-    .kpi{min-height:0 !important;padding:7px 9px}
-    .kpi .lab{font-size:8px;min-height:0}
-    .kpi .val{font-size:17px;margin-top:2px}
-    .kpi .val .nota{font-size:8.5px;margin-top:3px}
-    .det{margin-top:8px;padding-top:6px}
-    .det-h{font-size:9px;margin-bottom:4px}
-    table{font-size:8.5px}
-    thead th,tbody td{padding:3px 6px}
+    header{padding:4px 0 6px !important;margin:0 !important;min-height:0 !important}
+    header .logo{height:24px}
+    header h1{font-size:16px}
+    .panel{padding:8px 10px;margin:0 0 6px}
+    .panel h2{font-size:14px;margin-bottom:1px}
+    .kpi{min-height:0 !important;padding:6px 8px}
+    .kpi .lab{font-size:9.5px;min-height:0}
+    .kpi .val{font-size:21px;margin-top:1px}
+    .kpi .val .nota{font-size:9.5px;margin-top:2px}
+    .kpis{gap:8px;margin-top:8px}
+    .det{margin-top:6px;padding-top:4px}
+    .det-h{font-size:10.5px;margin-bottom:3px}
+    table{font-size:10px}
+    thead th,tbody td{padding:2px 5px}
   }
   /* detalhe integrado no card, sempre visível, sem scroll lateral */
   .det{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
@@ -469,11 +473,20 @@ document.getElementById("btnImg").onclick=async(ev)=>{
        wrapper da captura. As variáveis de cor não precisam disso: estão no :root,
        que no SVG é o próprio <svg>, e custom property herda pra dentro. */
     const cssCaptura=`#capa{background:var(--bg);color:var(--txt);
-      font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:15px}
+      font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:17px}
       #capa header{padding-bottom:16px}
-      #capa .cap-per{font-size:17px;font-weight:600;color:var(--teal);white-space:nowrap}
-      #capa .cap-per .rot{display:block;font-size:10px;font-weight:600;color:var(--mut);
-        text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}`;
+      #capa .cap-per{font-size:19px;font-weight:600;color:var(--teal);white-space:nowrap}
+      #capa .cap-per .rot{display:block;font-size:11px;font-weight:600;color:var(--mut);
+        text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
+      #capa .kpi .lab{font-size:12px}
+      #capa .kpi .val{font-size:33px}
+      #capa .kpi .val .nota{font-size:13px}
+      #capa .panel h2{font-size:18px}
+      #capa .panel .sub{font-size:14px}
+      #capa .det-h{font-size:13px}
+      #capa table{font-size:14px}
+      #capa th{font-size:11.5px}
+      #capa td,#capa th{padding:8px 11px}`;
     const css=[...document.querySelectorAll("style")].map(s=>s.textContent).join("\n")+cssCaptura;
     const clone=document.createElement("div");
     clone.id="capa";
