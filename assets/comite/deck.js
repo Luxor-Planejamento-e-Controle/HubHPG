@@ -199,13 +199,22 @@ function render(){
   if (sel.value !== String(idx)) sel.value = String(idx);
   location.hash = `#${mesAtual}/${idx + 1}`;
 }
-/* escala o slide de 1280×720 pra caber na área disponível, mantendo a proporção */
+/* escala o slide de 1280×720 pra caber na área disponível, mantendo a proporção.
+   translate(-50%,-50%) faz parte do transform (não só do CSS base) porque
+   setar style.transform aqui SUBSTITUI o valor inteiro — só "scale(...)"
+   perdia a centralização do CSS. Achado em 31/08/2026: com place-items:center
+   (grid), o slide de 1280px dentro de um stage de celular (bem menor) saía
+   fora da tela — grid/flex têm min-width:auto implícito no filho, que recusa
+   encolher o item pra centralizar certo quando ele é muito maior que o
+   container. position:absolute + translate(-50%,-50%) centraliza certo
+   sempre, não depende do tamanho relativo dos dois. */
 function fit(){
   const el = document.getElementById('slide');
   if (!el) return;
   const box = stage.getBoundingClientRect();
   const pad = document.body.classList.contains('play') ? 0 : 32;
-  el.style.transform = `scale(${Math.min((box.width - pad) / 1280, (box.height - pad) / 720)})`;
+  const s = Math.min((box.width - pad) / 1280, (box.height - pad) / 720);
+  el.style.transform = `translate(-50%,-50%) scale(${s})`;
 }
 const go = i => { idx = Math.max(0, Math.min(slides.length - 1, i)); render(); };
 
