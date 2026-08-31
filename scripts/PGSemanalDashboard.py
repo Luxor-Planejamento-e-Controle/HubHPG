@@ -92,8 +92,6 @@ TEMPLATE = r"""<!doctype html>
   .kpi.editing .val{border-bottom:2px dashed var(--amber);cursor:text}
   .kpi.edited{border-color:var(--amber)}
   .kpi.manual{border-style:dashed;border-color:var(--teal)}
-  .kpi .tag{position:absolute;top:8px;right:10px;font-size:8px;color:var(--teal);
-    text-transform:uppercase;letter-spacing:.5px;font-weight:700}
   .kpi .rst{position:absolute;bottom:5px;right:8px;font-size:10px;color:var(--mut);cursor:pointer;display:none}
   .kpi.edited.editing .rst{display:block}
   .kpi .rst:hover{color:var(--neg)}
@@ -404,12 +402,13 @@ function render(){
     // começa, que não existia nas semanas congeladas antes da transição)
     const kpis=sec.kpis.filter(k=>!(k.skip && k.skip(snap()))).map(k=>{
       const edited=hasOv(k.p);
+      // borda pontilhada (.kpi.manual, CSS) já basta pra marcar dado manual —
+      // a tag "manual" no canto virou redundância visual, tirada em 31/08/2026
       const cls="kpi"+(edited?" edited":"")+(editMode?" editing":"")+(k.manual?" manual":"");
-      const tag=k.manual?`<span class="tag" title="dado manual — preencher toda semana (Alexandre / grupo)">manual</span>`:"";
       const lb = (typeof k.l==="function") ? k.l(snap()) : k.l;   // safra vem do dado
-      return `<div class="${cls}"><div class="lab">${lb}</div>
+      return `<div class="${cls}" title="${k.manual?"dado manual — preencher toda semana (Alexandre / grupo)":""}"><div class="lab">${lb}</div>
         <div class="val" contenteditable="${editMode && !k.html}" data-path="${k.p}">${fmtVal(k)}</div>
-        ${tag}<span class="rst" data-path="${k.p}">reset</span></div>`;
+        <span class="rst" data-path="${k.p}">reset</span></div>`;
     }).join("");
     const det=(sec.det||[]).map(([t,key,opts])=>detTable(t,key,opts)).join("");
     const sub=sec.sub?`<div class="sub">${sec.sub(snap())}</div>`:"";
