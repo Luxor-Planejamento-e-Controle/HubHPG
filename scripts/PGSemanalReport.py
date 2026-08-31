@@ -100,15 +100,20 @@ CONTROLE_MENSAL_DIR = RECEPTORAS_DIR
 HIST_HEADCOUNT = BASE_DIR / "_cache" / "headcount_history.json"
 HIST_SNAPSHOTS = BASE_DIR / "_cache" / "semanal_snapshots.json"
 
-SAFRA_ATUAL = "2025/2026"
-# Transicao de estacao: o relatorio publica as duas linhas enquanto a safra nova
-# nao anda. Nao ha nada de 2026/2027 nas planilhas ainda — o numero nasce zerado e
-# comeca a andar sozinho quando o haras lancar a primeira IA.
-SAFRA_PROXIMA = "2026/2027"
+SAFRA_ATUAL = "2026/2027"
+# Transicao de estacao 25/26 -> 26/27 encerrada em 31/08/2026: a safra nova ja
+# anda sozinha (primeira IA lancada), entao SAFRA_ATUAL virou 26/27 e a safra
+# 25/26 para de aparecer no relatorio. SAFRA_PROXIMA=None ate a proxima virada
+# comecar a ser anunciada — com None, o card 'acumulado_estacao_proxima' some
+# sozinho (ver skip em PGSemanalDashboard.py) em vez de nascer zerado.
+SAFRA_PROXIMA = None
 
 
-def _rotulo_safra(safra: str) -> str:
-    """'2025/2026' -> '25/26', que e como o relatorio escreve."""
+def _rotulo_safra(safra: str | None) -> str | None:
+    """'2025/2026' -> '25/26', que e como o relatorio escreve. None (sem safra
+    de transicao) passa direto — quem le isso trata None como 'sem rotulo'."""
+    if not safra:
+        return None
     a, b = safra.split("/")
     return f"{a[-2:]}/{b[-2:]}"
 BASES_DIR = BASE_DIR / "bases"

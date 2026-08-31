@@ -473,20 +473,20 @@ document.getElementById("btnImg").onclick=async(ev)=>{
        wrapper da captura. As variáveis de cor não precisam disso: estão no :root,
        que no SVG é o próprio <svg>, e custom property herda pra dentro. */
     const cssCaptura=`#capa{background:var(--bg);color:var(--txt);
-      font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:19px}
-      #capa header{padding-bottom:16px}
-      #capa .cap-per{font-size:21px;font-weight:700;color:var(--teal);white-space:nowrap}
-      #capa .cap-per .rot{display:block;font-size:12px;font-weight:700;color:var(--mut);
-        text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
-      #capa .kpi .lab{font-size:14px;font-weight:700}
-      #capa .kpi .val{font-size:38px}
-      #capa .kpi .val .nota{font-size:14.5px}
-      #capa .panel h2{font-size:20px}
-      #capa .panel .sub{font-size:15.5px}
-      #capa .det-h{font-size:14.5px;font-weight:800}
-      #capa table{font-size:16px}
-      #capa th{font-size:13px;font-weight:700}
-      #capa td,#capa th{padding:9px 12px}`;
+      font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:24px}
+      #capa header{padding-bottom:18px}
+      #capa .cap-per{font-size:26px;font-weight:700;color:var(--teal);white-space:nowrap}
+      #capa .cap-per .rot{display:block;font-size:14px;font-weight:700;color:var(--mut);
+        text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
+      #capa .kpi .lab{font-size:16px;font-weight:700}
+      #capa .kpi .val{font-size:46px}
+      #capa .kpi .val .nota{font-size:17px}
+      #capa .panel h2{font-size:24px}
+      #capa .panel .sub{font-size:18px}
+      #capa .det-h{font-size:17px;font-weight:800}
+      #capa table{font-size:19px}
+      #capa th{font-size:15px;font-weight:700}
+      #capa td,#capa th{padding:11px 14px}`;
     const css=[...document.querySelectorAll("style")].map(s=>s.textContent).join("\n")+cssCaptura;
     const clone=document.createElement("div");
     clone.id="capa";
