@@ -191,7 +191,9 @@ TEMPLATE = r"""<!doctype html>
      de tabela ficariam flutuando um sobre o outro — melhor fixo na tabela */
   th{color:var(--mut);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.3px;
     background:#0c2740;white-space:nowrap}
-  td{color:var(--txt);white-space:normal;overflow-wrap:break-word}
+  /* text-wrap:pretty evita palavra solta sozinha na última linha (ex: "...RECEP 07 V"
+     quebrando com o V isolado) — quem não suporta ignora e cai no wrap normal */
+  td{color:var(--txt);white-space:normal;overflow-wrap:break-word;text-wrap:pretty}
   tr:last-child td{border-bottom:none}
 </style></head>
 <body>
@@ -496,22 +498,27 @@ document.getElementById("btnImg").onclick=async(ev)=>{
        wrapper da captura. As variáveis de cor não precisam disso: estão no :root,
        que no SVG é o próprio <svg>, e custom property herda pra dentro. */
     const cssCaptura=`#capa{background:var(--bg);color:var(--txt);
-      font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:24px}
-      #capa header{padding-bottom:18px}
-      #capa .cap-per{font-size:26px;font-weight:700;color:var(--teal);white-space:nowrap}
-      #capa .cap-per .rot{display:block;font-size:14px;font-weight:700;color:var(--mut);
-        text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
-      #capa .kpi{min-height:160px;padding:17px 19px 16px}
-      #capa .kpi .lab{font-size:16px;font-weight:700;min-height:62px}
-      #capa .kpi .tag{font-size:10.5px;top:10px;right:12px}
-      #capa .kpi .val{font-size:46px}
-      #capa .kpi .val .nota{font-size:17px}
-      #capa .panel h2{font-size:24px}
-      #capa .panel .sub{font-size:18px}
-      #capa .det-h{font-size:17px;font-weight:800}
-      #capa table{font-size:19px}
-      #capa th{font-size:15px;font-weight:700}
-      #capa td,#capa th{padding:11px 14px}`;
+      font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:18px}
+      #capa .wrap{padding:0 22px 24px}
+      #capa header{padding-bottom:14px}
+      #capa .cap-per{font-size:20px;font-weight:700;color:var(--teal);white-space:nowrap}
+      #capa .cap-per .rot{display:block;font-size:12px;font-weight:700;color:var(--mut);
+        text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
+      #capa .sections{gap:14px}
+      #capa .panel{padding:15px 18px}
+      #capa .kpis{gap:10px}
+      #capa .kpi{min-height:118px;padding:14px 16px 13px}
+      #capa .kpi .lab{font-size:13px;font-weight:700;min-height:36px}
+      #capa .kpi .tag{font-size:9.5px;top:9px;right:11px}
+      #capa .kpi .val{font-size:34px}
+      #capa .kpi .val .nota{font-size:13px;margin-top:5px}
+      #capa .panel h2{font-size:19px}
+      #capa .panel .sub{font-size:14px}
+      #capa .det{margin-top:12px;padding-top:9px}
+      #capa .det-h{font-size:14px;font-weight:800}
+      #capa table{font-size:15px}
+      #capa th{font-size:12.5px;font-weight:700}
+      #capa td,#capa th{padding:8px 11px}`;
     const css=[...document.querySelectorAll("style")].map(s=>s.textContent).join("\n")+cssCaptura;
     const clone=document.createElement("div");
     clone.id="capa";
