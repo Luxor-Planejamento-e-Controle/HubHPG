@@ -38,9 +38,9 @@ function rsk(v){
 /* Altura de linha e corpo de fonte que fazem N linhas caberem em `alt`.
    Sem isso a tabela do DRE (40+ linhas) vazava por cima do rodapé — foi o que
    obrigou a diminuir o zoom do navegador pra conseguir ler. */
-function ajusta(n, alt = BODY_H, maxH = 26){
-  const h = Math.max(11, Math.min(maxH, alt / Math.max(n, 1)));
-  return {h, fs: Math.max(8, Math.min(13, h * 0.55))};
+function ajusta(n, alt = BODY_H, maxH = 34){
+  const h = Math.max(12, Math.min(maxH, alt / Math.max(n, 1)));
+  return {h, fs: Math.max(9, Math.min(16, h * 0.58))};
 }
 
 /* ---- render HTML ---- */
@@ -115,7 +115,7 @@ const R = {
   /* S09 — investimentos mês a mês */
   lista_mes: s => {
     const n = s.meses.reduce((a, m) => a + 1 + m.itens.length, 0);
-    const {fs} = ajusta(n, BODY_H, 22);
+    const {fs} = ajusta(n, BODY_H, 28);
     return head(s) + `<div class="s-body"><div class="lista" style="font-size:${fs.toFixed(1)}px">` +
       s.meses.map(m => `<div class="m"><span class="mes">${esc(m.mes)}</span>
           <span class="tag">Animais e produtos</span><span class="tot">${rs(m.total)}</span></div>` +
@@ -125,25 +125,37 @@ const R = {
 
   /* S08 — comentários do DRE: categoria · texto · delta */
   comentarios: s => {
-    const {h, fs} = ajusta(s.itens.length, BODY_H, 56);
+    const {h, fs} = ajusta(s.itens.length, BODY_H, 64);
     return head(s) + `<div class="s-body"><div class="coment">` + s.itens.map(i =>
-      `<div class="li" style="min-height:${h.toFixed(0)}px;font-size:${Math.min(12.5, fs + 1.5).toFixed(1)}px">
+      `<div class="li" style="min-height:${h.toFixed(0)}px;font-size:${Math.min(15, fs + 1.5).toFixed(1)}px">
         <div class="cat">${esc(i.cat)}</div>
         <div class="txt">${esc(i.txt)}</div>
         <div class="d ${/^[-−]/.test(i.delta) ? 'neg' : 'pos'}">${esc(i.delta)}</div>
       </div>`).join('') + `</div></div>`;
   },
 
-  /* S24+ — resultados de exposição: animal e seus prêmios, em duas colunas */
-  resultados: s => head(s) + `<div class="s-body"><div class="premios">` +
-    s.animais.map(a => `<div class="an"><div class="nome">${esc(a.nome)}</div>` +
-      a.premios.map(p => `<div class="p">${esc(p)}</div>`).join('') + `</div>`).join('') +
-    `</div></div>`,
+  /* S24+ — resultados de exposição: animal e seus prêmios, em duas colunas.
+     Poucos animais deixavam metade do slide vazia (texto sempre no mesmo
+     tamanho fixo) — escala fonte/espaçamento pra preencher a altura do
+     corpo, igual ao ajusta() das tabelas, só que por linha de texto em vez
+     de linha de tabela. */
+  resultados: s => {
+    const linhas = s.animais.reduce((a, an) => a + 1 + an.premios.length, 0);
+    const porColuna = Math.max(1, Math.ceil(linhas / 2));
+    const h = Math.max(24, Math.min(54, BODY_H / porColuna));
+    const fsNome = Math.max(13, Math.min(21, h * 0.42));
+    const fsP = Math.max(12.5, Math.min(18, h * 0.36));
+    const gap = Math.max(14, Math.min(32, h * 0.55));
+    return head(s) + `<div class="s-body"><div class="premios" style="--rf-nome:${fsNome.toFixed(1)}px;--rf-p:${fsP.toFixed(1)}px;--rf-gap:${gap.toFixed(1)}px">` +
+      s.animais.map(a => `<div class="an"><div class="nome">${esc(a.nome)}</div>` +
+        a.premios.map(p => `<div class="p">${esc(p)}</div>`).join('') + `</div>`).join('') +
+      `</div></div>`;
+  },
 
   /* S38 — histórico de manejo, mês a mês */
   manejo: s => {
-    const {h} = ajusta(s.itens.length, BODY_H, 74);
-    return head(s) + `<div class="s-body"><div class="manejo">` + s.itens.map(([m, t]) =>
+    const {h, fs} = ajusta(s.itens.length, BODY_H, 92);
+    return head(s) + `<div class="s-body"><div class="manejo" style="font-size:${Math.min(15, fs + 1.5).toFixed(1)}px">` + s.itens.map(([m, t]) =>
       `<div class="li" style="min-height:${h.toFixed(0)}px"><div class="m">${esc(m)}</div>
         <div class="t">${esc(t)}</div></div>`).join('') + `</div></div>`;
   },
