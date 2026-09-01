@@ -154,7 +154,7 @@ const R = {
 
   /* S38 — histórico de manejo, mês a mês */
   manejo: s => {
-    const {h, fs} = ajusta(s.itens.length, BODY_H, 92);
+    const {h, fs} = ajusta(s.itens.length, BODY_H, 86);
     return head(s) + `<div class="s-body"><div class="manejo" style="font-size:${Math.min(15, fs + 1.5).toFixed(1)}px">` + s.itens.map(([m, t]) =>
       `<div class="li" style="min-height:${h.toFixed(0)}px"><div class="m">${esc(m)}</div>
         <div class="t">${esc(t)}</div></div>`).join('') + `</div></div>`;
