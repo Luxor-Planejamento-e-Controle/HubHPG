@@ -78,13 +78,20 @@ const dataBR = v => {
 
 /* ---- estado ---- */
 const ST = {
-  meses: {},        // 'AAAA-MM' -> {arquivo, linhas, log, atribuicao, temSplit}
+  meses: {},        // 'AAAA-MM' -> {arquivo, linhas, log, ix}
+  /* De quem é cada animal EM CADA MÊS: {mes: {chave: hpg|eduardo|nenhum}}.
+     Medido: tratar como atributo fixo do animal erra feio — o dono muda no ano
+     (animal da Carla em janeiro vira 'nenhum' depois de repassado), e com uma
+     atribuição só o saldo de janeiro saiu R$ 2,49 milhões abaixo do liberado.
+     Mês sem atribuição própria herda do mês anterior mais próximo. */
+  atrib: {},
+  sugeridos: {},    // 'mes|chave' -> true enquanto ninguém confirmou
   mes: null,
   decisoes: {},     // 'mes|chave' -> {classe, nota, autor}
   aba: 'plantel',
   sub: 'movimentacoes',
-  ordem: {col: null, dir: 1},
-  filtros: {},
+  ordem: {plantel: {col: null, dir: 1}, mov: {col: null, dir: 1}},
+  filtros: {plantel: {}, mov: {}},
 };
 
 /* ---- sessão do hub ---- */
@@ -138,36 +145,60 @@ function mesDoArquivo(nome){
   return null;
 }
 
-/* atribuição Carla/Eduardo: do próprio arquivo quando ele tem o split, senão
-   herdada do mês anterior. Animal sem atribuição fica pendente — não se
-   adivinha de quem é o animal. */
 /* De quem é cada animal. Do arquivo quando ele traz o split (mapa do Luxor),
    senão herdada do mês anterior. Não achou nem um nem outro: SUGERE pelo sufixo
    e marca como sugestão — animal novo aparece na conciliação pra ser confirmado,
    porque a atribuição não é fórmula (no mapa a cota inteira vai pra um dos dois
    e há animal em nenhum dos dois). */
-function montaAtribuicao(mes){
-  const d = ST.meses[mes], ix = d.ix;
-  const anterior = mesAnterior(mes);
-  const ant = anterior && ST.meses[anterior];
-  const herdada = ant ? ant.atribuicao || {} : {};
-  const at = {}, sugeridos = [];
+/* O mapa do Luxor é a fonte da atribuição: lê PLANTEL HPG / PLANTEL EDUARDO e
+   grava por animal. Ele NÃO vira snapshot de mês — o snapshot é sempre o arquivo
+   do haras, senão se compara a população curada do mapa (362 linhas em jul/26)
+   com a população cheia do haras (391) e nascem movimentações que não existiram. */
+function aplicaAtribuicaoDoMapa(d, mes){
+  const alvo = ST.atrib[mes] = ST.atrib[mes] || {};
+  let n = 0;
   for (const l of d.linhas) {
-    const k = chaveCom(l, ix);
-    if (d.temSplit) {
-      const temHpg = num(l[ix.hpgCota]) || num(l[ix.hpgVal]);
-      const temEd = num(l[ix.edCota]) || num(l[ix.edVal]);
-      at[k] = temHpg ? 'hpg' : temEd ? 'eduardo' : 'nenhum';
-    } else if (k in herdada) {
-      at[k] = herdada[k];
-    } else {
-      const suf = norm(l[ix.sufixo]);
-      at[k] = suf === 'DA PAO GRANDE' || suf === 'OUTRO' ? 'hpg' : suf.includes(' - E ') ? 'eduardo' : 'nenhum';
-      sugeridos.push(k);
-    }
+    const k = chaveCom(l, d.ix);
+    const temHpg = num(l[d.ix.hpgCota]) || num(l[d.ix.hpgVal]);
+    const temEd = num(l[d.ix.edCota]) || num(l[d.ix.edVal]);
+    alvo[k] = temHpg ? 'hpg' : temEd ? 'eduardo' : 'nenhum';
+    delete ST.sugeridos[`${mes}|${k}`];
+    n++;
   }
-  d.atribuicao = at;
-  d.sugeridos = sugeridos;
+  return n;
+}
+
+/* Dono do animal NAQUELE mês: o próprio mês, senão herda do mês anterior mais
+   próximo que tenha atribuição. */
+function donoDe(mes, k){
+  const meses = Object.keys(ST.atrib).filter(m => m <= mes).sort().reverse();
+  for (const m of meses) if (k in ST.atrib[m]) return ST.atrib[m][k];
+  return null;
+}
+
+/* Animal que nenhum mapa atribuiu. A regra foi MEDIDA contra os 7 mapas de 2026:
+
+     sufixo simples (DA PAO GRANDE / OUTRO) e com valor -> Carla em 1248 de 1248
+     sufixo de parceria (- E xx%) e com valor            -> nenhum 200, Eduardo 30, Carla 1
+
+   Ou seja: sufixo simples com valor pode entrar direto; parceria NÃO se adivinha
+   (a cota inteira vai pra um dos dois ou pra nenhum, animal por animal) e vai pra
+   conciliação. Sem valor entra como 'nenhum': não mexe no saldo, e se um dia
+   ganhar valor a conciliação cobra. */
+function completaAtribuicao(mes){
+  const d = ST.meses[mes];
+  const alvo = ST.atrib[mes] = ST.atrib[mes] || {};
+  for (const l of d.linhas) {
+    const k = chaveCom(l, d.ix);
+    if (donoDe(mes, k) != null) continue;
+    const suf = norm(l[d.ix.sufixo]);
+    const simples = suf === 'DA PAO GRANDE' || suf === 'OUTRO';
+    const valor = num(l[d.ix.cota]) * num(l[d.ix.valor]) + num(l[d.ix.comissao]);
+    if (!valor) { alvo[k] = 'nenhum'; continue; }
+    if (simples) { alvo[k] = 'hpg'; continue; }
+    alvo[k] = 'nenhum';
+    ST.sugeridos[`${mes}|${k}`] = true;   // parceria com valor: quem fecha decide
+  }
 }
 
 const mesAnterior = m => {
@@ -184,16 +215,51 @@ const mesAnterior = m => {
    coluna PLANTEL HPG dela é 65.100. Na soma de jul/2026 isso é a diferença entre
    15.942.120,21 (só cota×valor) e 15.970.552,71 — o saldo do Resumo Contábil
    liberado. */
-function patr(l, at, escopo, ix){
+function patr(l, escopo, ix, mes){
   ix = ix || (ST.meses[ST.mes] && ST.meses[ST.mes].ix) || {};
-  const a = at[chaveCom(l, ix)];
+  const a = donoDe(mes || ST.mes, chaveCom(l, ix));
   if (escopo === 'hpg' && a !== 'hpg') return 0;
   if (escopo === 'carla_eduardo' && a !== 'hpg' && a !== 'eduardo') return 0;
   return num(l[ix.cota]) * num(l[ix.valor]) + num(l[ix.comissao]);
 }
+/* Linhas do mês já descontando o que foi editado DEPOIS do fim do mês. O arquivo
+   do haras é editado durante o mês seguinte, então a mesma planilha contém o
+   fechamento e o começo do mês novo; para o animal tocado depois do dia 31 vale
+   a linha do mês anterior. Estoque e movimentação usam esta mesma base, senão o
+   check "inicial + movimentações = final" não fecha. */
+function posterioresDoMes(mes){
+  const d = ST.meses[mes];
+  if (!d) return {};
+  const fim = new Date(+mes.slice(0, 4), +mes.slice(5, 7), 0, 23, 59, 59);
+  const o = {};
+  for (const x of d.log || []) {
+    const dt = x.data instanceof Date ? x.data : new Date(x.data);
+    if (dt > fim) (o[norm(x.produto)] = o[norm(x.produto)] || []).push({...x, data: dt});
+  }
+  return o;
+}
+
+function linhasEfetivas(mes){
+  const d = ST.meses[mes];
+  if (!d) return [];
+  const ant = ST.meses[mesAnterior(mes)];
+  const pos = posterioresDoMes(mes);
+  if (!ant || !Object.keys(pos).length) return d.linhas;
+  const porChave = {};
+  for (const l of ant.linhas) porChave[chaveCom(l, ant.ix)] = l;
+  return d.linhas.map(l => {
+    if (!pos[norm(l[d.ix.nome])]) return l;
+    const velha = porChave[chaveCom(l, d.ix)];
+    return velha || l;   // sem linha anterior, fica a do arquivo
+  });
+}
+
 const patrMes = (mes, escopo) => {
   const d = ST.meses[mes];
-  return d ? d.linhas.reduce((s, l) => s + patr(l, d.atribuicao || {}, escopo, d.ix), 0) : 0;
+  if (!d) return 0;
+  const ant = ST.meses[mesAnterior(mes)];
+  return linhasEfetivas(mes).reduce((s, l, i) =>
+    s + patr(l, escopo, l === d.linhas[i] ? d.ix : (ant ? ant.ix : d.ix), mes), 0);
 };
 
 /* ================= movimentação do mês ================= */
@@ -210,8 +276,20 @@ function tipoLog(oc){
 function movimentacaoDoMes(mes){
   const d = ST.meses[mes], ant = ST.meses[mesAnterior(mes)];
   if (!d) return null;
-  const at = d.atribuicao || {};
-  const noEscopo = l => ['hpg', 'eduardo'].includes(at[chave(l)]);
+  const ix = d.ix, ixA = ant ? ant.ix : ix;
+  /* O arquivo do haras segue sendo editado durante o mês seguinte: a cópia de
+     trabalho de setembro/2026 já trazia 15 ocorrências de 01/09 (13 doações pro
+     Mato Grosso), que zeram cota e valor. Sem separar isso, o fechamento de
+     agosto nasce com R$ 241 mil de baixa que aconteceu em setembro. Animal
+     tocado por ocorrência POSTERIOR ao mês fica com o valor do mês anterior e
+     aparece na conciliação — não some calado. */
+  const fimMes = new Date(+mes.slice(0, 4), +mes.slice(5, 7), 0, 23, 59, 59);
+  const posteriores = {};
+  for (const x of d.log || []) {
+    const dt = x.data instanceof Date ? x.data : new Date(x.data);
+    if (dt > fimMes) (posteriores[norm(x.produto)] = posteriores[norm(x.produto)] || []).push({...x, data: dt});
+  }
+  const noEscopo = l => ['hpg', 'eduardo'].includes(donoDe(mes, chaveCom(l, ix)));
 
   const log = (d.log || []).filter(x => {
     const dt = x.data instanceof Date ? x.data : new Date(x.data);
@@ -223,8 +301,8 @@ function movimentacaoDoMes(mes){
 
   // pontes de identidade: nome antigo -> chave nova (só quando a antiga sumiu)
   const idxAnt = {}, idxAtual = {};
-  if (ant) for (const l of ant.linhas) idxAnt[norm(l[COL_NOME])] = chave(l);
-  for (const l of d.linhas) idxAtual[norm(l[COL_NOME])] = chave(l);
+  if (ant) for (const l of ant.linhas) idxAnt[norm(l[ixA.nome])] = chaveCom(l, ixA);
+  for (const l of linhasEfetivas(mes)) idxAtual[norm(l[ix.nome])] = chaveCom(l, ix);
   const achaNome = (nome, idx) => {
     if (idx[nome]) return idx[nome];
     if (nome.length < 25) return null;
@@ -246,49 +324,56 @@ function movimentacaoDoMes(mes){
     renomes.push({de: antigo, para: x.produto, data: x.data, chave: kNew});
   }
 
-  const mapa = ls => {
+  const mapa = (ls, ixL) => {
     const o = {};
-    for (const l of ls) o[ponte[chave(l)] || chave(l)] = l;
+    for (const l of ls) { const k = chaveCom(l, ixL); o[ponte[k] || k] = l; }
     return o;
   };
-  const A = ant ? mapa(ant.linhas) : {};
-  const B = mapa(d.linhas);
-  const atAnt = ant ? ant.atribuicao || {} : {};
+  const A = ant ? mapa(ant.linhas, ixA) : {};
+  const efet = linhasEfetivas(mes);
+  const B = mapa(efet, ix);
 
   const movs = [];
   for (const k of new Set([...Object.keys(A), ...Object.keys(B)])) {
     const a = A[k], b = B[k];
-    const q0 = a ? num(a[COL_COTA]) : 0, q1 = b ? num(b[COL_COTA]) : 0;
-    const v0 = a ? num(a[COL_VALOR]) : 0, v1 = b ? num(b[COL_VALOR]) : 0;
-    const p0 = q0 * v0, p1 = q1 * v1;
+    const q0 = a ? num(a[ixA.cota]) : 0, q1 = b ? num(b[ix.cota]) : 0;
+    const v0 = a ? num(a[ixA.valor]) : 0, v1 = b ? num(b[ix.valor]) : 0;
+    // patrimônio na MESMA régua do resumo: cota × valor + comissão
+    const p0 = a ? q0 * v0 + num(a[ixA.comissao]) : 0;
+    const p1 = b ? q1 * v1 + num(b[ix.comissao]) : 0;
+    const nomeAtual = b ? norm(b[ix.nome]) : (a ? norm(a[ixA.nome]) : '');
+    const posterior = posteriores[nomeAtual] || null;
     const ren = renomes.find(r => r.chave === k);
-    const mudouStatus = a && b && norm(a[6]) !== norm(b[6]);
-    const mudouLocal = a && b && norm(a[7]) !== norm(b[7]);
+    const stA = a ? norm(a[ixA.status]) : '', stB = b ? norm(b[ix.status]) : '';
+    const loA = a ? norm(a[ixA.local]) : '', loB = b ? norm(b[ix.local]) : '';
+    const mudouStatus = a && b && stA !== stB;
+    const mudouLocal = a && b && loA !== loB;
     if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && a && b) continue;
 
-    const linha = b || a;
-    const dono = at[k] || atAnt[k] || null;
-    const itensLog = logPorNome[norm(linha[COL_NOME])] || (ren ? logPorNome[norm(ren.para)] : []) || [];
+    const linha = b || a, ixL = b ? ix : ixA;
+    const dono = donoDe(mes, k);
+    const itensLog = logPorNome[norm(linha[ixL.nome])] || (ren ? logPorNome[norm(ren.para)] : []) || [];
     movs.push({
-      chave: k, linha, nome: linha[COL_NOME], sufixo: linha[COL_SUFIXO],
-      categoria: linha[5], status: linha[6], dono,
+      chave: k, linha, nome: linha[ixL.nome], sufixo: linha[ixL.sufixo],
+      categoria: linha[ixL.categoria], status: linha[ixL.status], dono,
       cota_ant: q0, cota_atual: q1, valor_ant: v0, valor_atual: v1,
       patr_ant: p0, patr_atual: p1, delta: +(p1 - p0).toFixed(2),
       entrou: !a, saiu: !b, renome: ren || null,
-      mudou_status: mudouStatus ? [a[6], b[6]] : null,
-      mudou_local: mudouLocal ? [a[7], b[7]] : null,
-      log: itensLog,
-      sugestao: sugere({q0, q1, v0, v1, ren, entrou: !a, saiu: !b, linha, itensLog}),
+      mudou_status: mudouStatus ? [a[ixA.status], b[ix.status]] : null,
+      mudou_local: mudouLocal ? [a[ixA.local], b[ix.local]] : null,
+      log: itensLog, posterior,
+      sugestao: sugere({q0, q1, v0, v1, ren, entrou: !a, saiu: !b, status: stB || stA,
+                        categoria: norm(linha[ixL.categoria]), itensLog}),
       no_escopo: noEscopo(linha),
     });
   }
   movs.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
-  return {movs, log, renomes, novos: d.novos || []};
+  return {movs, log, renomes};
 }
 
 /* sugestão pelo padrão — só sugestão; o registro é o input de quem fecha */
-function sugere({q0, q1, v0, v1, ren, entrou, saiu, linha, itensLog}){
-  const st = norm(linha[6]), cat = norm(linha[5]);
+function sugere({q0, q1, v0, v1, ren, entrou, saiu, status, categoria, itensLog}){
+  const st = status || '', cat = categoria || '';
   const oc = norm((itensLog || []).map(x => x.ocorrencia).join(' '));
   if (ren) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
@@ -321,13 +406,11 @@ function resumoAno(){
     const ant = mesAnterior(m);
     const d = ST.meses[m], da = ST.meses[ant];
     if (!da) continue;
-    const at = d.atribuicao || {}, atA = da.atribuicao || {};
-    const ini = da.linhas.reduce((s, l) => s + patr(l, atA, 'hpg'), 0);
-    const fim = d.linhas.reduce((s, l) => s + patr(l, at, 'hpg'), 0);
+    const ini = patrMes(ant, 'hpg'), fim = patrMes(m, 'hpg');
     const mv = movimentacaoDoMes(m);
     const causas = {};
     for (const mo of (mv ? mv.movs : [])) {
-      if ((at[mo.chave] || atA[mo.chave]) !== 'hpg') continue;
+      if (donoDe(m, mo.chave) !== 'hpg') continue;
       const dec = ST.decisoes[`${m}|${mo.chave}`];
       const classe = dec ? dec.classe : mo.sugestao;
       causas[classe] = +( (causas[classe] || 0) + mo.delta ).toFixed(2);
@@ -385,25 +468,47 @@ function confirmaImport(d, arquivo, mesSugerido){
   caixa.hidden = false;
   caixa.innerHTML = `
     <div><b>${esc(arquivo)}</b> — ${d.linhas.length} animais${d.log.length ? ` · ${d.log.length} ocorrências` : ''}
-      ${d.temSplit ? '· traz atribuição Carla/Eduardo' : '· sem atribuição (será herdada do mês anterior)'}
       ${ultimo ? `<br><span class="log">última ocorrência no arquivo: ${ultimo.toLocaleDateString('pt-BR')}</span>` : ''}</div>
-    <label>Mês de fechamento
-      <select id="impMes">${MESES_PT.map((r, i) => {
-        const m = `${ano}-${String(i + 1).padStart(2, '0')}`;
-        return `<option value="${m}"${m === mesSugerido ? ' selected' : ''}>${r}/${ano.slice(2)}</option>`;
-      }).join('')}</select></label>
-    <button type="button" id="impOk">Processar</button>
+    ${d.temSplit
+      ? `<div>Tem as colunas <b>PLANTEL HPG</b> e <b>PLANTEL EDUARDO</b>: entra como
+           <b>atribuição de ${rotMes(mesSugerido || ST.mes) || 'mês a definir'}</b> — de quem é cada
+           animal naquele mês —, sem virar fechamento.</div>
+         <button type="button" id="impAtrib"${mesSugerido || ST.mes ? '' : ' disabled'}>Usar a atribuição</button>`
+      : `<label>Mês de fechamento
+           <select id="impMes">${MESES_PT.map((r, i) => {
+             const m = `${ano}-${String(i + 1).padStart(2, '0')}`;
+             return `<option value="${m}"${m === mesSugerido ? ' selected' : ''}>${r}/${ano.slice(2)}</option>`;
+           }).join('')}</select></label>
+         <button type="button" id="impOk">Processar</button>`}
     <button type="button" id="impNao" class="secundario">Cancelar</button>`;
-  document.getElementById('impNao').onclick = () => { caixa.hidden = true; caixa.innerHTML = ''; };
+  const fecha = () => { caixa.hidden = true; caixa.innerHTML = ''; };
+  document.getElementById('impNao').onclick = fecha;
+  if (d.temSplit) {
+    document.getElementById('impAtrib').onclick = async () => {
+      const n = aplicaAtribuicaoDoMapa(d, mesSugerido || ST.mes);
+      fecha();
+      document.getElementById('statusImp').textContent = `atribuição de ${n} animais carregada`;
+      await salvaAtribuicao();
+      pinta();
+    };
+    return;
+  }
   document.getElementById('impOk').onclick = async () => {
     const mes = document.getElementById('impMes').value;
     ST.meses[mes] = d;
-    montaAtribuicao(mes);
+    completaAtribuicao(mes);
     ST.mes = mes;
-    caixa.hidden = true; caixa.innerHTML = '';
+    fecha();
     await salvaSnapshot(mes, d, arquivo);
     topo(); pinta();
   };
+}
+
+async function salvaAtribuicao(){
+  const c = sb();
+  if (!c || !ST.mes) return;
+  try { await c.from('plantel_snapshot').update({atribuicao: ST.atrib[ST.mes] || {}}).eq('mes', ST.mes); }
+  catch (e) { console.warn('[plantel] atribuição não gravada', e.message || e); }
 }
 
 async function salvaSnapshot(mes, d, arquivo){
@@ -412,7 +517,7 @@ async function salvaSnapshot(mes, d, arquivo){
   try {
     await c.from('plantel_snapshot').upsert({
       mes, arquivo, linhas: d.linhas, log: d.log.map(x => ({...x, data: (x.data instanceof Date ? x.data : new Date(x.data)).toISOString()})),
-      atribuicao: d.atribuicao, importado_por: eu(),
+      atribuicao: ST.atrib[mes] || {}, importado_por: eu(),
     }, {onConflict: 'mes'});
   } catch (err) { console.warn('[plantel] snapshot não gravado', err.message || err); }
 }
@@ -423,8 +528,10 @@ async function carregaSnapshots(){
   try {
     const { data } = await c.from('plantel_snapshot').select('mes,arquivo,linhas,log,atribuicao');
     for (const r of data || []) {
-      ST.meses[r.mes] = {arquivo: r.arquivo, linhas: r.linhas || [], log: (r.log || []).map(x => ({...x, data: new Date(x.data)})),
-                         atribuicao: r.atribuicao || {}, temSplit: false, cab: []};
+      ST.meses[r.mes] = {arquivo: r.arquivo, linhas: r.linhas || [],
+                         log: (r.log || []).map(x => ({...x, data: new Date(x.data)})),
+                         temSplit: false, cab: r.cab || [], ix: r.ix || {}};
+      ST.atrib[r.mes] = r.atribuicao || {};
     }
     const { data: dec } = await c.from('plantel_mov_classificacao').select('mes,chave,classe,nota,autor');
     for (const r of dec || []) ST.decisoes[`${r.mes}|${r.chave}`] = r;
@@ -443,10 +550,10 @@ async function registra(mes, mov, classe, nota){
 }
 
 async function atribui(mes, k, dono){
-  ST.meses[mes].atribuicao[k] = dono;
-  ST.meses[mes].novos = (ST.meses[mes].novos || []).filter(x => x !== k);
+  (ST.atrib[mes] = ST.atrib[mes] || {})[k] = dono;
+  delete ST.sugeridos[`${mes}|${k}`];
   const c = sb();
-  if (c) await c.from('plantel_snapshot').update({atribuicao: ST.meses[mes].atribuicao}).eq('mes', mes);
+  if (c) await c.from('plantel_snapshot').update({atribuicao: ST.atrib[mes]}).eq('mes', mes);
 }
 
 /* ---------- aba Plantel: todas as colunas, filtro e ordenação por coluna ---------- */
@@ -460,37 +567,40 @@ function colunasDoMes(d){
 function painelPlantel(){
   const d = ST.meses[ST.mes];
   if (!d) return semArquivo();
-  const at = d.atribuicao || {}, ix = d.ix;
+  const ix = d.ix;
   const cols = colunasDoMes(d);
-  let linhas = d.linhas.slice();
-  for (const [ci, txt] of Object.entries(ST.filtros)) {
+  // o plantel do mês é o do FECHAMENTO: linha tocada depois do dia 31 entra com
+  // o valor do mês anterior (ver linhasEfetivas), senão a capa mostra um número
+  // e o resumo contábil mostra outro
+  let linhas = linhasEfetivas(ST.mes).slice();
+  for (const [ci, txt] of Object.entries(ST.filtros.plantel)) {
     if (!txt) continue;
     const i = +ci, t = norm(txt);
     linhas = linhas.filter(l => norm(fmtCel(l, i, d.cab[i])).includes(t));
   }
-  if (ST.ordem.col != null) {
-    const i = ST.ordem.col, dir = ST.ordem.dir, rot = d.cab[i];
+  if (ST.ordem.plantel.col != null) {
+    const i = ST.ordem.plantel.col, dir = ST.ordem.plantel.dir, rot = d.cab[i];
     linhas.sort((a, b) => EH_NUM(rot)
       ? (num(a[i]) - num(b[i])) * dir
       : String(a[i] == null ? '' : a[i]).localeCompare(String(b[i] == null ? '' : b[i]), 'pt-BR') * dir);
   }
-  const somaEsc = escopo => linhas.reduce((s, l) => s + patr(l, at, escopo, ix), 0);
+  const somaEsc = escopo => linhas.reduce((s, l) => s + patr(l, escopo, ix), 0);
   return `
     <div class="resumo-linha">
       <span>${linhas.length} de ${d.linhas.length} linhas</span>
       <span>Carla: <b>${rs(somaEsc('hpg'))}</b></span>
       <span>Carla + Eduardo: <b>${rs(somaEsc('carla_eduardo'))}</b></span>
-      ${Object.values(ST.filtros).some(v => v) ? '<button type="button" id="limpaF">limpar filtros</button>' : ''}
+      ${Object.values(ST.filtros.plantel).some(v => v) ? '<button type="button" id="limpaF">limpar filtros</button>' : ''}
     </div>
     <div class="rolagem"><table class="t">
       <thead>
-        <tr>${cols.map(([i, r]) => `<th data-ord="${i}" class="${EH_NUM(r) ? '' : 'l'}${ST.ordem.col === i ? ' ord' : ''}">${esc(r)}${ST.ordem.col === i ? (ST.ordem.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}<th class="l">Dono</th></tr>
-        <tr class="filtros-linha">${cols.map(([i]) => `<th><input data-f="${i}" value="${esc(ST.filtros[i] || '')}"></th>`).join('')}<th></th></tr>
+        <tr>${cols.map(([i, r]) => `<th data-ord="plantel:${i}" class="${EH_NUM(r) ? '' : 'l'}${ST.ordem.plantel.col === i ? ' ord' : ''}">${esc(r)}${ST.ordem.plantel.col === i ? (ST.ordem.plantel.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}<th class="l">Dono</th></tr>
+        <tr class="filtros-linha">${cols.map(([i]) => `<th><input data-f="plantel:${i}" value="${esc(ST.filtros.plantel[i] || '')}"></th>`).join('')}<th></th></tr>
       </thead>
       <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) =>
         `<td class="${EH_NUM(r) ? '' : 'l'}">${esc(fmtCel(l, i, r))}</td>`).join('')}
-        <td class="l">${ATRIB[at[chaveCom(l, ix)]] || '<span class="zero">—</span>'}${
-          (d.sugeridos || []).includes(chaveCom(l, ix)) ? ' <span class="sug">sugerido</span>' : ''}</td></tr>`).join('')}</tbody>
+        <td class="l">${ATRIB[donoDe(ST.mes, chaveCom(l, ix))] || '<span class="zero">—</span>'}${
+          ST.sugeridos[`${ST.mes}|${chaveCom(l, ix)}`] ? ' <span class="sug">confirmar</span>' : ''}</td></tr>`).join('')}</tbody>
     </table></div>`;
 }
 
@@ -516,13 +626,47 @@ function painelMov(){
     ${corpo}`;
 }
 
+/* colunas da aba Movimentações: rótulo, como extrair e se é número (pra ordenar
+   e filtrar por coluna, igual à planilha) */
+const COLS_MOV = [
+  ['Nome', m => m.nome, 0],
+  ['Sufixo', m => m.sufixo, 0],
+  ['Categoria', m => m.categoria, 0],
+  ['Status', m => m.status, 0],
+  ['Dono', m => ATRIB[m.dono] || '', 0],
+  ['Cota', m => m.cota_atual, 1],
+  ['Valor', m => m.valor_atual, 1],
+  ['Valor inicial', m => m.patr_ant, 1],
+  ['Compras', m => classeDe(m) === 'compra' ? m.delta : 0, 1],
+  ['Embriões', m => classeDe(m) === 'embriao' ? m.delta : 0, 1],
+  ['Venda', m => classeDe(m) === 'venda' ? m.delta : 0, 1],
+  ['Morte/doação', m => ['morte', 'doacao'].includes(classeDe(m)) ? m.delta : 0, 1],
+  ['Reavaliação', m => classeDe(m) === 'reavaliacao' ? m.delta : 0, 1],
+  ['Valor final', m => m.patr_atual, 1],
+];
+const classeDe = m => {
+  const d = ST.decisoes[`${ST.mes}|${m.chave}`];
+  return d ? d.classe : m.sugestao;
+};
+
 function subMovimentacoes(){
   const mv = movimentacaoDoMes(ST.mes);
   if (!mv) return semArquivo();
   if (!ST.meses[mesAnterior(ST.mes)]) {
     return `<div class="aviso">Importe também ${rotMes(mesAnterior(ST.mes))} para comparar os dois meses.</div>`;
   }
-  const movs = mv.movs.filter(m => m.no_escopo || m.dono);
+  let movs = mv.movs.filter(m => m.no_escopo || m.dono);
+  for (const [ci, txt] of Object.entries(ST.filtros.mov)) {
+    if (!txt) continue;
+    const i = +ci, alvo = norm(txt), pega = COLS_MOV[i][1], ehNum = COLS_MOV[i][2];
+    movs = movs.filter(m => norm(ehNum ? String(pega(m)) : pega(m)).includes(alvo));
+  }
+  if (ST.ordem.mov.col != null) {
+    const i = ST.ordem.mov.col, dir = ST.ordem.mov.dir, pega = COLS_MOV[i][1], ehNum = COLS_MOV[i][2];
+    movs = movs.slice().sort((a, b) => ehNum
+      ? (num(pega(a)) - num(pega(b))) * dir
+      : String(pega(a) || '').localeCompare(String(pega(b) || ''), 'pt-BR') * dir);
+  }
   const soma = k => movs.reduce((s, m) => {
     const dec = ST.decisoes[`${ST.mes}|${m.chave}`];
     return s + ((dec ? dec.classe : m.sugestao) === k ? m.delta : 0);
@@ -532,36 +676,43 @@ function subMovimentacoes(){
       <span>${movs.length} animais com movimentação em ${rotMes(ST.mes)}</span>
       <span>registrados: <b>${movs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length}</b> de ${movs.length}</span>
       <span>Δ patrimônio: <b class="${clsN(movs.reduce((s, m) => s + m.delta, 0))}">${rs(movs.reduce((s, m) => s + m.delta, 0))}</b></span>
+      ${Object.values(ST.filtros.mov).some(v => v) ? '<button type="button" id="limpaFMov">limpar filtros</button>' : ''}
     </div>
     <div class="rolagem"><table class="t">
-      <thead><tr>
-        <th class="l">Nome</th><th class="l">Sufixo</th><th class="l">Categoria</th><th class="l">Status</th>
-        <th class="l">Dono</th><th>Cota</th><th>Valor</th><th>Valor inicial</th>
-        <th>Compras</th><th>Embriões</th><th>Venda</th><th>Morte/doação</th><th>Reavaliação</th><th>Valor final</th>
-        <th class="l">O que foi feito</th><th class="l">Registro</th>
-      </tr></thead>
+      <thead>
+        <tr>${COLS_MOV.map(([rot, , ehNum], i) => {
+            const th = `<th data-ord="mov:${i}" class="${ehNum ? '' : 'l'}${ST.ordem.mov.col === i ? ' ord' : ''}">`
+              + rot + (ST.ordem.mov.col === i ? (ST.ordem.mov.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
+            // o select de registro fica logo depois do nome: é a coluna de ação,
+            // e no fim da tabela ela caía fora da tela
+            return i === 0 ? th + '<th class="l">Registro</th>' : th;
+          }).join('')}<th class="l">O que foi feito</th></tr>
+        <tr class="filtros-linha">${COLS_MOV.map((c, i) =>
+            `<th><input data-f="mov:${i}"${i === 0 ? '' : ''} value="${esc(ST.filtros.mov[i] || '')}"></th>`
+            + (i === 0 ? '<th></th>' : '')
+          ).join('')}<th></th></tr>
+      </thead>
       <tbody>${movs.map(m => linhaMov(m)).join('')}
-        <tr class="tot">
-          <td colspan="7">total</td>
-          <td>${rs(movs.reduce((s, m) => s + m.patr_ant, 0))}</td>
-          <td class="${clsN(soma('compra'))}">${rs(soma('compra'))}</td>
-          <td class="${clsN(soma('embriao'))}">${rs(soma('embriao'))}</td>
-          <td class="${clsN(soma('venda'))}">${rs(soma('venda'))}</td>
-          <td class="${clsN(soma('morte') + soma('doacao'))}">${rs(soma('morte') + soma('doacao'))}</td>
-          <td class="${clsN(soma('reavaliacao'))}">${rs(soma('reavaliacao'))}</td>
-          <td>${rs(movs.reduce((s, m) => s + m.patr_atual, 0))}</td>
-          <td colspan="2"></td>
-        </tr>
+        <tr class="tot">${COLS_MOV.map(([rot, pega, ehNum], i) => {
+          if (i === 0) return `<td>total</td><td></td>`;
+          if (!ehNum || rot === 'Cota') return '<td></td>';
+          const s = movs.reduce((a, m) => a + num(pega(m)), 0);
+          return `<td class="${['Valor', 'Valor inicial', 'Valor final'].includes(rot) ? '' : clsN(s)}">${rs(s)}</td>`;
+        }).join('')}<td></td></tr>
       </tbody></table></div>`;
 }
 
 function linhaMov(m){
   const dec = ST.decisoes[`${ST.mes}|${m.chave}`];
   const classe = dec ? dec.classe : null;
-  const cel = k => {
-    const v = (classe || m.sugestao) === k ? m.delta : 0;
-    return `<td class="${clsN(v)}">${v ? rs(v) : '—'}</td>`;
-  };
+  const celReg = `<td class="l">
+      <select data-reg="${esc(m.chave)}">
+        <option value="">— registrar —</option>
+        ${CLASSES_MOV.map(c => `<option value="${c}"${classe === c ? ' selected' : ''}>${c}${
+          !classe && c === m.sugestao ? ' (sugerido)' : ''}</option>`).join('')}
+      </select>${dec ? `<span class="autor">${esc(dec.autor || '')}</span>` : ''}
+    </td>`;
+
   const oque = [];
   if (m.renome) oque.push(`renome: <b>${esc(m.renome.de)}</b> → <b>${esc(m.renome.para)}</b>`);
   if (m.entrou) oque.push('entrou no plantel');
@@ -570,31 +721,33 @@ function linhaMov(m){
   if (m.mudou_local) oque.push(`local: ${esc(m.mudou_local[0])} → ${esc(m.mudou_local[1])}`);
   if (m.cota_ant !== m.cota_atual) oque.push(`cota: ${pct(m.cota_ant)} → ${pct(m.cota_atual)}`);
   if (m.valor_ant !== m.valor_atual) oque.push(`valor: ${rs(m.valor_ant)} → ${rs(m.valor_atual)}`);
-  for (const l of m.log) oque.push(`<span class="log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</span>`);
-  return `<tr class="${dec ? 'reg' : ''}">
-    <td class="l nome" title="${esc(m.nome)}">${esc(m.nome)}</td>
-    <td class="l">${esc(m.sufixo)}</td><td class="l">${esc(m.categoria)}</td><td class="l">${esc(m.status)}</td>
-    <td class="l">${ATRIB[m.dono] || '<span class="zero">—</span>'}</td>
-    <td>${pct(m.cota_atual)}</td><td>${rs(m.valor_atual)}</td>
-    <td>${rs(m.patr_ant)}</td>
-    ${cel('compra')}${cel('embriao')}${cel('venda')}
-    <td class="${clsN((classe || m.sugestao) === 'morte' || (classe || m.sugestao) === 'doacao' ? m.delta : 0)}">${['morte', 'doacao'].includes(classe || m.sugestao) ? rs(m.delta) : '—'}</td>
-    ${cel('reavaliacao')}
-    <td>${rs(m.patr_atual)}</td>
-    <td class="l oque">${oque.join('<br>') || '—'}</td>
-    <td class="l">
-      <select data-reg="${esc(m.chave)}">
-        <option value="">— registrar —</option>
-        ${CLASSES_MOV.map(c => `<option value="${c}"${classe === c ? ' selected' : ''}>${c}${!classe && c === m.sugestao ? ' (sugerido)' : ''}</option>`).join('')}
-      </select>
-      ${dec ? `<span class="autor">${esc(dec.autor || '')}</span>` : ''}
-    </td></tr>`;
+  for (const l of m.log) oque.push(
+    `<span class="log" title="${esc(l.ocorrencia)}">${dataBR(l.data)} · ${esc(l.ocorrencia)}</span>`);
+  if (m.posterior) oque.push(`<span class="log" title="${esc(m.posterior.map(x => x.ocorrencia).join(' | '))}">`
+    + `⚠ ${m.posterior.length} ocorrência(s) posterior(es) ao mês — mantido o valor do mês anterior</span>`);
+
+  const cels = COLS_MOV.map(([rot, pega, ehNum], i) => {
+    const v = pega(m);
+    let txt;
+    if (!ehNum) txt = esc(v || '') || '<span class="zero">—</span>';
+    else if (rot === 'Cota') txt = pct(v);
+    else if (['Compras', 'Embriões', 'Venda', 'Morte/doação', 'Reavaliação'].includes(rot))
+      txt = v ? `<span class="${clsN(v)}">${rs(v)}</span>` : '—';
+    else txt = rs(v);
+    const td = `<td class="${ehNum ? '' : 'l'}${i === 0 ? ' nome' : ''}"${
+      i === 0 ? ` title="${esc(m.nome)}"` : ''}>${txt}</td>`;
+    return i === 0 ? td + celReg : td;
+  }).join('');
+
+  return `<tr class="${dec ? 'reg' : ''}">${cels}<td class="l oque">${oque.join('<br>') || '—'}</td></tr>`;
 }
 
 function subConciliacao(){
   const mv = movimentacaoDoMes(ST.mes);
   if (!mv) return semArquivo();
-  const semDono = (mv.novos || []);
+  const semDono = Object.keys(ST.sugeridos)
+    .filter(kk => kk.startsWith(ST.mes + '|'))
+    .map(kk => kk.slice(ST.mes.length + 1));
   const semLog = mv.movs.filter(m => !m.log.length && Math.abs(m.delta) >= 1 && (m.no_escopo || m.dono));
   const logSemEfeito = mv.log.filter(l => l.tipo === 'financeira' &&
     !mv.movs.some(m => norm(m.nome) === norm(l.produto)));
@@ -606,9 +759,11 @@ function subConciliacao(){
   }
   return `
     ${bloco('Animal novo sem dono definido', semDono, k => {
-      const l = ST.meses[ST.mes].linhas.find(x => chave(x) === k) || [];
-      return `<div class="item"><b>${esc(l[COL_NOME])}</b> · ${esc(l[COL_SUFIXO])} · ${esc(l[5])} ·
-        cota ${pct(l[COL_COTA])} · ${rs(num(l[COL_COTA]) * num(l[COL_VALOR]))}
+      const dm = ST.meses[ST.mes], ixm = dm.ix;
+      const l = dm.linhas.find(x => chaveCom(x, ixm) === k) || [];
+      return `<div class="item"><b>${esc(l[ixm.nome])}</b> · ${esc(l[ixm.sufixo])} · ${esc(l[ixm.categoria])} ·
+        cota ${pct(l[ixm.cota])} · ${rs(num(l[ixm.cota]) * num(l[ixm.valor]) + num(l[ixm.comissao]))}
+        · sugerido: <b>${ATRIB[donoDe(ST.mes, k)]}</b>
         <span class="acoes">${['hpg', 'eduardo', 'nenhum'].map(dn =>
           `<button type="button" data-dono="${esc(k)}:${dn}">${ATRIB[dn]}</button>`).join('')}</span></div>`;
     })}
@@ -625,21 +780,23 @@ function subConciliacao(){
 function subChecks(){
   const d = ST.meses[ST.mes], ant = ST.meses[mesAnterior(ST.mes)];
   if (!d) return semArquivo();
-  const at = d.atribuicao || {};
   const mv = movimentacaoDoMes(ST.mes);
-  const iniC = ant ? ant.linhas.reduce((s, l) => s + patr(l, ant.atribuicao || {}, 'hpg'), 0) : 0;
-  const fimC = d.linhas.reduce((s, l) => s + patr(l, at, 'hpg'), 0);
-  const movC = (mv ? mv.movs : []).filter(m => (at[m.chave] || (ant && (ant.atribuicao || {})[m.chave])) === 'hpg')
+  const iniC = patrMes(mesAnterior(ST.mes), 'hpg'), fimC = patrMes(ST.mes, 'hpg');
+  const movC = (mv ? mv.movs : []).filter(m => donoDe(ST.mes, m.chave) === 'hpg')
     .reduce((s, m) => s + m.delta, 0);
-  const iniCE = ant ? ant.linhas.reduce((s, l) => s + patr(l, ant.atribuicao || {}, 'carla_eduardo'), 0) : 0;
-  const fimCE = d.linhas.reduce((s, l) => s + patr(l, at, 'carla_eduardo'), 0);
+  const iniCE = patrMes(mesAnterior(ST.mes), 'carla_eduardo'), fimCE = patrMes(ST.mes, 'carla_eduardo');
   const movCE = (mv ? mv.movs : []).filter(m => m.no_escopo || m.dono).reduce((s, m) => s + m.delta, 0);
-  const somaCotaValor = d.linhas.reduce((s, l) => s + patr(l, at, 'hpg'), 0);
+  // o resumo contábil só conta o que foi REGISTRADO; a movimentação apurada conta
+  // tudo que mudou. Divergir aqui é sinal de mês incompleto, não de erro de conta.
+  const movRegistrado = (mv ? mv.movs : [])
+    .filter(m => donoDe(ST.mes, m.chave) === 'hpg')
+    .filter(m => ST.decisoes[`${ST.mes}|${m.chave}`])
+    .reduce((s, m) => s + m.delta, 0);
 
   const linhas = [
     ['Valor inicial + movimentações = valor final (Carla)', iniC + movC, fimC],
     ['Valor inicial + movimentações = valor final (Carla + Eduardo)', iniCE + movCE, fimCE],
-    ['Σ (cota × valor) dos animais da Carla = saldo do resumo contábil', somaCotaValor, fimC],
+    ['Movimentação registrada = movimentação apurada (Carla)', movRegistrado, movC],
   ];
   const regs = (mv ? mv.movs : []).filter(m => m.no_escopo || m.dono);
   return `<div class="rolagem"><table class="t">
@@ -699,11 +856,13 @@ function liga(){
     if (sub) { ST.sub = sub.dataset.sub; pinta(); return; }
     const ord = e.target.closest('[data-ord]');
     if (ord) {
-      const i = +ord.dataset.ord;
-      ST.ordem = {col: i, dir: ST.ordem.col === i ? -ST.ordem.dir : 1};
+      const [qual, ci] = ord.dataset.ord.split(':');
+      const i = +ci, atual = ST.ordem[qual];
+      ST.ordem[qual] = {col: i, dir: atual.col === i ? -atual.dir : 1};
       pinta(); return;
     }
-    if (e.target.id === 'limpaF') { ST.filtros = {}; pinta(); return; }
+    if (e.target.id === 'limpaF') { ST.filtros.plantel = {}; pinta(); return; }
+    if (e.target.id === 'limpaFMov') { ST.filtros.mov = {}; pinta(); return; }
     const dono = e.target.closest('[data-dono]');
     if (dono) {
       const [k, dn] = dono.dataset.dono.split(':');
@@ -713,9 +872,10 @@ function liga(){
   });
   document.body.addEventListener('input', e => {
     if (e.target.dataset.f != null) {
-      ST.filtros[e.target.dataset.f] = e.target.value;
-      const pos = e.target.dataset.f;
+      const pos = e.target.dataset.f, [qual, ci] = pos.split(':');
+      ST.filtros[qual][+ci] = e.target.value;
       pinta();
+      // redesenho o painel inteiro a cada tecla, então devolvo o foco e o cursor
       const novo = document.querySelector(`[data-f="${pos}"]`);
       if (novo) { novo.focus(); novo.setSelectionRange(novo.value.length, novo.value.length); }
     }

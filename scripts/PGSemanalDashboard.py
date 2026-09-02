@@ -132,27 +132,9 @@ TEMPLATE = r"""<!doctype html>
     transition:.13s}
   .btn-pdf:hover{background:var(--surface-2,#0F3E63);border-color:var(--teal)}
   .kpi .chk.ok{color:var(--pos)} .kpi .chk.no{color:var(--amber)}
-  /* Impressão = o PDF do dashboard. O navegador é o motor; aqui só se garante que
-     nada fica cortado: sem scroll interno, sem barra de ferramentas, e as cores
-     do tema preservadas (senão sai um documento branco sem hierarquia). */
-  /* espelha as regras de impressão que mudam a ALTURA, para a medição do zoom
-     bater com o que vai para o papel */
-  .medindo-print .toolbar{display:none}
-  .medindo-print .panel{padding:8px 10px;margin:0 0 6px}
-  .medindo-print .kpi{min-height:0;padding:6px 8px}
-  .medindo-print .kpi .lab{font-size:9.5px;min-height:0}
-  .medindo-print .kpi .val{font-size:21px;margin-top:1px}
-  .medindo-print .kpi .val .nota{font-size:9.5px;margin-top:2px}
-  .medindo-print .kpis{gap:8px;margin-top:8px}
-  .medindo-print table{font-size:10px}
-  .medindo-print thead th,.medindo-print tbody td{padding:2px 5px}
-  .medindo-print .sections{display:block;gap:0}
-  .medindo-print .det{margin-top:6px;padding-top:4px}
-  .medindo-print .det-h{font-size:10.5px;margin-bottom:3px}
-  .medindo-print .panel h2{font-size:14px;margin-bottom:1px}
-  .medindo-print header{padding:4px 0 6px;min-height:0}
-  .medindo-print header .logo{height:24px}
-  .medindo-print header h1{font-size:16px}
+  /* Ctrl+P continua funcionando como saída de emergência (o botao Exportar PDF
+     nao usa mais impressao). Aqui so se garante que nada fica cortado: sem
+     scroll interno, sem barra de ferramentas, e as cores do tema preservadas. */
   @media print{
     /* margem ZERO na folha: com margem, o papel branco aparece em volta do painel
        escuro. O respiro vira padding do body, que já é da cor do tema. */
@@ -465,31 +447,14 @@ document.getElementById("btnEdit").addEventListener("click",e=>{
   editMode=!editMode; e.target.classList.toggle("on",editMode);
   e.target.textContent=editMode?"Concluir edição":"Editar"; render();
 });
-/* Exportar imagem: PNG do dashboard inteiro, pra mandar no grupo.
+/* Exportar: PNG e PDF do dashboard inteiro, pra mandar no grupo.
    Feito com SVG <foreignObject> + canvas — nada de biblioteca externa, o HTML
    tem que continuar self-contained e funcionando offline. Requisito que isso
    impõe: toda imagem embutida precisa ser data URI (o logo é), senão o canvas
-   fica "tainted" e o toBlob falha. */
-/* PDF do dashboard: uma página só.
-   O motor de PDF é o do navegador (sem biblioteca — o HTML segue self-contained),
-   mas o conteúdo é mais alto que uma folha. Então mede-se a altura real e aplica-se
-   `zoom` na proporção que cabe em A4 paisagem, antes de chamar print().
-   Medir é obrigatório: com fator fixo, semana com poucas linhas sai minúscula e
-   semana cheia continua estourando. */
-// A4 paisagem a 96dpi (1122x794), menos os 6mm de padding de cada lado.
-// A folga de 4% cobre o arredondamento do navegador ao aplicar zoom — sem ela o
-// conteúdo encosta no limite e escorrega uma linha para a folha seguinte.
-const A4L={largura:1077,altura:749,folga:0.96};
-document.getElementById("btnPdf").onclick=()=>{
-  const alvo=document.body;
-  // mede com a folha de impressão aplicada, senão a conta é da tela e erra feio
-  alvo.classList.add("medindo-print");
-  const h=alvo.scrollHeight, w=alvo.scrollWidth;
-  alvo.classList.remove("medindo-print");
-  const z=Math.min(1, (A4L.altura/h)*A4L.folga, (A4L.largura/w)*A4L.folga);
-  document.documentElement.style.setProperty("--print-zoom", z.toFixed(3));
-  window.print();
-};
+   fica "tainted" e o toBlob falha.
+   PNG e PDF saem do MESMO canvas: o PDF é a imagem embrulhada numa página do
+   tamanho exato dela. Antes o PDF era window.print() com @media print, layout
+   paralelo que vivia divergindo do PNG e quebrando na paginação. */
 
 /* Os PDFs de embriões, embutidos como data URI pelo build — um par por semana.
    A pasta de origem acumula todas as semanas já geradas, então filtra pela
@@ -510,98 +475,169 @@ function renderPdfs(){
   }
 }
 
-document.getElementById("btnImg").onclick=async(ev)=>{
-  const btn=ev.target, rotulo=btn.textContent;
-  btn.textContent="Gerando..."; btn.disabled=true;
-  try{
-    /* Dentro do foreignObject o conteúdo é um <div>, não um <body>: as regras de
-       body{} (fonte e cor do texto) não casam e o SVG cai no default do navegador
-       — serif e texto preto. Por isso replicamos as declarações do body no
-       wrapper da captura. As variáveis de cor não precisam disso: estão no :root,
-       que no SVG é o próprio <svg>, e custom property herda pra dentro. */
-    const cssCaptura=`#capa{background:var(--bg);color:var(--txt);
-      font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:18px}
-      #capa .wrap{padding:0 22px 24px}
-      #capa header{padding-bottom:14px}
-      #capa .cap-per{font-size:20px;font-weight:700;color:var(--teal);white-space:nowrap}
-      #capa .cap-per .rot{display:block;font-size:12px;font-weight:700;color:var(--mut);
-        text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
-      #capa .sections{gap:14px}
-      #capa .panel{padding:15px 18px}
-      #capa .kpis{gap:10px}
-      #capa .kpi{min-height:118px;padding:14px 16px 13px}
-      #capa .kpi .lab{font-size:13px;font-weight:700;min-height:36px}
-      #capa .kpi .val{font-size:34px}
-      #capa .kpi .val .nota{font-size:13px;margin-top:5px}
-      #capa .panel h2{font-size:19px}
-      #capa .panel .sub{font-size:14px}
-      #capa .det{margin-top:12px;padding-top:9px}
-      #capa .det-h{font-size:14px;font-weight:800}
-      #capa table{font-size:15px}
-      #capa th{font-size:12.5px;font-weight:700}
-      #capa td,#capa th{padding:8px 11px}`;
-    const css=[...document.querySelectorAll("style")].map(s=>s.textContent).join("\n")+cssCaptura;
-    const clone=document.createElement("div");
-    clone.id="capa";
-    clone.appendChild(document.querySelector("header").cloneNode(true));
-    clone.appendChild(document.querySelector(".wrap").cloneNode(true));
-    // a toolbar sai da imagem, mas o período tem que ficar: sem ele a imagem
-    // solta no grupo não diz de que semana é.
-    const w=CAL.find(x=>x.id===semana);
-    const per=document.createElement("div");
-    per.className="cap-per";
-    per.innerHTML=`<span class="rot">Semana de referência</span>`+
-      (w? `${br(w.ini)} a ${br(w.fim)}` : (semana||""));
-    clone.querySelector(".toolbar")?.replaceWith(per);
-    clone.querySelectorAll(".det-b").forEach(d=>{           // tabela inteira, sem scroll
-      d.style.maxHeight="none"; d.style.overflow="visible";
-    });
-    clone.querySelectorAll(".rst").forEach(r=>r.remove());
-    const largura=document.querySelector(".wrap").scrollWidth;
-    // mede a altura real renderizando fora da tela. Tem de incluir cssCaptura na
-    // medição: sem isto o medidor usa só o CSS normal da página (fonte pequena) e
-    // o SVG final desenha com a fonte grande da captura — media sai baixa, desenho
-    // sai alto, e o rodapé corta fora do canvas.
-    const medidor=document.createElement("div");
-    medidor.style.cssText=`position:fixed;left:-99999px;top:0;width:${largura}px`;
-    const estiloMedidor=document.createElement("style");
-    estiloMedidor.textContent=cssCaptura;
-    medidor.appendChild(estiloMedidor);
-    medidor.appendChild(clone.cloneNode(true));
-    document.body.appendChild(medidor);
-    const altura=medidor.lastChild.scrollHeight+40;
-    document.body.removeChild(medidor);
+async function capturar(){
+  /* Dentro do foreignObject o conteúdo é um <div>, não um <body>: as regras de
+     body{} (fonte e cor do texto) não casam e o SVG cai no default do navegador
+     — serif e texto preto. Por isso replicamos as declarações do body no
+     wrapper da captura. As variáveis de cor não precisam disso: estão no :root,
+     que no SVG é o próprio <svg>, e custom property herda pra dentro. */
+  const cssCaptura=`#capa{background:var(--bg);color:var(--txt);
+    font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;font-size:18px}
+    #capa .wrap{padding:0 22px 24px}
+    #capa header{padding-bottom:14px}
+    #capa .cap-per{font-size:20px;font-weight:700;color:var(--teal);white-space:nowrap}
+    #capa .cap-per .rot{display:block;font-size:12px;font-weight:700;color:var(--mut);
+      text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
+    #capa .sections{gap:14px}
+    #capa .panel{padding:15px 18px}
+    #capa .kpis{gap:10px}
+    #capa .kpi{min-height:118px;padding:14px 16px 13px}
+    #capa .kpi .lab{font-size:13px;font-weight:700;min-height:36px}
+    #capa .kpi .val{font-size:34px}
+    #capa .kpi .val .nota{font-size:13px;margin-top:5px}
+    #capa .panel h2{font-size:19px}
+    #capa .panel .sub{font-size:14px}
+    #capa .det{margin-top:12px;padding-top:9px}
+    #capa .det-h{font-size:14px;font-weight:800}
+    #capa table{font-size:15px}
+    #capa th{font-size:12.5px;font-weight:700}
+    #capa td,#capa th{padding:8px 11px}`;
+  /* o <style> entra num SVG que o browser parseia como XML: qualquer "<" ou "&"
+     solto no CSS (um comentario citando <td>, por exemplo) vira tag e derruba
+     o parse inteiro — img.onerror, imagem nenhuma. Escapa antes de embutir. */
+  const escXml=t=>t.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  const css=escXml([...document.querySelectorAll("style")].map(s=>s.textContent).join("\n")+cssCaptura);
+  const clone=document.createElement("div");
+  clone.id="capa";
+  clone.appendChild(document.querySelector("header").cloneNode(true));
+  clone.appendChild(document.querySelector(".wrap").cloneNode(true));
+  // a toolbar sai da imagem, mas o período tem que ficar: sem ele a imagem
+  // solta no grupo não diz de que semana é.
+  const w=CAL.find(x=>x.id===semana);
+  const per=document.createElement("div");
+  per.className="cap-per";
+  per.innerHTML=`<span class="rot">Semana de referência</span>`+
+    (w? `${br(w.ini)} a ${br(w.fim)}` : (semana||""));
+  clone.querySelector(".toolbar")?.replaceWith(per);
+  clone.querySelectorAll(".det-b").forEach(d=>{           // tabela inteira, sem scroll
+    d.style.maxHeight="none"; d.style.overflow="visible";
+  });
+  clone.querySelectorAll(".rst").forEach(r=>r.remove());
+  const largura=document.querySelector(".wrap").scrollWidth;
+  // mede a altura real renderizando fora da tela. Tem de incluir cssCaptura na
+  // medição: sem isto o medidor usa só o CSS normal da página (fonte pequena) e
+  // o SVG final desenha com a fonte grande da captura — media sai baixa, desenho
+  // sai alto, e o rodapé corta fora do canvas.
+  const medidor=document.createElement("div");
+  medidor.style.cssText=`position:fixed;left:-99999px;top:0;width:${largura}px`;
+  const estiloMedidor=document.createElement("style");
+  estiloMedidor.textContent=cssCaptura;
+  medidor.appendChild(estiloMedidor);
+  medidor.appendChild(clone.cloneNode(true));
+  document.body.appendChild(medidor);
+  const altura=medidor.lastChild.scrollHeight+40;
+  document.body.removeChild(medidor);
 
-    // o XMLSerializer já emite xmlns="http://www.w3.org/1999/xhtml" na raiz;
-    // acrescentar de novo dá "Attribute xmlns redefined" e o SVG não renderiza.
-    const xhtml=new XMLSerializer().serializeToString(clone);
-    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${largura}" height="${altura}">`
-      +`<rect width="100%" height="100%" fill="#04223B"/>`
-      +`<foreignObject width="100%" height="100%">`
-      +`<style xmlns="http://www.w3.org/1999/xhtml">${css}</style>${xhtml}</foreignObject></svg>`;
+  // o XMLSerializer já emite xmlns="http://www.w3.org/1999/xhtml" na raiz;
+  // acrescentar de novo dá "Attribute xmlns redefined" e o SVG não renderiza.
+  const xhtml=new XMLSerializer().serializeToString(clone);
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${largura}" height="${altura}">`
+    +`<rect width="100%" height="100%" fill="#04223B"/>`
+    +`<foreignObject width="100%" height="100%">`
+    +`<style xmlns="http://www.w3.org/1999/xhtml">${css}</style>${xhtml}</foreignObject></svg>`;
 
-    const escala=2;                                          // 2x = legível no celular
-    const img=new Image();
-    await new Promise((ok,erro)=>{
-      img.onload=ok; img.onerror=()=>erro(new Error("falha ao renderizar o SVG"));
-      img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
-    });
-    const cv=document.createElement("canvas");
-    cv.width=largura*escala; cv.height=altura*escala;
-    const ctx=cv.getContext("2d");
-    ctx.fillStyle="#04223B"; ctx.fillRect(0,0,cv.width,cv.height);
-    ctx.scale(escala,escala); ctx.drawImage(img,0,0);
-    const blob=await new Promise(r=>cv.toBlob(r,"image/png"));
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);
-    a.download=`atualizacao_semanal_${semana||"export"}.png`;
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
-  }catch(e){
-    alert("Não consegui gerar a imagem: "+e.message+
-          "\nAlternativa: Ctrl+P e salvar como PDF.");
-  }finally{ btn.textContent=rotulo; btn.disabled=false; }
-};
+  const escala=2;                                          // 2x = legível no celular
+  const img=new Image();
+  await new Promise((ok,erro)=>{
+    img.onload=ok; img.onerror=()=>erro(new Error("falha ao renderizar o SVG"));
+    img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+  });
+  const cv=document.createElement("canvas");
+  cv.width=largura*escala; cv.height=altura*escala;
+  const ctx=cv.getContext("2d");
+  ctx.fillStyle="#04223B"; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.scale(escala,escala); ctx.drawImage(img,0,0);
+  return {cv,largura,altura};
+}
+
+function baixar(blob,nome){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=nome;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+
+/* PDF de uma página só, do tamanho exato da captura — sem paginação e sem
+   reflow: é o MESMO desenho do PNG dentro de um container PDF montado à mão
+   (biblioteca nenhuma, o HTML segue self-contained). Antes o PDF saía de
+   window.print() com @media print: um segundo layout, que vivia divergindo do
+   PNG e quebrando na quebra de página.
+   Imagem lossless via /FlateDecode: CompressionStream("deflate") já emite zlib,
+   que é o formato que o filtro espera. Navegador sem ele cai pra JPEG
+   (/DCTDecode), que não precisa de compressor nenhum. */
+async function pdfDoCanvas(cv,largura,altura){
+  let dados,filtro;
+  if(typeof CompressionStream==="function"){
+    const px=cv.getContext("2d").getImageData(0,0,cv.width,cv.height).data;
+    const rgb=new Uint8Array(cv.width*cv.height*3);      // PDF não quer o canal alfa
+    for(let i=0,j=0;i<px.length;i+=4){rgb[j++]=px[i];rgb[j++]=px[i+1];rgb[j++]=px[i+2];}
+    const cs=new CompressionStream("deflate");
+    const wr=cs.writable.getWriter(); wr.write(rgb); wr.close();
+    dados=new Uint8Array(await new Response(cs.readable).arrayBuffer());
+    filtro="/FlateDecode";
+  }else{
+    const bin=atob(cv.toDataURL("image/jpeg",0.95).split(",")[1]);
+    dados=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) dados[i]=bin.charCodeAt(i);
+    filtro="/DCTDecode";
+  }
+  const W=(largura*0.75).toFixed(2), H=(altura*0.75).toFixed(2);   // px 96dpi -> pt
+  const conteudo=`q ${W} 0 0 ${H} 0 0 cm /Im0 Do Q`;
+  const partes=[], offs=[];
+  let tam=0;
+  const put=x=>{
+    const b=(typeof x==="string")? Uint8Array.from(x,c=>c.charCodeAt(0)&255) : x;
+    partes.push(b); tam+=b.length;
+  };
+  const obj=(n,dic,stream)=>{
+    offs[n]=tam;                                     // offset exato pro xref
+    put(`${n} 0 obj\n${dic}\n`);
+    if(stream!==undefined){ put("stream\n"); put(stream); put("\nendstream\n"); }
+    put("endobj\n");
+  };
+  put("%PDF-1.4\n");
+  obj(1,"<</Type/Catalog/Pages 2 0 R>>");
+  obj(2,"<</Type/Pages/Kids[3 0 R]/Count 1>>");
+  obj(3,`<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${W} ${H}]`
+       +`/Resources<</XObject<</Im0 4 0 R>>>>/Contents 5 0 R>>`);
+  obj(4,`<</Type/XObject/Subtype/Image/Width ${cv.width}/Height ${cv.height}`
+       +`/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter ${filtro}`
+       +`/Length ${dados.length}>>`,dados);
+  obj(5,`<</Length ${conteudo.length}>>`,conteudo);
+  const inicioXref=tam;
+  let x="xref\n0 6\n0000000000 65535 f \n";
+  for(let n=1;n<=5;n++) x+=String(offs[n]).padStart(10,"0")+" 00000 n \n";
+  x+=`trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n${inicioXref}\n%%EOF\n`;
+  put(x);
+  return new Blob(partes,{type:"application/pdf"});
+}
+
+function exportador(id,ext,gerar){
+  document.getElementById(id).onclick=async(ev)=>{
+    const btn=ev.currentTarget, rotulo=btn.textContent;
+    btn.textContent="Gerando..."; btn.disabled=true;
+    try{
+      const c=await capturar();
+      baixar(await gerar(c),`atualizacao_semanal_${semana||"export"}.${ext}`);
+    }catch(e){
+      alert(`Não consegui gerar o ${ext.toUpperCase()}: `+e.message+
+            "\nAlternativa: Ctrl+P e salvar como PDF.");
+    }finally{ btn.textContent=rotulo; btn.disabled=false; }
+  };
+}
+exportador("btnImg","png",c=>new Promise(r=>c.cv.toBlob(r,"image/png")));
+exportador("btnPdf","pdf",c=>pdfDoCanvas(c.cv,c.largura,c.altura));
 
 render();
 </script>
