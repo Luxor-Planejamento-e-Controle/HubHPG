@@ -85,7 +85,13 @@ const ST = {
      atribuição só o saldo de janeiro saiu R$ 2,49 milhões abaixo do liberado.
      Mês sem atribuição própria herda do mês anterior mais próximo. */
   atrib: {},
-  sugeridos: {},    // 'mes|chave' -> true enquanto ninguém confirmou
+  /* Inferência por SUFIXO fica separada e é por ANIMAL, não por mês. Misturada
+     com os mapas ela fabricava troca de dono: animal que o mapa de junho não
+     cobria (inferido Carla) e que o mapa de julho marca 'nenhum' virava R$ 449
+     mil de "mudança de dono" em julho, que nunca aconteceu. Mapa manda;
+     inferência é o último recurso. */
+  inferido: {},
+  sugeridos: {},    // chave -> true enquanto ninguém confirmou
   mes: null,
   decisoes: {},     // 'mes|chave' -> {classe, nota, autor}
   aba: 'plantel',
@@ -173,7 +179,7 @@ function aplicaAtribuicaoDoMapa(d, mes){
 function donoDe(mes, k){
   const meses = Object.keys(ST.atrib).filter(m => m <= mes).sort().reverse();
   for (const m of meses) if (k in ST.atrib[m]) return ST.atrib[m][k];
-  return null;
+  return k in ST.inferido ? ST.inferido[k] : null;
 }
 
 /* Animal que nenhum mapa atribuiu. A regra foi MEDIDA contra os 7 mapas de 2026:
@@ -187,17 +193,16 @@ function donoDe(mes, k){
    ganhar valor a conciliação cobra. */
 function completaAtribuicao(mes){
   const d = ST.meses[mes];
-  const alvo = ST.atrib[mes] = ST.atrib[mes] || {};
   for (const l of d.linhas) {
     const k = chaveCom(l, d.ix);
     if (donoDe(mes, k) != null) continue;
     const suf = norm(l[d.ix.sufixo]);
     const simples = suf === 'DA PAO GRANDE' || suf === 'OUTRO';
     const valor = num(l[d.ix.cota]) * num(l[d.ix.valor]) + num(l[d.ix.comissao]);
-    if (!valor) { alvo[k] = 'nenhum'; continue; }
-    if (simples) { alvo[k] = 'hpg'; continue; }
-    alvo[k] = 'nenhum';
-    ST.sugeridos[`${mes}|${k}`] = true;   // parceria com valor: quem fecha decide
+    if (!valor) { ST.inferido[k] = 'nenhum'; continue; }
+    if (simples) { ST.inferido[k] = 'hpg'; continue; }
+    ST.inferido[k] = 'nenhum';
+    ST.sugeridos[k] = true;   // parceria com valor: quem fecha decide
   }
 }
 
@@ -324,6 +329,13 @@ function movimentacaoDoMes(mes){
     renomes.push({de: antigo, para: x.produto, data: x.data, chave: kNew});
   }
 
+  /* chave nova -> chave antiga, pra achar o dono do mês anterior de quem foi
+     renomeado. Sem isto o animal renomeado entra como se tivesse aparecido do
+     nada no escopo da Carla: RECEPTORAS 121->120 sozinho inflava o fluxo de
+     julho em R$ 248.910, e o total em R$ 448.984. */
+  const ponteInv = {};
+  for (const [kOld, kNew] of Object.entries(ponte)) ponteInv[kNew] = kOld;
+
   const mapa = (ls, ixL) => {
     const o = {};
     for (const l of ls) { const k = chaveCom(l, ixL); o[ponte[k] || k] = l; }
@@ -348,10 +360,20 @@ function movimentacaoDoMes(mes){
     const loA = a ? norm(a[ixA.local]) : '', loB = b ? norm(b[ix.local]) : '';
     const mudouStatus = a && b && stA !== stB;
     const mudouLocal = a && b && loA !== loB;
-    if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && a && b) continue;
+    const trocouDono = ant && donoDe(mesAnterior(mes), ponteInv[k] || k) !== donoDe(mes, k);
+    if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && !trocouDono && a && b) continue;
 
     const linha = b || a, ixL = b ? ix : ixA;
     const dono = donoDe(mes, k);
+    const kAnt = ponteInv[k] || k;
+    const donoAnt = ant ? donoDe(mesAnterior(mes), kAnt) : dono;
+    /* Trocar de dono MOVE patrimônio: animal que era da Carla e virou 'nenhum'
+       sai do saldo dela mesmo sem venda registrada. Sem isto o check de julho
+       acusava R$ 60 mil de diferença entre estoque e fluxo. */
+    const noEsc = (dn, v) => dn === 'hpg' ? v : 0;
+    const emCE = dn => ['hpg', 'eduardo'].includes(dn);
+    const deltaCarla = +(noEsc(dono, p1) - noEsc(donoAnt, p0)).toFixed(2);
+    const deltaCE = +((emCE(dono) ? p1 : 0) - (emCE(donoAnt) ? p0 : 0)).toFixed(2);
     const itensLog = logPorNome[norm(linha[ixL.nome])] || (ren ? logPorNome[norm(ren.para)] : []) || [];
     movs.push({
       chave: k, linha, nome: linha[ixL.nome], sufixo: linha[ixL.sufixo],
@@ -359,6 +381,8 @@ function movimentacaoDoMes(mes){
       cota_ant: q0, cota_atual: q1, valor_ant: v0, valor_atual: v1,
       patr_ant: p0, patr_atual: p1, delta: +(p1 - p0).toFixed(2),
       entrou: !a, saiu: !b, renome: ren || null,
+      dono_ant: donoAnt, delta_carla: deltaCarla, delta_ce: deltaCE,
+      mudou_dono: donoAnt !== dono ? [donoAnt, dono] : null,
       mudou_status: mudouStatus ? [a[ixA.status], b[ix.status]] : null,
       mudou_local: mudouLocal ? [a[ixA.local], b[ix.local]] : null,
       log: itensLog, posterior,
@@ -410,10 +434,10 @@ function resumoAno(){
     const mv = movimentacaoDoMes(m);
     const causas = {};
     for (const mo of (mv ? mv.movs : [])) {
-      if (donoDe(m, mo.chave) !== 'hpg') continue;
+      if (!mo.delta_carla) continue;
       const dec = ST.decisoes[`${m}|${mo.chave}`];
       const classe = dec ? dec.classe : mo.sugestao;
-      causas[classe] = +( (causas[classe] || 0) + mo.delta ).toFixed(2);
+      causas[classe] = +((causas[classe] || 0) + mo.delta_carla).toFixed(2);
     }
     out[m] = {ini: +ini.toFixed(2), fim: +fim.toFixed(2), causas,
               registrado: (mv ? mv.movs : []).filter(mo => ST.decisoes[`${m}|${mo.chave}`]).length,
@@ -517,23 +541,48 @@ async function salvaSnapshot(mes, d, arquivo){
   if (!c) return;
   try {
     await c.from('plantel_snapshot').upsert({
-      mes, arquivo, linhas: d.linhas, log: d.log.map(x => ({...x, data: (x.data instanceof Date ? x.data : new Date(x.data)).toISOString()})),
-      atribuicao: ST.atrib[mes] || {}, importado_por: eu(),
+      mes, arquivo,
+      linhas: {cab: d.cab, ix: d.ix, rows: d.linhas},
+      log: d.log.map(x => ({...x, data: (x.data instanceof Date ? x.data : new Date(x.data)).toISOString()})),
+      atribuicao: ST.atrib[mes] || {},
     }, {onConflict: 'mes'});
   } catch (err) { console.warn('[plantel] snapshot não gravado', err.message || err); }
+}
+
+/* `linhas` no banco é autocontido: {cab, ix, rows}. O cabeçalho e o mapa de
+   colunas viajam junto com as linhas porque a planilha do haras muda de layout
+   entre versões — guardar só as linhas obrigaria a tela a adivinhar em que
+   coluna está o quê. Formato antigo (array puro) ainda é aceito. */
+function normalizaSnapshot(r){
+  const bruto = r.linhas;
+  const pacote = Array.isArray(bruto) ? {rows: bruto, cab: [], ix: {}} : (bruto || {});
+  return {
+    arquivo: r.arquivo,
+    cab: pacote.cab || [],
+    ix: pacote.ix || {},
+    linhas: pacote.rows || [],
+    liberado: pacote.liberado || null,   // Resumo Contábil que foi divulgado
+    log: (r.log || []).map(x => ({...x, data: new Date(x.data)})),
+    temSplit: (pacote.ix || {}).hpgCota >= 0,
+  };
 }
 
 async function carregaSnapshots(){
   const c = sb();
   if (!c) return;
   try {
-    const { data } = await c.from('plantel_snapshot').select('mes,arquivo,linhas,log,atribuicao');
+    const { data, error } = await c.from('plantel_snapshot')
+      .select('mes,arquivo,linhas,log,atribuicao').order('mes');
+    if (error) throw error;
     for (const r of data || []) {
-      ST.meses[r.mes] = {arquivo: r.arquivo, linhas: r.linhas || [],
-                         log: (r.log || []).map(x => ({...x, data: new Date(x.data)})),
-                         temSplit: false, cab: r.cab || [], ix: r.ix || {}};
+      ST.meses[r.mes] = normalizaSnapshot(r);
       ST.atrib[r.mes] = r.atribuicao || {};
     }
+    // O mapa do mês não cobre todo animal do fechamento: em jan/26 faltavam
+    // R$ 612 mil e em abr/26 R$ 261 mil de animais que existem no arquivo do
+    // haras e não no mapa. A mesma regra do import preenche o resto, em ordem
+    // de mês — a atribuição de um mês herda do anterior.
+    for (const m of Object.keys(ST.meses).sort()) completaAtribuicao(m);
     const { data: dec } = await c.from('plantel_mov_classificacao').select('mes,chave,classe,nota,autor');
     for (const r of dec || []) ST.decisoes[`${r.mes}|${r.chave}`] = r;
   } catch (err) { console.warn('[plantel] sem dados salvos', err.message || err); }
@@ -551,8 +600,9 @@ async function registra(mes, mov, classe, nota){
 }
 
 async function atribui(mes, k, dono){
+  // decisão humana vale daquele mês em diante (entra como se fosse mapa)
   (ST.atrib[mes] = ST.atrib[mes] || {})[k] = dono;
-  delete ST.sugeridos[`${mes}|${k}`];
+  delete ST.sugeridos[k];
   const c = sb();
   if (c) await c.from('plantel_snapshot').update({atribuicao: ST.atrib[mes]}).eq('mes', mes);
 }
@@ -601,7 +651,7 @@ function painelPlantel(){
       <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) =>
         `<td class="${EH_NUM(r) ? '' : 'l'}">${esc(fmtCel(l, i, r))}</td>`).join('')}
         <td class="l">${ATRIB[donoDe(ST.mes, chaveCom(l, ix))] || '<span class="zero">—</span>'}${
-          ST.sugeridos[`${ST.mes}|${chaveCom(l, ix)}`] ? ' <span class="sug">confirmar</span>' : ''}</td></tr>`).join('')}</tbody>
+          ST.sugeridos[chaveCom(l, ix)] ? ' <span class="sug">confirmar</span>' : ''}</td></tr>`).join('')}</tbody>
     </table></div>`;
 }
 
@@ -718,6 +768,7 @@ function linhaMov(m){
   if (m.renome) oque.push(`renome: <b>${esc(m.renome.de)}</b> → <b>${esc(m.renome.para)}</b>`);
   if (m.entrou) oque.push('entrou no plantel');
   if (m.saiu) oque.push('saiu do controle');
+  if (m.mudou_dono) oque.push(`dono: <b>${ATRIB[m.mudou_dono[0]] || '—'}</b> → <b>${ATRIB[m.mudou_dono[1]] || '—'}</b>`);
   if (m.mudou_status) oque.push(`status: ${esc(m.mudou_status[0])} → ${esc(m.mudou_status[1])}`);
   if (m.mudou_local) oque.push(`local: ${esc(m.mudou_local[0])} → ${esc(m.mudou_local[1])}`);
   if (m.cota_ant !== m.cota_atual) oque.push(`cota: ${pct(m.cota_ant)} → ${pct(m.cota_atual)}`);
@@ -746,9 +797,9 @@ function linhaMov(m){
 function subConciliacao(){
   const mv = movimentacaoDoMes(ST.mes);
   if (!mv) return semArquivo();
+  const dmes = ST.meses[ST.mes];
   const semDono = Object.keys(ST.sugeridos)
-    .filter(kk => kk.startsWith(ST.mes + '|'))
-    .map(kk => kk.slice(ST.mes.length + 1));
+    .filter(k => dmes.linhas.some(l => chaveCom(l, dmes.ix) === k));
   const semLog = mv.movs.filter(m => !m.log.length && Math.abs(m.delta) >= 1 && (m.no_escopo || m.dono));
   const logSemEfeito = mv.log.filter(l => l.tipo === 'financeira' &&
     !mv.movs.some(m => norm(m.nome) === norm(l.produto)));
@@ -783,30 +834,40 @@ function subChecks(){
   if (!d) return semArquivo();
   const mv = movimentacaoDoMes(ST.mes);
   const iniC = patrMes(mesAnterior(ST.mes), 'hpg'), fimC = patrMes(ST.mes, 'hpg');
-  const movC = (mv ? mv.movs : []).filter(m => donoDe(ST.mes, m.chave) === 'hpg')
-    .reduce((s, m) => s + m.delta, 0);
+  const movC = (mv ? mv.movs : []).reduce((s, m) => s + (m.delta_carla || 0), 0);
   const iniCE = patrMes(mesAnterior(ST.mes), 'carla_eduardo'), fimCE = patrMes(ST.mes, 'carla_eduardo');
-  const movCE = (mv ? mv.movs : []).filter(m => m.no_escopo || m.dono).reduce((s, m) => s + m.delta, 0);
+  const movCE = (mv ? mv.movs : []).reduce((s, m) => s + (m.delta_ce || 0), 0);
   // o resumo contábil só conta o que foi REGISTRADO; a movimentação apurada conta
   // tudo que mudou. Divergir aqui é sinal de mês incompleto, não de erro de conta.
   const movRegistrado = (mv ? mv.movs : [])
-    .filter(m => donoDe(ST.mes, m.chave) === 'hpg')
     .filter(m => ST.decisoes[`${ST.mes}|${m.chave}`])
-    .reduce((s, m) => s + m.delta, 0);
+    .reduce((s, m) => s + (m.delta_carla || 0), 0);
 
+  const lib = d.liberado;
   const linhas = [
     ['Valor inicial + movimentações = valor final (Carla)', iniC + movC, fimC],
     ['Valor inicial + movimentações = valor final (Carla + Eduardo)', iniCE + movCE, fimCE],
     ['Movimentação registrada = movimentação apurada (Carla)', movRegistrado, movC],
   ];
+  // confronto com o que foi divulgado. Vem junto com o mês (aba Resumo Contabil
+  // do mapa) porque é o número que valeu, e não se reproduz de trás pra frente:
+  // em jan/26 a coluna PLANTEL HPG do mapa soma R$ 391 mil menos que o Resumo
+  // Contábil do mesmo mês — janeiro foi revisado depois daquele mapa.
+  if (lib) {
+    if (lib.saldo_fim != null) linhas.push(['Saldo final = Resumo Contábil divulgado', fimC, lib.saldo_fim]);
+    if (lib.saldo_ini != null) linhas.push(['Saldo inicial = Resumo Contábil divulgado', iniC, lib.saldo_ini]);
+  }
   const regs = (mv ? mv.movs : []).filter(m => m.no_escopo || m.dono);
   return `<div class="rolagem"><table class="t">
     <thead><tr><th class="l">Check de ${rotMes(ST.mes)}</th><th>Apurado</th><th>Esperado</th><th>Diferença</th><th class="l">Situação</th></tr></thead>
     <tbody>${linhas.map(([t, a, b]) => {
       const dif = +(a - b).toFixed(2);
+      // tolerância de R$ 1: o Resumo Contábil divulgado carrega centavos de
+      // arredondamento próprio (15.970.552,61 contra 15.970.552,71)
+      const ok = Math.abs(dif) < 1;
       return `<tr><td class="l">${t}</td><td>${rs(a)}</td><td>${rs(b)}</td>
-        <td class="${Math.abs(dif) < 0.01 ? 'pos' : 'neg'}">${rs(dif)}</td>
-        <td class="l">${Math.abs(dif) < 0.01 ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
+        <td class="${ok ? 'pos' : 'neg'}">${rs(dif)}</td>
+        <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
     }).join('')}
     <tr><td class="l">Movimentações registradas</td><td>${regs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length}</td>
       <td>${regs.length}</td><td></td>
