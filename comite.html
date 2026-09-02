@@ -23,8 +23,12 @@
   <button type="button" id="editar" hidden title="Editar este slide (comentários, exposições, manejo, fotos)">✎ Editar</button>
   <span class="spacer"></span>
   <span class="aviso" id="aviso"></span>
-  <button type="button" id="pdf" title="Salvar como PDF (uma página por slide, pela impressão do navegador)">PDF</button>
-  <button type="button" class="primary" id="pptx" title="Baixar como PowerPoint">Exportar PPTX</button>
+  <!-- os dois exports andam juntos: mesmo peso visual e sem quebrar a linha no
+       meio do par quando o aviso é comprido -->
+  <span class="acoes">
+    <button type="button" class="primary" id="pdf" title="Salvar como PDF (uma página por slide, pela impressão do navegador)">Exportar PDF</button>
+    <button type="button" class="primary" id="pptx" title="Baixar como PowerPoint">Exportar PPTX</button>
+  </span>
 </div>
 <script src="assets/vendor/pptxgen.bundle.js"></script>
 <!-- spec.js e gerado e gitignored: existe na maquina (demo offline), nao no

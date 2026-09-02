@@ -48,6 +48,7 @@ body{display:flex;flex-direction:column}
 .bar select{background:var(--card);border:1px solid var(--line);color:var(--ink);height:32px;
   border-radius:8px;font:inherit;font-size:12.5px;max-width:340px;padding:0 8px}
 .bar .pos{font-variant-numeric:tabular-nums;min-width:64px;text-align:center}
+.bar .acoes{display:flex;gap:10px;flex:0 0 auto}
 .bar .aviso{color:var(--amber);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw}
 
 @media(max-width:480px){
