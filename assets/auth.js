@@ -26,6 +26,7 @@ const HUB_OFFLINE = location.protocol === 'file:';
 const HUB_DATASETS = {
   semanal: { file:'semanal.html', html:'semanalHtml' },
   comite:  { file:'comite.json',  json:'comiteSpec'  },
+  plantel: { file:'plantel.json', json:'plantelMov'  },
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)

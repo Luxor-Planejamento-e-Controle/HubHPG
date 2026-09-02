@@ -41,6 +41,11 @@ DATASETS = {
                 "text/html; charset=utf-8"),
     "comite":  (ROOT / "assets/comite/spec.json", "comite.json",
                 "application/json"),
+    # movimentação do plantel: cota, valor e comprador por animal — privado como
+    # o resto. O nome antes do ponto é o que a policy do storage usa pra decidir
+    # quem baixa, então 'plantel.json' casa com hub_can('plantel').
+    "plantel": (ROOT / "assets/plantel/spec.json", "plantel.json",
+                "application/json"),
     # A auditoria cita animal e comprador — mesma regra dos outros: bucket privado.
     "auditoria": (ROOT / "dashboards/auditoria_semanal.html", "auditoria.html",
                   "text/html; charset=utf-8"),

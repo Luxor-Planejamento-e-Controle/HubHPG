@@ -23,9 +23,7 @@ const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
   {id:'semanal', title:'Atualização Semanal', sub:'Fechamento da semana — plantel, produção e receptoras', icon:'semanal', render:renderSemanal},
   {id:'comite', title:'Comitê Mensal', sub:'Relatório de desempenho estratégico — deck do mês', icon:'comite', render:renderComite},
-  {id:'plantel', title:'Plantel / Movimentação', sub:'Cascata de valor e movimentos do mês', icon:'plantel', soon:true,
-   fonte:'mov_cascata / mov_detalhe do LuxorMonthlyP-CRoutines/PlantelHPG (LxMovimentacao.py)',
-   hoje:'Hoje sai por e-mail com o xlsx anexo (LxEmailHPGPlantel.py).'},
+  {id:'plantel', title:'Plantel / Movimentação', sub:'Fechamento do mês — movimentos, abertura por animal e checks', icon:'plantel', render:renderPlantel},
 ];
 function allowed(){
   const ok=(window.HUB&&window.HUB.dashboards)||[];
@@ -135,6 +133,22 @@ function renderSemanal(el){
 function renderComite(el){
   el.classList.add('flush');
   el.innerHTML=`<iframe class="embed" src="comite.html" title="Comitê Mensal"></iframe>`;
+}
+
+/* ---- Plantel / Movimentação ----
+   Página própria (plantel.html) em iframe de mesma origem, pelo mesmo motivo do
+   deck: ela tem abas internas e estado próprio, e assim a casca não carrega a
+   tela do mini-sistema. Mesma origem é o que dá acesso a window.parent.HUB — a
+   sessão do Supabase pra gravar a classificação da fila e, em produção, o
+   artefato que o porteiro baixou do bucket privado.
+   Altura fixa (não .auto-h como o semanal): a página tem rolagem interna por
+   painel, então medir o conteúdo faria o iframe crescer sem fim. */
+function renderPlantel(el){
+  el.classList.add('flush');
+  const f=document.createElement('iframe');
+  f.className='embed'; f.title='Plantel / Movimentação';
+  f.src='plantel.html';
+  el.appendChild(f);
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----

@@ -24,8 +24,12 @@ dashboards/
 assets/semanal/
 assets/comite/spec.js
 assets/comite/spec.json
+# movimentação do plantel: nome de animal, comprador, cota e valor
+assets/plantel/spec.js
 # regra por PADRÃO: aba nova nasce protegida mesmo sem ser listada acima
 assets/*/dashboard.html
+assets/*/spec.js
+assets/*/spec.json
 
 # fotos do relatório mensal — imagem da fazenda em site público
 assets/comite/fotos/

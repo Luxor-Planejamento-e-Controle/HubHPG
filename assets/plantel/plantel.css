@@ -1,0 +1,90 @@
+/* Aba Plantel / Movimentação — mini-sistema de fechamento mensal.
+
+   Roda em iframe do hub (mesma origem), como o deck do comitê: página própria,
+   paleta do haras, e acesso ao Supabase por window.parent.HUB. */
+:root{
+  --bg:#04223B; --bg-2:#072B49; --card:#0A3050; --line:#1B486B; --line-2:#2A5F87;
+  --ink:#EAF0F4; --ink-2:#B6C8D6; --ink-3:#93AABC;
+  --amber:#CA9703; --pos:#4CC38A; --neg:#F07A7A;
+  --font:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px}
+a{color:var(--amber)}
+
+/* ---- cabeçalho + abas ---- */
+.topo{padding:16px 20px 0;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:baseline}
+.topo h1{margin:0;font-size:17px;font-weight:600}
+.topo .mes{font-size:13px;color:var(--amber);letter-spacing:.04em}
+.topo .fonte{font-size:11.5px;color:var(--ink-3);margin-left:auto;text-align:right;line-height:1.5}
+.abas{display:flex;flex-wrap:wrap;gap:6px;padding:14px 20px 0;border-bottom:1px solid var(--line)}
+.abas button{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--ink-2);
+  padding:8px 14px;border-radius:8px 8px 0 0;font:inherit;font-size:13px;cursor:pointer}
+.abas button:hover{color:var(--ink)}
+.abas button.on{background:var(--bg-2);border-color:var(--line);color:var(--amber);font-weight:600}
+.abas .cont{display:inline-block;margin-left:7px;font-size:11px;background:var(--line);color:var(--ink);
+  border-radius:9px;padding:1px 7px;font-weight:600}
+.abas button.on .cont{background:var(--amber);color:#1a1300}
+.painel{padding:18px 20px 40px}
+.painel[hidden]{display:none}
+
+/* ---- tabelas ---- */
+table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
+table.t th{text-align:right;padding:7px 10px;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-3);border-bottom:1px solid var(--line-2);white-space:nowrap;position:sticky;top:0;
+  background:var(--bg)}
+table.t td{padding:6px 10px;border-bottom:1px solid rgba(27,72,107,.5);text-align:right;white-space:nowrap}
+table.t th:first-child,table.t td:first-child{text-align:left}
+table.t th.l,table.t td.l{text-align:left}
+table.t tr:hover td{background:rgba(10,48,80,.5)}
+table.t tr.tot td{font-weight:700;border-top:1px solid var(--line-2);border-bottom:none}
+table.t tr.tot td:first-child{color:var(--amber)}
+table.t td.nome{max-width:330px;overflow:hidden;text-overflow:ellipsis}
+.pos{color:var(--pos)} .neg{color:var(--neg)} .zero{color:var(--ink-3)}
+.rolagem{max-height:calc(100vh - 210px);overflow:auto}
+
+/* ---- cartões e blocos ---- */
+.grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kpi .v{font-size:22px;font-weight:700;color:var(--amber);line-height:1.15}
+.kpi .l{margin-top:4px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2)}
+.kpi .s{margin-top:3px;font-size:11.5px;color:var(--ink-3)}
+.kpi.ok .v{color:var(--pos)} .kpi.alerta .v{color:var(--neg)}
+
+.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.item.resolvido{opacity:.55}
+.item h3{margin:0 0 3px;font-size:14.5px}
+.item .meta{font-size:11.5px;color:var(--ink-3);margin-bottom:10px}
+.item .valor{float:right;font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.antes-depois{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:10px 0}
+.antes-depois div{background:rgba(4,34,59,.55);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.antes-depois .rot{font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+.antes-depois .val{font-size:13px;font-variant-numeric:tabular-nums;margin-top:3px}
+.logs{margin:10px 0 0;padding:0;list-style:none;font-size:12.5px}
+.logs li{padding:5px 0 5px 10px;border-left:2px solid var(--line-2);color:var(--ink-2);margin-bottom:4px}
+.logs li b{color:var(--ink)}
+.vazio-log{color:var(--neg);font-size:12.5px}
+.acoes{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;align-items:center}
+.acoes button{background:transparent;border:1px solid var(--line);color:var(--ink-2);border-radius:8px;
+  padding:6px 12px;font:inherit;font-size:12.5px;cursor:pointer}
+.acoes button:hover{border-color:var(--amber);color:var(--amber)}
+.acoes button.on{background:var(--amber);border-color:var(--amber);color:#1a1300;font-weight:600}
+.acoes input{flex:1 1 190px;min-width:140px;background:var(--bg);border:1px solid var(--line);
+  color:var(--ink);border-radius:8px;padding:6px 9px;font:inherit;font-size:12.5px}
+
+.tag{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  border-radius:20px;padding:2px 9px;border:1px solid var(--line-2);color:var(--ink-2)}
+.tag.t1{border-color:#6a7fb0;color:#9fb4e0}
+.tag.t2{border-color:#4f8f7a;color:#7fd0b4}
+.tag.t3{border-color:rgba(202,151,3,.6);color:var(--amber)}
+.tag.aberto{border-color:var(--amber);color:var(--amber)}
+.tag.fechado{border-color:var(--line-2);color:var(--ink-3)}
+
+.filtros{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.filtros select,.filtros input{background:var(--card);border:1px solid var(--line);color:var(--ink);
+  border-radius:8px;padding:6px 9px;font:inherit;font-size:12.5px}
+.filtros input{flex:1 1 220px}
+.nota{background:rgba(202,151,3,.1);border:1px solid rgba(202,151,3,.35);border-radius:10px;
+  padding:11px 14px;font-size:12.5px;color:var(--ink-2);margin-bottom:16px;line-height:1.5}
+.nota b{color:var(--amber)}
+.limpo{color:var(--pos);font-size:13px;padding:14px 0}

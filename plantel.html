@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plantel / Movimentação — Haras Pao Grande</title>
+<link rel="icon" href="assets/pg-logo.png">
+<link rel="stylesheet" href="assets/plantel/plantel.css?v=202609021900">
+</head>
+<body>
+<div class="topo" id="topo"></div>
+<div class="abas" id="abas"></div>
+<div id="paineis"></div>
+<!-- spec.js e gerado (tools/build_plantel_mov.py) e gitignored: o conteudo e dado do
+     plantel — nome de animal, comprador, valor — e o repo/site sao publicos. Em
+     producao o hub baixa do bucket privado e injeta antes de montar o iframe. -->
+<script src="assets/plantel/spec.js?v=202609021900" onerror="void 0"></script>
+<script>
+  if(!window.PLANTEL_MOV){
+    try { window.PLANTEL_MOV = window.parent.HUB && window.parent.HUB.plantelMov; }
+    catch(e) { console.warn("[plantel] sem artefato: nem local nem do hub", e); }
+  }
+</script>
+<script src="assets/plantel/plantel.js?v=202609021900"></script>
+</body>
+</html>
