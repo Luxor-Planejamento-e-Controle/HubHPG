@@ -221,7 +221,6 @@ table.data tbody tr:hover td{background:rgba(255,255,255,.04)}
 .hint,.muted{color:var(--ink-3);font-size:12px}
 code{background:var(--surface-2);padding:1px 6px;border-radius:5px;font-size:12px;color:var(--amber)}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 9px;border-radius:20px}
-.pill.live{background:rgba(76,195,138,.16);color:var(--pos)}
 .pill.soon{background:var(--surface-2);color:var(--ink-3)}
 .empty{display:grid;place-items:center;text-align:center;padding:70px 20px;color:var(--ink-3)}
 .empty .big{font-size:44px;margin-bottom:12px;opacity:.5}

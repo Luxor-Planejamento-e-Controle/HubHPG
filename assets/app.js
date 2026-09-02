@@ -57,7 +57,7 @@ function renderHome(el){
   const cards=allowed().filter(r=>r.id).map(r=>`
     <a class="card hover" href="#/${r.id}">
       <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CA9703" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.title}</h3>
-        ${r.soon?'<span class="pill soon" style="margin-left:auto">em breve</span>':'<span class="pill live" style="margin-left:auto">no ar</span>'}</div>
+        ${r.soon?'<span class="pill soon" style="margin-left:auto">em breve</span>':''}</div>
       <div class="desc">${r.sub}</div></a>`).join('');
   el.innerHTML=`<div class="hero"><h1>Haras Pao Grande</h1>
     <p>Hub dos painéis do haras.</p></div>
