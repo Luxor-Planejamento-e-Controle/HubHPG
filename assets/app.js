@@ -1,15 +1,12 @@
 /* Hub HPG — casca web. Mesmo desenho do LuxorP&CHub (sidebar + rotas por hash),
    com a identidade do Haras Pao Grande.
 
-   Uma aba real: Atualização Semanal, o dashboard que o pipeline já gera.
-   Comitê Mensal e Plantel/Movimentação são PLACEHOLDER — estão na navegação pra
-   marcar que também vêm pra cá, mas não desenham tela nenhuma: não existe painel
-   web dos dois hoje (o comitê sai do ComiteHPG.pbix, o plantel de e-mail com
-   xlsx), e sem uma referência do que mostrar a casca não inventa layout.
+   Três abas: Atualização Semanal (dashboard que o pipeline gera), Comitê Mensal
+   (deck próprio) e Plantel / Movimentação (fechamento mensal do plantel). As duas
+   últimas rodam em iframe de mesma origem, com página e estado próprios.
 
-   Pra promover um placeholder a aba de verdade: trocar `soon:true` pela função
-   de render e, se tiver gráfico, copiar o vendor/echarts.min.js do LuxorP&CHub
-   e voltar a tag <script> no index.html. */
+   Aba nova nasce como placeholder: entra em ROUTES com `soon:true` e os campos
+   `fonte`/`hoje`, e vira tela de verdade quando ganha uma função de render. */
 'use strict';
 
 /* ---- rotas ---- */
@@ -23,7 +20,12 @@ const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
   {id:'semanal', title:'Atualização Semanal', sub:'Fechamento da semana — plantel, produção e receptoras', icon:'semanal', render:renderSemanal},
   {id:'comite', title:'Comitê Mensal', sub:'Relatório de desempenho estratégico — deck do mês', icon:'comite', render:renderComite},
-  {id:'plantel', title:'Plantel / Movimentação', sub:'Fechamento do mês — movimentos, abertura por animal e checks', icon:'plantel', render:renderPlantel},
+  /* `nav` é o rótulo curto da barra lateral; `title` é o nome do arquivo que o
+     controle usa, que é o que tem de aparecer no cabeçalho da página. Ao virar o
+     ano, é aqui que o 2026 muda. */
+  {id:'plantel', nav:'Plantel / Movimentação',
+   title:'Plantel Haras Pao Grande - Movimentação Jan a Dez 2026', sub:'', icon:'plantel',
+   render:renderPlantel},
 ];
 function allowed(){
   const ok=(window.HUB&&window.HUB.dashboards)||[];
@@ -36,7 +38,7 @@ function buildNav(){
   for(const r of allowed()){
     const a=document.createElement('a'); a.href='#/'+r.id; a.className=r.soon?'locked':'';
     a.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg>`
-      +`<span>${r.title}</span>`+(r.soon?'<span class="badge">em breve</span>':'');
+      +`<span>${r.nav||r.title}</span>`+(r.soon?'<span class="badge">em breve</span>':'');
     nav.appendChild(a);
   }
 }
@@ -54,9 +56,9 @@ function router(){
 function renderHome(el){
   const cards=allowed().filter(r=>r.id).map(r=>`
     <a class="card hover" href="#/${r.id}">
-      <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CA9703" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.title}</h3>
+      <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CA9703" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.nav||r.title}</h3>
         ${r.soon?'<span class="pill soon" style="margin-left:auto">em breve</span>':''}</div>
-      <div class="desc">${r.sub}</div></a>`).join('');
+      <div class="desc">${r.sub||''}</div></a>`).join('');
   el.innerHTML=`<div class="hero"><h1>Haras Pao Grande</h1>
     <p>Hub dos painéis do haras.</p></div>
     <div class="grid g-3">${cards}</div>`;

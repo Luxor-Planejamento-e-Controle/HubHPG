@@ -425,8 +425,9 @@ function resumoAno(){
 /* ================= UI ================= */
 function topo(){
   const meses = Object.keys(ST.meses).sort();
+  // sem <h1> aqui: o cabeçalho do hub já mostra o nome da aba, e repetir era
+  // exatamente o tipo de poluição que o painel não precisa
   document.getElementById('topo').innerHTML = `
-    <h1>Plantel Haras Pao Grande - Movimentação Jan a Dez ${(ST.mes || '2026').slice(0, 4)}</h1>
     <div class="ferramentas">
       <label class="mes-sel">Mês
         <select id="selMes">${meses.map(m => `<option value="${m}"${m === ST.mes ? ' selected' : ''}>${rotMes(m)}</option>`).join('')}</select>
