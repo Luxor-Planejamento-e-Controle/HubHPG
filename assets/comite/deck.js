@@ -665,6 +665,38 @@ function sairPlay(){
 }
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) sairPlay(); });
 
+/* ---- export PDF (impressão do navegador) ----
+   Terceira saída do mesmo spec. Não rasteriza nada e não precisa de
+   biblioteca: monta TODOS os slides do mês num container de impressão e
+   deixa o navegador paginar — texto continua texto (selecionável, nítido em
+   qualquer zoom) e as fotos vão embutidas, que é o que já vem no spec.
+   1280×720px a 96dpi = 13,333×7,5in, exatamente o @page — uma página por
+   slide, sem escala e sem margem, então o PDF sai igual ao deck na tela.
+   Vale pro que está sendo visto: mês e modo (mensal/trimestral) atuais. */
+function exportarPdf(){
+  let caixa = document.getElementById('impressao');
+  if (!caixa) {
+    caixa = document.createElement('div');
+    caixa.id = 'impressao';
+    document.body.appendChild(caixa);
+  }
+  caixa.innerHTML = slides.map((s, i) => {
+    const corpo = (R[s.t] || R.pendente)(s);
+    const rodape = s.t === 'capa' || s.t === 'encerramento' ? '' : foot(s, i, slides.length);
+    return `<div class="slide">${corpo}${rodape}</div>`;
+  }).join('');
+  document.body.classList.add('imprimindo');
+  /* afterprint dispara tanto no salvar quanto no cancelar; sem a limpeza o
+     DOM ficaria com 70 slides pendurados atrás da tela. */
+  const limpa = () => {
+    document.body.classList.remove('imprimindo');
+    caixa.innerHTML = '';
+    window.removeEventListener('afterprint', limpa);
+  };
+  window.addEventListener('afterprint', limpa);
+  window.print();
+}
+
 /* ---- export PPTX (mesmo spec, outra saída) ---- */
 async function exportarPptx(btn){
   btn.disabled = true; btn.textContent = 'Gerando…';
@@ -699,6 +731,46 @@ async function dataURI(url){
   } catch { return null; }
 }
 
+/* ---- métricas de texto do PPTX ----
+   O pptxgen não faz layout: ele só declara geometria e o PowerPoint
+   recalcula na hora de mostrar. Duas consequências que estouravam o slide:
+   linha de tabela CRESCE quando a célula quebra em várias linhas (rowH é
+   mínimo, não altura), e caixa de texto NÃO cresce — o texto vaza por cima
+   do que vier embaixo. Nos dois casos a altura precisa ser estimada aqui,
+   antes de escrever, e a fonte tem que caber no que sobra até o rodapé.
+   Segoe UI tem ~0,5em de largura média por caractere; conferido contra o
+   render do PowerPoint, a conta erra pouco e pra cima — o lado seguro. */
+const CHAR_EM = 0.5;
+const LINHA_EM = 1.25;          // entrelinha que o PowerPoint aplica
+const MARGEM_CEL = 0.08;        // polegadas comidas pelas laterais da célula de tabela
+const MARGEM_TXT = 0.22;        // idem numa caixa de texto (inset padrão ~0,1in de cada lado)
+const alturaLinha = fs => fs * LINHA_EM / 72;
+/* quantas linhas o texto ocupa numa caixa de `larguraIn` polegadas */
+function linhasTexto(txt, larguraIn, fs){
+  const s = String(txt == null ? '' : txt).trim();
+  if (!s) return 1;
+  const cap = Math.max(1, Math.floor(larguraIn / (fs * CHAR_EM / 72)));
+  let linhas = 1, usado = 0;
+  for (const palavra of s.split(/\s+/)) {
+    const espaco = usado ? 1 : 0;
+    if (usado + espaco + palavra.length <= cap) { usado += espaco + palavra.length; continue; }
+    if (usado) { linhas++; usado = 0; }                 // fecha a linha atual
+    usado = palavra.length;
+    while (usado > cap) { linhas++; usado -= cap; }     // palavra maior que a linha
+  }
+  return linhas;
+}
+/* altura de cada linha da tabela, respeitando fonte própria de célula (o
+   cabeçalho tem a sua) */
+function alturasTabela(rows, colW, fs){
+  return rows.map(r => Math.max(...r.map((c, j) => {
+    const f = (c && c.options && c.options.fontSize) || fs;
+    const txt = c && c.text != null ? c.text : c;
+    return linhasTexto(txt, (colW[j] || 9.2 / r.length) - MARGEM_CEL, f) * alturaLinha(f);
+  })));
+}
+const somaAlturas = a => a.reduce((x, v) => x + v, 0);
+
 function pptSlide(p, s, i, logo, imgs){
   const sl = p.addSlide();
   sl.background = {color: C.bg};
@@ -730,28 +802,36 @@ function pptSlide(p, s, i, logo, imgs){
   T(`${SPEC.labels[mesAtual]}   ·   ${i + 1}/${slides.length}${s.obs ? '   ·   ' + s.obs : ''}`,
     {x:0.41, y:5.25, w:9.2, h:0.25, fontSize:8, color:C.ink3});
 
-  /* rowH acompanha o nº de linhas, como no HTML — 4,1 in é a altura útil */
-  /* rowH no pptxgen é altura MÍNIMA: o PowerPoint expande a linha para caber o
-     texto mais a margem interna da célula. Com a margem padrão (~0,05in em cima e
-     embaixo) uma linha de 6pt renderiza ~0,19in, não os 0,155in declarados — 27
-     linhas viravam 5,1in a partir de y=0,95 e a tabela saía pela borda de baixo,
-     por cima do rodapé. Era isso que quebrava os slides de DRE.
-     Margem zerada + altura calculada com o piso REAL de renderização. */
-  /* `margin` aqui é por CÉLULA e em PONTOS. Passar 3 nas laterais deixava a largura
-     útil de coluna estreita menor que um caractere, e o PowerPoint quebrava a cada
-     letra — a tabela virava uma coluna de caracteres empilhados e empurrava o resto
-     para fora do slide. Margem vertical zerada resolve a altura sem estrangular a
-     largura; a lateral fica no padrão. */
+  /* Altura de tabela: rowH no pptxgen é MÍNIMO, o PowerPoint estica a linha pra
+     caber o texto quebrado mais a margem interna da célula. Dividir a altura útil
+     pelo nº de linhas (o que se fazia aqui) só acerta quando toda célula é de uma
+     linha — com "25% FERNANDO SANTOS SILVEIRA / 25% YURI SEMANSKY ENGLER" numa
+     coluna de 1,3in a célula vira 5 linhas e a tabela passa por cima do rodapé;
+     era o estouro dos slides de vendas/embriões/DRE.
+     Agora a altura de cada linha é ESTIMADA (linhasTexto por célula) e a fonte
+     desce até o total caber em `alt` — o declarado bate com o renderizado.
+     `margin` é por CÉLULA e a UNIDADE depende do primeiro valor: o pptxgen lê
+     como PONTOS quando margin[0] >= 1 e como POLEGADAS quando é menor. Com
+     margem vertical 0 cai-se sempre no ramo de polegadas — daí [0,.03,0,.03]:
+     zero em cima e embaixo (era a margem vertical que fazia cada linha crescer
+     ~3pt além do rowH) e 0,03in nas laterais, pouco o bastante pra não
+     estrangular coluna estreita. Passar [0,2,0,2] achando que era ponto vira
+     2 POLEGADAS de margem: a coluna fica menor que um caractere, o PowerPoint
+     quebra a cada letra e a tabela explode pra 75in de altura. */
   const tbl = (rows, opts) => {
-    const y = (opts && opts.y) || 0.95;
+    const o = opts || {};
+    const y = o.y || 0.95;
     const alt = 5.15 - y;
-    const fs = Math.max(6, Math.min(9, alt / rows.length * 26));
+    const colW = o.colW || new Array(rows[0].length).fill(9.2 / rows[0].length);
+    let fs = Math.min(9, o.fontSize || 9), alturas = alturasTabela(rows, colW, fs);
+    while (fs > 5 && somaAlturas(alturas) > alt) {
+      fs -= 0.25;
+      alturas = alturasTabela(rows, colW, fs);
+    }
     return sl.addTable(rows, Object.assign({
       x:0.41, y, w:9.2, border:{type:'solid', pt:0.4, color:C.line},
-      fontFace:'Segoe UI', fontSize:fs,
-      rowH:Math.max(fs * 1.2 / 72, Math.min(0.3, alt / rows.length)),
-      color:C.ink, valign:'middle',
-    }, opts));
+      fontFace:'Segoe UI', color:C.ink, valign:'middle',
+    }, o, {fontSize:fs, rowH:alturas, margin:[0, 0.03, 0, 0.03]}));
   };
   const th = t => ({text:String(t), options:{bold:true, fontSize:7.5, color:C.ink3, fill:{color:C.bg2}, align:'right'}});
   const kpis = () => {
@@ -817,19 +897,33 @@ function pptSlide(p, s, i, logo, imgs){
     return;
   }
   if (s.t === 'lista_mes'){
-    let y = 0.95;
-    const passo = Math.min(0.22, 4.2 / s.meses.reduce((a, m) => a + 1 + m.itens.length, 0));
-    s.meses.forEach(m => {
-      T(m.mes, {x:0.41, y, w:0.9, h:passo, fontSize:9, bold:true, color:C.amber});
-      T('ANIMAIS E PRODUTOS', {x:1.35, y, w:3, h:passo, fontSize:7.5, color:C.ink3});
-      T(rs(m.total), {x:7.6, y, w:2.0, h:passo, fontSize:10, bold:true, align:'right'});
-      y += passo + 0.04;
-      m.itens.forEach(it => {
-        T(it.desc, {x:1.35, y, w:6.1, h:passo, fontSize:8, color:C.ink2});
-        T(rs(it.valor), {x:7.6, y, w:2.0, h:passo, fontSize:8, align:'right', color:C.ink2});
-        y += passo;
+    /* passo fixo por item não serve: descrição comprida quebra em 2+ linhas,
+       a caixa de texto não cresce e o texto invade o item seguinte — no fim
+       da lista o acumulado ia por cima do rodapé. Cada item anda a altura
+       que ele realmente ocupa, e a fonte desce se o total não couber. */
+    const alt = 5.15 - 0.95, largDesc = 6.1;
+    const planeja = fs => {
+      const lh = alturaLinha(fs), itens = [];
+      s.meses.forEach((m, k) => {
+        itens.push({m, gap: k ? lh * 0.55 : 0, h: lh * 1.5});   // respiro entre grupos de mês
+        m.itens.forEach(it => itens.push({it, gap: 0, h: linhasTexto(it.desc, largDesc - MARGEM_TXT, fs) * lh}));
       });
-      y += 0.04;
+      return {itens, total: somaAlturas(itens.map(x => x.h + x.gap))};
+    };
+    let fs = 9, plano = planeja(fs);
+    while (fs > 5 && plano.total > alt) { fs -= 0.25; plano = planeja(fs); }
+    let y = 0.95;
+    plano.itens.forEach(l => {
+      y += l.gap;
+      if (l.m) {
+        T(l.m.mes, {x:0.41, y, w:0.9, h:l.h, fontSize:fs, bold:true, color:C.amber, valign:'top'});
+        T('ANIMAIS E PRODUTOS', {x:1.35, y, w:3, h:l.h, fontSize:fs - 1.5, color:C.ink3, valign:'top'});
+        T(rs(l.m.total), {x:7.6, y, w:2.0, h:l.h, fontSize:fs + 1, bold:true, align:'right', valign:'top'});
+      } else {
+        T(l.it.desc, {x:1.35, y, w:largDesc, h:l.h, fontSize:fs - 1, color:C.ink2, valign:'top'});
+        T(rs(l.it.valor), {x:7.6, y, w:2.0, h:l.h, fontSize:fs - 1, align:'right', color:C.ink2, valign:'top'});
+      }
+      y += l.h;
     });
     return;
   }
@@ -840,25 +934,44 @@ function pptSlide(p, s, i, logo, imgs){
       {text:it.txt, options:{align:'left', color:C.ink2}},
       {text:it.delta, options:{align:'right', bold:true, color:/^[-−]/.test(it.delta) ? C.neg : C.pos}},
     ]));
-    tbl(rows, {colW:[1.9, 6.3, 1.0], rowH:Math.min(0.42, 4.1 / rows.length), fontSize:8, valign:'top'});
+    tbl(rows, {colW:[1.9, 6.3, 1.0], fontSize:8, valign:'top'});
     return;
   }
   if (s.t === 'resultados'){
-    // duas colunas, quebrando por altura acumulada
-    const col = [[], []];
-    const alt = a => 0.26 + a.premios.length * 0.24;
-    let h0 = 0;
-    s.animais.forEach(a => { const k = h0 <= 2.0 ? 0 : 1; col[k].push(a); if (!k) h0 += alt(a); });
-    col.forEach((lista, k) => {
+    /* duas colunas. Passo fixo de 0,24in por prêmio ignorava que prêmio
+       comprido quebra em 2 linhas numa coluna de 4,3in, e o corte entre as
+       colunas era por altura estimada errada (0,24 fixo) — a segunda metade
+       descia por cima do rodapé. Altura real por bloco, corte pelo meio
+       dessa altura, e fonte que desce se a coluna mais alta não couber. */
+    const alt = 5.15 - 0.95, largCol = 4.4;
+    const planeja = fs => {
+      const lh = alturaLinha(fs);
+      const blocos = s.animais.map(a => {
+        const premios = a.premios.map(pr => ({txt:pr, h: linhasTexto('🏆  ' + pr, largCol - 0.14 - MARGEM_TXT, fs) * lh}));
+        const nomeH = lh * 1.3;
+        return {nome:a.nome, nomeH, premios, h: nomeH + somaAlturas(premios.map(x => x.h)) + lh * 0.35};
+      });
+      return {blocos, total: somaAlturas(blocos.map(b => b.h))};
+    };
+    const reparte = plano => {
+      const meta = plano.total / 2, cols = [[], []];
+      let acc = 0;
+      plano.blocos.forEach(b => { if (acc < meta) { cols[0].push(b); acc += b.h; } else cols[1].push(b); });
+      return cols;
+    };
+    const maiorCol = cols => Math.max(...cols.map(c => somaAlturas(c.map(b => b.h))));
+    let fs = 10, plano = planeja(fs), cols = reparte(plano);
+    while (fs > 6 && maiorCol(cols) > alt) { fs -= 0.5; plano = planeja(fs); cols = reparte(plano); }
+    cols.forEach((lista, k) => {
       let y = 0.95;
-      lista.forEach(a => {
-        T(a.nome, {x:0.41 + k * 4.7, y, w:4.4, h:0.24, fontSize:10, bold:true, color:C.amber});
-        y += 0.26;
-        a.premios.forEach(pr => {
-          T('🏆  ' + pr, {x:0.55 + k * 4.7, y, w:4.3, h:0.24, fontSize:9, color:C.ink});
-          y += 0.24;
+      lista.forEach(b => {
+        T(b.nome, {x:0.41 + k * 4.7, y, w:largCol, h:b.nomeH, fontSize:fs + 1, bold:true, color:C.amber, valign:'top'});
+        y += b.nomeH;
+        b.premios.forEach(pr => {
+          T('🏆  ' + pr.txt, {x:0.55 + k * 4.7, y, w:largCol - 0.14, h:pr.h, fontSize:fs, color:C.ink, valign:'top'});
+          y += pr.h;
         });
-        y += 0.08;
+        y += alturaLinha(fs) * 0.35;
       });
     });
     return;
@@ -869,7 +982,7 @@ function pptSlide(p, s, i, logo, imgs){
       {text:m, options:{align:'left', bold:true, color:C.amber}},
       {text:t, options:{align:'left', color:C.ink}},
     ]));
-    tbl(rows, {colW:[0.9, 8.3], rowH:Math.min(0.6, 4.1 / rows.length), fontSize:8.5, valign:'top'});
+    tbl(rows, {colW:[0.9, 8.3], fontSize:8.5, valign:'top'});
     return;
   }
   if (s.t === 'fotos'){
@@ -908,6 +1021,7 @@ document.getElementById('prev').onclick = () => go(idx - 1);
 document.getElementById('next').onclick = () => go(idx + 1);
 document.getElementById('ir').onchange = e => go(+e.target.value);
 document.getElementById('play').onclick = play;
+document.getElementById('pdf').onclick = exportarPdf;
 document.getElementById('pptx').onclick = e => exportarPptx(e.currentTarget);
 
 document.getElementById('editar').onclick = () => abreEditor(slides[idx]);

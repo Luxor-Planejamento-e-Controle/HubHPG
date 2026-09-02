@@ -68,6 +68,28 @@ body.play .bar{display:none}
 body.play .stage{padding:0;background:#000}
 body.play .slide{box-shadow:none;border:0}
 
+/* ---- impressão / PDF ----
+   Uma página por slide, do tamanho EXATO do slide: 1280×720px a 96dpi =
+   13,333×7,5in, igual ao @page — sem escala nem margem, o PDF sai com o
+   mesmo desenho da tela. O container fica oculto fora da impressão; quem
+   monta e limpa ele é exportarPdf() em deck.js.
+   print-color-adjust:exact é obrigatório: sem ele o navegador descarta o
+   fundo azul e o deck sai branco. */
+#impressao{display:none}
+@media print{
+  @page{size:13.333in 7.5in;margin:0}
+  html,body{overflow:visible;height:auto}
+  body.imprimindo .stage,body.imprimindo .bar{display:none!important}
+  body.imprimindo #impressao{display:block}
+  body.imprimindo #impressao .slide{
+    position:relative;top:auto;left:auto;transform:none!important;
+    width:1280px;height:720px;border:0;box-shadow:none;
+    break-inside:avoid;break-after:page;page-break-after:always;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+  }
+  body.imprimindo #impressao .slide:last-child{break-after:auto;page-break-after:auto}
+}
+
 /* ---- elementos comuns do slide ---- */
 .s-head{position:absolute;left:52px;right:52px;top:20px}
 .s-head h1{margin:0;font-size:26px;font-weight:600;letter-spacing:.01em;color:var(--ink)}
