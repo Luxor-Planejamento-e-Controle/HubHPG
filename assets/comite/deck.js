@@ -672,7 +672,10 @@ document.addEventListener('fullscreenchange', () => { if (!document.fullscreenEl
    qualquer zoom) e as fotos vão embutidas, que é o que já vem no spec.
    1280×720px a 96dpi = 13,333×7,5in, exatamente o @page — uma página por
    slide, sem escala e sem margem, então o PDF sai igual ao deck na tela.
-   Vale pro que está sendo visto: mês e modo (mensal/trimestral) atuais. */
+   Vale pro que está sendo visto: mês e modo (mensal/trimestral) atuais.
+   No hub o deck roda dentro de um iframe, e print() chamado DE DENTRO do
+   frame imprime só o frame (Chrome/Edge/Firefox) — é por isso que a chamada
+   fica aqui e não no window.parent, que imprimiria a página do hub. */
 function exportarPdf(){
   let caixa = document.getElementById('impressao');
   if (!caixa) {
