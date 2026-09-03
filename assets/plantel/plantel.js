@@ -17,7 +17,8 @@
 'use strict';
 
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const CLASSES_MOV = ['compra', 'embriao', 'venda', 'morte', 'doacao', 'reavaliacao', 'renome', 'sem_efeito'];
+const CLASSES_MOV = ['compra', 'embriao', 'venda', 'morte', 'doacao', 'reavaliacao',
+                     'titularidade', 'renome', 'sem_efeito'];
 const ATRIB = {hpg: 'Carla', eduardo: 'Eduardo', nenhum: 'nenhum'};
 
 /* As colunas são localizadas pelo RÓTULO do cabeçalho, não por índice fixo: a
@@ -175,9 +176,15 @@ function aplicaAtribuicaoDoMapa(d, mes){
 }
 
 /* Dono do animal NAQUELE mês: o próprio mês, senão herda do mês anterior mais
-   próximo que tenha atribuição. */
+   próximo que tenha atribuição. Não havendo nenhum mapa ANTES, vale o mapa mais
+   antigo que conheça o animal — dez/25 é base e não tem mapa, e adivinhar por
+   sufixo ali fabricava troca de dono em janeiro: R$ 220 mil saíam do saldo da
+   Carla em jan/26 como se o animal tivesse sido transferido, quando o mapa de
+   janeiro só estava dizendo o que já era verdade em dezembro. Mapa manda em
+   qualquer direção; sufixo é o último recurso. */
 function donoDe(mes, k){
-  const meses = Object.keys(ST.atrib).filter(m => m <= mes).sort().reverse();
+  const meses = Object.keys(ST.atrib).sort();
+  for (const m of meses.filter(m => m <= mes).reverse()) if (k in ST.atrib[m]) return ST.atrib[m][k];
   for (const m of meses) if (k in ST.atrib[m]) return ST.atrib[m][k];
   return k in ST.inferido ? ST.inferido[k] : null;
 }
@@ -399,8 +406,9 @@ function movimentacaoDoMes(mes){
       mudou_status: mudouStatus ? [a[ixa.status], b[ixb.status]] : null,
       mudou_local: mudouLocal ? [a[ixa.local], b[ixb.local]] : null,
       log: itensLog, posterior,
-      sugestao: sugere({q0, q1, v0, v1, ren, entrou: !a, saiu: !b, status: stB || stA,
-                        categoria: norm(linha[ixL.categoria]), itensLog}),
+      sugestao: sugere({q0, q1, v0, v1, p0, p1, ren, entrou: !a, saiu: !b, status: stB || stA,
+                        categoria: norm(linha[ixL.categoria]), itensLog,
+                        mudouDono: donoAnt !== dono}),
       no_escopo: noEscopo(linha),
     });
   }
@@ -408,11 +416,24 @@ function movimentacaoDoMes(mes){
   return {movs, log, renomes};
 }
 
-/* sugestão pelo padrão — só sugestão; o registro é o input de quem fecha */
-function sugere({q0, q1, v0, v1, ren, entrou, saiu, status, categoria, itensLog}){
+/* sugestão pelo padrão — só sugestão; o registro é o input de quem fecha.
+   Dinheiro manda na ordem: renome é tipo 1-Nome e não move saldo, então só
+   ganha a sugestão quando o patrimônio ficou igual. E patrimônio é
+   cota × valor + comissão — olhar só cota e valor deixava mudança de comissão
+   como 'sem_efeito'. Juntas, as duas falhas jogavam R$ 241 mil de janeiro/26
+   em causas que o resumo não tem linha pra mostrar. */
+function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, itensLog, mudouDono}){
   const st = status || '', cat = categoria || '';
   const oc = norm((itensLog || []).map(x => x.ocorrencia).join(' '));
-  if (ren) return 'renome';
+  const mexeu = Math.abs((p1 || 0) - (p0 || 0)) >= 0.01;
+  /* Sai do saldo da Carla sem venda: o animal continua o mesmo, com a mesma
+     cota e o mesmo valor, e só a titularidade mudou. É dinheiro e precisa de
+     linha própria — em jan/26 são R$ 220 mil de 8 animais que o mapa de
+     dez/25 conta como dela e o de jan/26 não. Vem ANTES do renome: quem
+     trocou de nome e de dono no mesmo mês tinha o dinheiro engolido pela
+     sugestão 'renome', que não tem linha no resumo (R$ 24 mil em jan/26). */
+  if (mudouDono && !mexeu) return 'titularidade';
+  if (ren && !mexeu) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
   if (saiu || (q0 && !q1)) {
     if (/MORREU|OBITO|ABORTOU/.test(oc) || /OBITO/.test(st)) return 'morte';
@@ -421,7 +442,7 @@ function sugere({q0, q1, v0, v1, ren, entrou, saiu, status, categoria, itensLog}
   }
   if (q1 > q0) return 'compra';
   if (q1 < q0) return /MORREU|OBITO/.test(oc) ? 'morte' : /DOAD/.test(oc) ? 'doacao' : 'venda';
-  if (v1 !== v0) return 'reavaliacao';
+  if (mexeu || v1 !== v0) return 'reavaliacao';
   return 'sem_efeito';
 }
 
@@ -433,6 +454,7 @@ const LINHAS_RESUMO = [
   ['(−) Baixa vendas', ['venda']],
   ['(−) Baixa mortes e doações', ['morte', 'doacao']],
   ['(+/−) Reavaliações', ['reavaliacao']],
+  ['(+/−) Mudança de titularidade', ['titularidade']],
   ['Saldo final', null],
 ];
 
@@ -862,6 +884,14 @@ function subChecks(){
     ['Valor inicial + movimentações = valor final (Carla + Eduardo)', iniCE + movCE, fimCE],
     ['Movimentação registrada = movimentação apurada (Carla)', movRegistrado, movC],
   ];
+  /* Dinheiro que cai numa causa sem linha no resumo (renome, sem efeito) não
+     aparece em lugar nenhum: o saldo final muda e nenhuma linha explica. */
+  const causasDoResumo = new Set(LINHAS_RESUMO.flatMap(([, cs]) => cs || []));
+  const movEmCausa = (mv ? mv.movs : []).reduce((s, m) => {
+    const dec = ST.decisoes[`${ST.mes}|${m.chave}`];
+    return s + (causasDoResumo.has(dec ? dec.classe : m.sugestao) ? (m.delta_carla || 0) : 0);
+  }, 0);
+  linhas.push(['Causas do resumo = movimentação apurada (Carla)', movEmCausa, movC]);
   // confronto com o que foi divulgado. Vem junto com o mês (aba Resumo Contabil
   // do mapa) porque é o número que valeu, e não se reproduz de trás pra frente:
   // em jan/26 a coluna PLANTEL HPG do mapa soma R$ 391 mil menos que o Resumo
