@@ -501,7 +501,16 @@ function topo(){
       </label>
       <span id="statusImp"></span>
     </div>`;
-  document.getElementById('selMes').onchange = e => { ST.mes = e.target.value; ST.ordem = {col: null, dir: 1}; ST.filtros = {}; pinta(); };
+  document.getElementById('selMes').onchange = e => {
+    ST.mes = e.target.value;
+    /* Filtro e ordenação são por coluna DAQUELE mês, então trocar de mês limpa
+       os dois — mas mantendo a forma {plantel, mov}. Zerando pra {} e {col,dir}
+       todo render seguinte morria em Object.entries(undefined), e a tela ficava
+       congelada no mês anterior. */
+    ST.ordem = {plantel: {col: null, dir: 1}, mov: {col: null, dir: 1}};
+    ST.filtros = {plantel: {}, mov: {}};
+    pinta();
+  };
   document.getElementById('arq').onchange = importa;
 }
 
