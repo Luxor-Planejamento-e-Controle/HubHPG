@@ -23,7 +23,15 @@
   # acabou de dar checkout dele: sempre vazio, sempre "sem mudanca", cancela
   # build calado pra sempre depois do primeiro deploy manual via CLI (que nao
   # registra commit_ref). Guarda explicita: sem CACHED_COMMIT_REF, forca build.
-  ignore = "[ -z \"$CACHED_COMMIT_REF\" ] && exit 1; git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)tools' ':(exclude)scripts' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes' ':(exclude)PGSemanal.py'"
+  #
+  # Mesma blindagem posta no LuxorP&CHub em 03/09/2026, onde este formato deixou
+  # o site 3 dias servindo versão velha, cancelando TODO build em "checking build
+  # content for changes": sem deploy de git bem-sucedido pra servir de cache (o
+  # último tinha sido manual, sem commit_ref), a Netlify passa CACHED_COMMIT_REF
+  # IGUAL a COMMIT_REF, e o diff de um commit contra ele mesmo é vazio — lido
+  # como "nada mudou". Refs iguais BUILDAM: repetir commit só acontece quando a
+  # tentativa anterior não publicou. Idem se o ref cacheado não está no clone.
+  ignore = "if [ -z \"$CACHED_COMMIT_REF\" ] || [ \"$CACHED_COMMIT_REF\" = \"$COMMIT_REF\" ]; then exit 1; fi; git cat-file -e \"$CACHED_COMMIT_REF^{commit}\" 2>/dev/null || exit 1; git diff --quiet \"$CACHED_COMMIT_REF\" \"$COMMIT_REF\" -- . ':(exclude)tools' ':(exclude)scripts' ':(exclude)docs' ':(exclude)sql' ':(exclude)*.md' ':(exclude).githooks' ':(exclude).gitignore' ':(exclude).gitattributes' ':(exclude)PGSemanal.py'"
 
 # Site interno: não indexar e não vazar referrer pra fora.
 [[headers]]
