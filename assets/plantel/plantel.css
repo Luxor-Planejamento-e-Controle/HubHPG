@@ -71,7 +71,8 @@ h3 .cont{display:inline-block;margin-left:6px;font-size:11px;background:var(--li
 .aviso{background:rgba(202,151,3,.1);border:1px solid rgba(202,151,3,.3);border-radius:9px;
   padding:12px 14px;font-size:12.5px;color:var(--ink-2)}
 .ok-vazio{color:var(--pos);font-size:13px;padding:10px 0}
-.tag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-radius:20px;padding:2px 9px;border:1px solid}
+.tag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-radius:20px;padding:2px 9px;
+  border:1px solid var(--line);color:var(--ink-2)}
 .tag.ok{border-color:rgba(76,195,138,.5);color:var(--pos)}
 .tag.ruim{border-color:rgba(240,122,122,.5);color:var(--neg)}
 

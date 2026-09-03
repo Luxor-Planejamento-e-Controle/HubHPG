@@ -19,6 +19,11 @@
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const CLASSES_MOV = ['compra', 'embriao', 'venda', 'morte', 'doacao', 'reavaliacao',
                      'titularidade', 'renome', 'sem_efeito'];
+/* Mesmo corte do banco (plantel_mes_fechado): mês fechado não recebe registro.
+   O RLS já recusava, mas calado — a tela oferecia o select e o erro só aparecia
+   depois de escolher. */
+const FECHADO_ATE = '2026-07';
+const mesFechado = m => !!m && m <= FECHADO_ATE;
 const ATRIB = {hpg: 'Carla', eduardo: 'Eduardo', nenhum: 'nenhum'};
 
 /* As colunas são localizadas pelo RÓTULO do cabeçalho, não por índice fixo: a
@@ -791,8 +796,9 @@ function subMovimentacoes(){
 function linhaMov(m){
   const dec = ST.decisoes[`${ST.mes}|${m.chave}`];
   const classe = dec ? dec.classe : null;
+  const trancado = mesFechado(ST.mes);
   const celReg = `<td class="l">
-      <select data-reg="${esc(m.chave)}">
+      <select data-reg="${esc(m.chave)}"${trancado ? ' disabled title="mês fechado"' : ''}>
         <option value="">— registrar —</option>
         ${CLASSES_MOV.map(c => `<option value="${c}"${classe === c ? ' selected' : ''}>${c}${
           !classe && c === m.sugestao ? ' (sugerido)' : ''}</option>`).join('')}
@@ -882,8 +888,11 @@ function subChecks(){
   const linhas = [
     ['Valor inicial + movimentações = valor final (Carla)', iniC + movC, fimC],
     ['Valor inicial + movimentações = valor final (Carla + Eduardo)', iniCE + movCE, fimCE],
-    ['Movimentação registrada = movimentação apurada (Carla)', movRegistrado, movC],
   ];
+  // mês fechado nunca passou pelo registro manual: cobrar isso ali é acusar erro
+  // onde não há. O par só entra como check no mês aberto.
+  if (!mesFechado(ST.mes)) linhas.push(
+    ['Movimentação registrada = movimentação apurada (Carla)', movRegistrado, movC]);
   /* Dinheiro que cai numa causa sem linha no resumo (renome, sem efeito) não
      aparece em lugar nenhum: o saldo final muda e nenhuma linha explica. */
   const causasDoResumo = new Set(LINHAS_RESUMO.flatMap(([, cs]) => cs || []));
@@ -892,10 +901,15 @@ function subChecks(){
     return s + (causasDoResumo.has(dec ? dec.classe : m.sugestao) ? (m.delta_carla || 0) : 0);
   }, 0);
   linhas.push(['Causas do resumo = movimentação apurada (Carla)', movEmCausa, movC]);
-  // confronto com o que foi divulgado. Vem junto com o mês (aba Resumo Contabil
-  // do mapa) porque é o número que valeu, e não se reproduz de trás pra frente:
-  // em jan/26 a coluna PLANTEL HPG do mapa soma R$ 391 mil menos que o Resumo
-  // Contábil do mesmo mês — janeiro foi revisado depois daquele mapa.
+  /* Confronto com o que foi divulgado. Vem junto com o mês (aba Resumo Contabil
+     do mapa) porque é o número que valeu, e não se reproduz de trás pra frente.
+     De mar/26 a jul/26 bate em R$ 0. Os dois meses que não batem são da fonte:
+       jan/26  -257.425 = -8.925 (base dez/25) -244.000 (titularidade: 9 animais
+               que o mapa de dez/25 conta como da Carla e o de jan/26 não)
+               -9.000 (reavaliação) -3.000 (compra) +7.500 (embrião);
+       fev/26   -1.500 = OASIS DA PAO GRANDE, cuja ocorrência está datada
+               09/nov/2026 no arquivo de fevereiro e 09/fev/2026 no de março —
+               pela data do arquivo de fevereiro ela é posterior ao mês. */
   if (lib) {
     if (lib.saldo_fim != null) linhas.push(['Saldo final = Resumo Contábil divulgado', fimC, lib.saldo_fim]);
     if (lib.saldo_ini != null) linhas.push(['Saldo inicial = Resumo Contábil divulgado', iniC, lib.saldo_ini]);
@@ -914,7 +928,8 @@ function subChecks(){
     }).join('')}
     <tr><td class="l">Movimentações registradas</td><td>${regs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length}</td>
       <td>${regs.length}</td><td></td>
-      <td class="l">${regs.every(m => ST.decisoes[`${ST.mes}|${m.chave}`]) && regs.length
+      <td class="l">${mesFechado(ST.mes) ? '<span class="tag">mês fechado</span>'
+        : regs.every(m => ST.decisoes[`${ST.mes}|${m.chave}`]) && regs.length
         ? '<span class="tag ok">mês completo</span>' : '<span class="tag ruim">falta registrar</span>'}</td></tr>
     </tbody></table></div>`;
 }
