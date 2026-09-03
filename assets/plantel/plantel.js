@@ -259,13 +259,18 @@ function linhasEfetivas(mes){
   });
 }
 
-const patrMes = (mes, escopo) => {
+/* Cada linha efetiva pode vir do mês anterior, e o layout de colunas muda de
+   arquivo pra arquivo — então a linha anda junto com o seu ix. */
+function linhasEfetivasIx(mes){
   const d = ST.meses[mes];
-  if (!d) return 0;
+  if (!d) return [];
   const ant = ST.meses[mesAnterior(mes)];
-  return linhasEfetivas(mes).reduce((s, l, i) =>
-    s + patr(l, escopo, l === d.linhas[i] ? d.ix : (ant ? ant.ix : d.ix), mes), 0);
-};
+  return linhasEfetivas(mes).map((l, i) =>
+    ({l, ix: l === d.linhas[i] ? d.ix : (ant ? ant.ix : d.ix)}));
+}
+
+const patrMes = (mes, escopo) =>
+  linhasEfetivasIx(mes).reduce((s, par) => s + patr(par.l, escopo, par.ix, mes), 0);
 
 /* ================= movimentação do mês ================= */
 const RX_ESTAVA = /ESTAVA (?:COMO )?"?(.+?)"?(?=\s+-\s+(?:MUDOU|TINHA|FOI|PASSOU|ADICAO|ERA|E\s)|\s+PASSOU\s|$)/;
@@ -306,8 +311,10 @@ function movimentacaoDoMes(mes){
 
   // pontes de identidade: nome antigo -> chave nova (só quando a antiga sumiu)
   const idxAnt = {}, idxAtual = {};
-  if (ant) for (const l of ant.linhas) idxAnt[norm(l[ixA.nome])] = chaveCom(l, ixA);
-  for (const l of linhasEfetivas(mes)) idxAtual[norm(l[ix.nome])] = chaveCom(l, ix);
+  const efetAnt = ant ? linhasEfetivasIx(mesAnterior(mes)) : [];
+  const efet = linhasEfetivasIx(mes);
+  for (const par of efetAnt) idxAnt[norm(par.l[par.ix.nome])] = chaveCom(par.l, par.ix);
+  for (const par of efet) idxAtual[norm(par.l[par.ix.nome])] = chaveCom(par.l, par.ix);
   const achaNome = (nome, idx) => {
     if (idx[nome]) return idx[nome];
     if (nome.length < 25) return null;
@@ -336,34 +343,40 @@ function movimentacaoDoMes(mes){
   const ponteInv = {};
   for (const [kOld, kNew] of Object.entries(ponte)) ponteInv[kNew] = kOld;
 
-  const mapa = (ls, ixL) => {
+  /* A abertura sai das linhas EFETIVAS do mês anterior, não do arquivo cru: o
+     fechamento de fevereiro já trazia ocorrência de março (OASIS DA PAO GRANDE,
+     cota 37,5% -> 42,5%), então o estoque de fevereiro valia a linha de janeiro
+     enquanto a abertura de março valia a de fevereiro — R$ 1.500 de fluxo que
+     nunca aparecia em movimentação nenhuma. */
+  const mapa = (pares) => {
     const o = {};
-    for (const l of ls) { const k = chaveCom(l, ixL); o[ponte[k] || k] = l; }
+    for (const par of pares) { const k = chaveCom(par.l, par.ix); o[ponte[k] || k] = par; }
     return o;
   };
-  const A = ant ? mapa(ant.linhas, ixA) : {};
-  const efet = linhasEfetivas(mes);
-  const B = mapa(efet, ix);
+  const A = ant ? mapa(efetAnt) : {};
+  const B = mapa(efet);
 
   const movs = [];
   for (const k of new Set([...Object.keys(A), ...Object.keys(B)])) {
-    const a = A[k], b = B[k];
-    const q0 = a ? num(a[ixA.cota]) : 0, q1 = b ? num(b[ix.cota]) : 0;
-    const v0 = a ? num(a[ixA.valor]) : 0, v1 = b ? num(b[ix.valor]) : 0;
+    const pa = A[k], pb = B[k];
+    const a = pa ? pa.l : null, b = pb ? pb.l : null;
+    const ixa = pa ? pa.ix : ixA, ixb = pb ? pb.ix : ix;
+    const q0 = a ? num(a[ixa.cota]) : 0, q1 = b ? num(b[ixb.cota]) : 0;
+    const v0 = a ? num(a[ixa.valor]) : 0, v1 = b ? num(b[ixb.valor]) : 0;
     // patrimônio na MESMA régua do resumo: cota × valor + comissão
-    const p0 = a ? q0 * v0 + num(a[ixA.comissao]) : 0;
-    const p1 = b ? q1 * v1 + num(b[ix.comissao]) : 0;
-    const nomeAtual = b ? norm(b[ix.nome]) : (a ? norm(a[ixA.nome]) : '');
+    const p0 = a ? q0 * v0 + num(a[ixa.comissao]) : 0;
+    const p1 = b ? q1 * v1 + num(b[ixb.comissao]) : 0;
+    const nomeAtual = b ? norm(b[ixb.nome]) : (a ? norm(a[ixa.nome]) : '');
     const posterior = posteriores[nomeAtual] || null;
     const ren = renomes.find(r => r.chave === k);
-    const stA = a ? norm(a[ixA.status]) : '', stB = b ? norm(b[ix.status]) : '';
-    const loA = a ? norm(a[ixA.local]) : '', loB = b ? norm(b[ix.local]) : '';
+    const stA = a ? norm(a[ixa.status]) : '', stB = b ? norm(b[ixb.status]) : '';
+    const loA = a ? norm(a[ixa.local]) : '', loB = b ? norm(b[ixb.local]) : '';
     const mudouStatus = a && b && stA !== stB;
     const mudouLocal = a && b && loA !== loB;
     const trocouDono = ant && donoDe(mesAnterior(mes), ponteInv[k] || k) !== donoDe(mes, k);
     if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && !trocouDono && a && b) continue;
 
-    const linha = b || a, ixL = b ? ix : ixA;
+    const linha = b || a, ixL = b ? ixb : ixa;
     const dono = donoDe(mes, k);
     const kAnt = ponteInv[k] || k;
     const donoAnt = ant ? donoDe(mesAnterior(mes), kAnt) : dono;
@@ -383,8 +396,8 @@ function movimentacaoDoMes(mes){
       entrou: !a, saiu: !b, renome: ren || null,
       dono_ant: donoAnt, delta_carla: deltaCarla, delta_ce: deltaCE,
       mudou_dono: donoAnt !== dono ? [donoAnt, dono] : null,
-      mudou_status: mudouStatus ? [a[ixA.status], b[ix.status]] : null,
-      mudou_local: mudouLocal ? [a[ixA.local], b[ix.local]] : null,
+      mudou_status: mudouStatus ? [a[ixa.status], b[ixb.status]] : null,
+      mudou_local: mudouLocal ? [a[ixa.local], b[ixb.local]] : null,
       log: itensLog, posterior,
       sugestao: sugere({q0, q1, v0, v1, ren, entrou: !a, saiu: !b, status: stB || stA,
                         categoria: norm(linha[ixL.categoria]), itensLog}),
