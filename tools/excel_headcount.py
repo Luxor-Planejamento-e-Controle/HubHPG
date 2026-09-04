@@ -171,12 +171,14 @@ def monta(fim: date) -> Workbook:
 
     so_nossa = sorted(set(nossa) - set(deles))
     so_deles = sorted(set(deles) - set(nossa))
+    # nomes das variáveis longe de `n`, que é o total contado usado no RESUMO —
+    # sombrear ele fazia o print final dizer o nome de um animal no lugar do total
     for k in so_nossa:
-        n, loc, st = nossa[k]
-        wd.append(["só na NOSSA", n, loc, st, _parceiro(k, deles) or ""])
+        nm, loc, st = nossa[k]
+        wd.append(["só na NOSSA", nm, loc, st, _parceiro(k, deles) or ""])
     for k in so_deles:
-        n, loc, st = deles[k]
-        wd.append(["só na do HARAS", n, loc, st, _parceiro(k, nossa) or ""])
+        nm, loc, st = deles[k]
+        wd.append(["só na do HARAS", nm, loc, st, _parceiro(k, nossa) or ""])
     _larguras(wd, [16, 52, 28, 20, 46])
     print(f"diff x haras: nossa {len(nossa)} x deles {len(deles)} "
           f"| só nossa {len(so_nossa)} | só deles {len(so_deles)}")
