@@ -179,9 +179,24 @@ def monta(fim: date) -> Workbook:
     for k in so_deles:
         nm, loc, st = deles[k]
         wd.append(["só na do HARAS", nm, loc, st, _parceiro(k, nossa) or ""])
-    _larguras(wd, [16, 52, 28, 20, 46])
+    # LOCAL divergente: o animal está nas DUAS listas, e o total geral fecha, mas a
+    # divisão por local não. Em 04/09/2026 era o caso inteiro da diferença
+    # 90/42/51 contra 88/43/52 — quatro animais, nenhum bicho a mais ou a menos.
+    wd.append([])
+    wd.append(["LOCAL DIVERGENTE (está nas duas listas)", "", "nosso", "deles", ""])
+    for c in wd[wd.max_row]:
+        c.font = Font(bold=True)
+    divergentes = 0
+    for k in sorted(set(nossa) & set(deles)):
+        nosso_loc, deles_loc = R._norm(nossa[k][1]), R._norm(deles[k][1])
+        if nosso_loc == deles_loc:
+            continue
+        divergentes += 1
+        wd.append(["LOCAL x", nossa[k][0], nossa[k][1], deles[k][1], ""])
+    _larguras(wd, [16, 52, 28, 24, 46])
     print(f"diff x haras: nossa {len(nossa)} x deles {len(deles)} "
-          f"| só nossa {len(so_nossa)} | só deles {len(so_deles)}")
+          f"| só nossa {len(so_nossa)} | só deles {len(so_deles)} "
+          f"| LOCAL divergente {divergentes}")
 
     print(f"contados: {n}  (animais {animais} + receptoras {recept})")
     print("por bucket:", por_bucket)
