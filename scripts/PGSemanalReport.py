@@ -1375,6 +1375,19 @@ def _embrioes_sociedade_pendentes() -> list:
     return out
 
 
+def _fora_linha(acc: list, r, L, motivo: str):
+    """Linha que o roster descartou, com o motivo. Serve pra auditar a contagem
+    (ver tools/excel_headcount.py) sem reescrever os filtros em outro lugar — regra
+    duplicada é regra que sai de sincronia."""
+    acc.append({
+        "nome": _s(r[L["nome"]]), "categoria": _s(r[L["categoria"]]),
+        "status": _s(r[L["status"]]), "local": _s(r[L["local"]]),
+        "cota": r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None,
+        "condicao": _s(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else None,
+        "obs": _s(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else None,
+        "motivo": motivo})
+
+
 def _plantel_por_status() -> dict:
     """Roster do plantel a partir do CONTROLE_DE_PLANTEL mensal, na pasta PLANTEL.
 
@@ -1389,7 +1402,7 @@ def _plantel_por_status() -> dict:
     wb = _load(src)
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
-    vistos, linhas = {}, []
+    vistos, linhas, descartadas = {}, [], []
     fora = {"status": 0, "categoria": 0, "duplicado": 0}
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < L["linha1"] or r[L["nome"]] is None:
@@ -1399,10 +1412,12 @@ def _plantel_por_status() -> dict:
             continue
         if _norm(r[L["status"]]) not in STATUS_NO_PLANTEL:
             fora["status"] += 1
+            _fora_linha(descartadas, r, L, "status fora do plantel")
             continue
         categoria = _norm(r[L["categoria"]])
         if categoria in CATEGORIAS_FORA_DO_HEADCOUNT:
             fora["categoria"] += 1
+            _fora_linha(descartadas, r, L, "embrião/receptora (conta em outra lista)")
             continue
         # Saiu do haras E a PG não tem cota nenhuma: acabou. Uma coisa só não basta —
         # animal no sócio segue no plantel enquanto a PG tem parte dele (29 estão
@@ -1417,6 +1432,7 @@ def _plantel_por_status() -> dict:
         if (condicao == CONDICAO_SAIU and (cota is None or not cota)
                 and _norm(r[L["status"]]) != "DOADO"):
             fora["saiu_sem_cota"] = fora.get("saiu_sem_cota", 0) + 1
+            _fora_linha(descartadas, r, L, "saiu do haras e sem cota")
             continue
         # REVERTIDO em 04/09/2026. Havia aqui uma exclusão de "compra não entregue"
         # baseada na OBS "o vendedor entregará", disparada pela ELEITA DA PAO
@@ -1430,6 +1446,7 @@ def _plantel_por_status() -> dict:
         chave = _chave_animal(nome, mae, pai)
         if chave in vistos:
             fora["duplicado"] += 1
+            _fora_linha(descartadas, r, L, "linha repetida por cotista")
             continue
         # o nome sem cotista é o que vai para o roster: com o cotista, o mesmo animal
         # apareceria como saída de uma semana e entrada na outra ao mudar de sócio
@@ -1445,6 +1462,7 @@ def _plantel_por_status() -> dict:
           f"(fora: {fora['status']} por status, {fora['categoria']} embrião/receptora, "
           f"{fora['duplicado']} linha(s) repetida(s) por cotista{extra})")
     return {"roster": sorted(set(vistos.values())), "linhas": linhas,
+            "descartadas": descartadas,
             "fonte": src.name, "roster_fonte": ROSTER_FONTE}
 
 
