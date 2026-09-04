@@ -100,12 +100,30 @@ CONTROLE_MENSAL_DIR = RECEPTORAS_DIR
 HIST_HEADCOUNT = BASE_DIR / "_cache" / "headcount_history.json"
 HIST_SNAPSHOTS = BASE_DIR / "_cache" / "semanal_snapshots.json"
 
-SAFRA_ATUAL = "2026/2027"
-# Transicao de estacao 25/26 -> 26/27 encerrada em 31/08/2026: a safra nova ja
-# anda sozinha (primeira IA lancada), entao SAFRA_ATUAL virou 26/27 e a safra
-# 25/26 para de aparecer no relatorio. SAFRA_PROXIMA=None ate a proxima virada
-# comecar a ser anunciada — com None, o card 'acumulado_estacao_proxima' some
-# sozinho (ver skip em PGSemanalDashboard.py) em vez de nascer zerado.
+# Virada de estacao ANCORADA NA DATA da liberacao em que a safra nova passa a
+# valer: a interseason (as duas safras convivendo no relatorio) acaba na PRIMEIRA
+# liberacao de setembro — 04/09/2026, combinado com o Arthur nessa data. Era uma
+# constante editada a mao (mexida em 31/08/2026), o que fazia a safra do
+# relatorio depender de quando alguem editou este arquivo, e nao da semana que
+# esta sendo fechada.
+VIRADAS_DE_SAFRA = (
+    (date(2026, 9, 4), "2026/2027"),
+    (date(2025, 9, 5), "2025/2026"),
+)
+
+
+def safra_vigente(quando: date | None = None) -> str:
+    d = quando or date.today()
+    for inicio, safra in VIRADAS_DE_SAFRA:
+        if d >= inicio:
+            return safra
+    return VIRADAS_DE_SAFRA[-1][1]
+
+
+SAFRA_ATUAL = safra_vigente()
+# SAFRA_PROXIMA=None ate a proxima virada comecar a ser anunciada — com None, o
+# card 'acumulado_estacao_proxima' some sozinho (ver skip em
+# PGSemanalDashboard.py) em vez de nascer zerado.
 SAFRA_PROXIMA = None
 
 
@@ -2052,15 +2070,26 @@ def _compute_movimento(rep: Report):
             sai = [e for e in sai if _norm(e.get("animal")) not in pendentes_nomes]
         # união com as doações de MOVIMENTAÇÕES (ver _doacoes_do_mov): a aba
         # oficial não recebe esse lançamento, e sem isso a saída física fica de fora.
-        doacoes = [d for d in _doacoes_do_mov(ini, fim)
-                   if _norm(d["animal"]) not in {_norm(e.get("animal")) for e in sai}]
+        ja_na_aba = {_norm(e.get("animal")) for e in sai}
+        todas = [d for d in _doacoes_do_mov(date.fromisoformat(rep.semana_inicio),
+                                            date.fromisoformat(rep.semana_fim))
+                 if _norm(d["animal"]) not in ja_na_aba]
+        # Doação de quem JÁ estava fora da contagem não é saída desta semana: os 4
+        # animais em MATO GROSSO saíram do haras em 07/05/2026 ("SAIU DO HARAS - FOI
+        # PARA MATO GROSSO") e a doação de 31/08 só formalizou a titularidade —
+        # zerou cota e valor. Contá-los aqui punha 19 saídas numa semana de 15.
+        doacoes = [d for d in todas if d["afeta_headcount"]]
+        ja_fora = [d for d in todas if not d["afeta_headcount"]]
         if doacoes:
-            na_contagem = sum(1 for d in doacoes if d["afeta_headcount"])
             print(f"  [saídas] +{len(doacoes)} doação(ões) lançada(s) em MOVIMENTAÇÕES "
-                  f"e ausente(s) de SAIDAS-ENTRADAS ({na_contagem} dentro da contagem): "
-                  + "; ".join(f"{d['animal']} ({d['local_saida'] or 'sem local'})"
-                              for d in doacoes))
+                  f"e ausente(s) da aba SAIDAS-ENTRADAS: "
+                  + "; ".join(f"{d['animal']} ({d['local_saida']})" for d in doacoes))
             sai = sai + doacoes
+        if ja_fora:
+            print(f"  [saídas] {len(ja_fora)} doação(ões) de animal que já estava fora "
+                  f"da contagem, não contadas como saída da semana: "
+                  + "; ".join(f"{d['animal']} ({d['local_saida'] or 'sem local'})"
+                              for d in ja_fora))
         rep.saidas["saidas_semana"] = len(sai)
         rep.saidas["entradas_semana"] = len(ent)
         rep.saidas["fonte"] = "SAIDAS-ENTRADAS + MOVIMENTAÇÕES (doações)" if doacoes else "SAIDAS-ENTRADAS"
