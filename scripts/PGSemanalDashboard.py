@@ -358,9 +358,14 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   sexo_potro:"Sexo",nome_potro:"Potro",data_paricao:"Parição",data_aborto:"Aborto",data_obito:"Óbito",
   status:"Status",categoria:"Categoria",comprador:"Comprador / Sócio",nome:"Nome",cota:"Cota",
   tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)",
-  mae:"Mãe",pai:"Pai"};
+  mae:"Mãe",pai:"Pai",afeta_headcount:"Conta no Δ"};
+// `afeta_headcount` DEIXOU de ser interno: sem ela a tabela diz 'SAIDA-SOCIO'
+// para casos que se comportam ao contrário. Receptora que vai pro sócio SAI da
+// contagem (só conta em Pao Grande/Arrendamento), enquanto animal que vai pro
+// sócio troca de bucket e continua contado — e a classificação é a mesma nos
+// dois. A coluna resolve isso sem nota explicativa no painel.
 const HIDE=new Set(["key","confirmado","reposicao","origem","especie","chave",
-  "afeta_headcount","era_receptora_contada"]);   // internos, não exibir
+  "era_receptora_contada","trocou_de_bucket"]);   // internos, não exibir
 const DATECOLS=new Set(["data","data_ia","data_confirmacao","data_paricao","data_aborto","data_obito"]);
 const PCTCOLS=new Set(["cota","cotas_pg"]);
 function lab(c){ return LABELS[c] || c.replace(/_/g," "); }
@@ -384,7 +389,8 @@ function detTable(title, key, opts){
     // precisar de outra tabela — mesma marcação serve pro desktop (ignora
     // data-lab) e pro mobile (::before lê data-lab, ver @media max-width:680px)
     body=rows.map(r=>`<tr>${cols.map(c=>{let v=r[c];
-      if(DATECOLS.has(c))v=br(v);
+      if(c==="afeta_headcount")v=v?"sim":"não";
+      else if(DATECOLS.has(c))v=br(v);
       else if(PCTCOLS.has(c)&&v!=null&&v!=="")v=Math.round(Number(v)*100)+"%";
       return `<td data-lab="${lab(c)}">${v==null?"":v}</td>`;}).join("")}</tr>`).join("");
   }
