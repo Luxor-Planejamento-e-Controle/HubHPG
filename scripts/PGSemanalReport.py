@@ -2385,6 +2385,12 @@ def _acumulado_nunca_cai(rep: Report):
         rep.producao["acumulado_estacao_derivado"] = ac
         rep.producao["acumulado_estacao"] = ant
         ac = ant
+    if ant is not None and ac > ant:
+        # Subida de piso fica registrada: em 04/09/2026 o piso da safra 26/27 foi
+        # gravado como 2 numa rodada intermediária (fonte trocando de cópia no meio
+        # do fechamento) e passou a publicar 2 contra 1 da derivação e da liberação,
+        # sem nada no log explicando de onde vinha.
+        print(f"  [acumulado] piso da safra {SAFRA_ATUAL} subiu de {ant} para {ac}")
     if ant is None or ac > ant:
         piso[SAFRA_ATUAL] = ac
         ACUMULADO_PISO.parent.mkdir(parents=True, exist_ok=True)
