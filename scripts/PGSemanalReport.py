@@ -2014,6 +2014,24 @@ def _descreve_mov(nome: str, info_ant: dict, info_atual: dict) -> dict:
     }
 
 
+def _roster_congelado(semana: str) -> list:
+    """Roster da última semana congelada antes desta, RENORMALIZADO com as regras
+    de hoje.
+
+    O snapshot guarda o nome como a normalização daquele dia produziu. Quando a
+    regra muda, o mesmo animal parece outro: em 04/09/2026 a correção do cotista
+    no meio do nome transformou 'MACHO ... (CARLA) 17/08/2024 RECEP 46' em
+    'MACHO ... 17/08/2024 RECEP 46', e o diff leu isso como potro NOVO — virou
+    parição da safra e somou +1 no acumulado da estação, que o piso então travou
+    em 2 contra 1 divulgado. Renormalizar na leitura faz o diff comparar maçã
+    com maçã mesmo depois de mexer na normalização."""
+    hist = _load_hist()
+    for wid in sorted(hist, reverse=True):
+        if wid < semana and hist[wid].get("roster"):
+            return sorted({_sem_cotista(x) for x in hist[wid]["roster"]})
+    return []
+
+
 def _mapa_receptoras_anterior(semana: str) -> dict:
     """Mapa {receptora: local} da ultima semana congelada antes desta."""
     hist = _load_hist()
@@ -2150,7 +2168,7 @@ def _refina_afeta_headcount(rep: Report):
     hist = _load_hist()
     for wid in sorted(hist):
         if wid < rep.semana_atual and hist[wid].get("roster"):
-            roster_ant = {_norm(x) for x in hist[wid]["roster"]}
+            roster_ant = {_norm(x) for x in _roster_congelado(rep.semana_atual)}
 
     def _era_contado(nome: str) -> bool:
         n = _norm(_sem_cotista(nome))
@@ -2440,7 +2458,7 @@ def _paricoes_do_roster(rep: Report):
     prev = None
     for wid in sorted(hist):
         if wid < rep.semana_atual and hist[wid].get("roster"):
-            prev = hist[wid]["roster"]
+            prev = _roster_congelado(rep.semana_atual)
     reg = {}
     if PARICOES_EXTRA.exists():
         try:
@@ -2571,7 +2589,7 @@ def _conferir_delta(rep: Report):
     prev_roster = None
     for wid in sorted(hist):
         if wid < rep.semana_atual and hist[wid].get("roster"):
-            prev_roster = hist[wid]["roster"]
+            prev_roster = _roster_congelado(rep.semana_atual)
     # Fonte do roster mudou de uma semana para a outra? O diff não vale: o mensal
     # batiza o potro e o semanal o descrevia pelo cruzamento, então TODO potro
     # apareceria como uma saída mais uma entrada. Pular é o certo — inventar
