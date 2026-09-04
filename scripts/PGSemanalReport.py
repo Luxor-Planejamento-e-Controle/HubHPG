@@ -1066,51 +1066,6 @@ def _categorize_mov(obs: str):
     return None
 
 
-def _doacoes_do_mov(ini: date, fim: date) -> list:
-    """Doações lançadas em MOVIMENTAÇÕES na janela, uma por animal.
-
-    A aba SAIDAS-ENTRADAS é a fonte oficial de saída, mas não é a única fonte de
-    saída FÍSICA: doação sai do haras e o haras registra em MOVIMENTAÇÕES. Em
-    31/08/2026 entraram 14 linhas "DOADO PARA O MATO GROSSO - ZEROU A % E O
-    VALOR" (8 animais em SOCIO, ainda contados na semana anterior, e 4 já em
-    MATO GROSSO) sem UMA linha em SAIDAS-ENTRADAS. O headcount caiu 14, a aba
-    oficial dizia 7 saídas e a abertura do Δ dizia -4: três números diferentes
-    na mesma tela, nenhum deles errado isolado.
-
-    `afeta_headcount` sai do LOCAL do animal: quem já estava em MATO GROSSO nunca
-    entrou na contagem (regra de negócio de 31/07/2026), então sua doação não
-    pode aparecer como queda."""
-    wb = _load(_latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal"))
-    L = PLANTEL_LAYOUT_MENSAL
-    local_de = {}
-    for i, r in enumerate(wb["PLANTEL"].iter_rows(values_only=True), start=1):
-        if i < L["linha1"] or r[L["nome"]] is None:
-            continue
-        local_de.setdefault(_norm(_sem_cotista(_s(r[L["nome"]]))), _norm(r[L["local"]]))
-    vistos, out = set(), []
-    for i, r in enumerate(wb["MOVIMENTAÇÕES"].iter_rows(values_only=True), start=1):
-        if i < 3 or len(r) < 5 or r[2] is None or r[3] is None:
-            continue
-        obs = _norm(r[4])
-        if "DOADO" not in obs and "DOACAO" not in obs:
-            continue
-        d = _dt(r[3])
-        if not d or not (ini <= d <= fim):
-            continue
-        nome = _sem_cotista(_s(r[2]))
-        chave = _norm(nome)
-        if chave in vistos:
-            continue
-        vistos.add(chave)
-        local = local_de.get(chave, "")
-        out.append({"animal": nome, "classificacao": "SAIDA-DOACAO",
-                    "local_saida": local or None, "local_entrada": None,
-                    "data": d.isoformat(), "ocorrencia": _s(r[4]),
-                    "afeta_headcount": bool(local) and local in HEADCOUNT_BUCKETS})
-    wb.close()
-    return out
-
-
 # Aba SAIDAS-ENTRADAS do controle mensal (reunião 2026-07-31): fonte oficial de
 # saída/entrada. O haras começou a preencher em 12/08/2026.
 # Colunas: B animal, C local saída, D local entrada, E data, F classificação.
@@ -1320,11 +1275,18 @@ COL_MENSAL_OBS = 24
 #
 # Vendido conta: a venda foi fechada mas o animal não saiu da fazenda, e enquanto
 # não sai ele é headcount. O que tira da conta é a ENTREGA — por isso 'VENDIDO E
-# ENTREGUE' fica de fora, junto de DOADO, OBITO e DE TERCEIRO.
+# ENTREGUE' fica de fora, junto de OBITO e DE TERCEIRO.
+#
+# DOADO conta (corrigido em 04/09/2026). Doação troca a TITULARIDADE, não o lugar
+# onde o bicho está: das 14 doações de 31/08/2026 pro Mato Grosso, 8 continuam com
+# LOCAL='SOCIO' e a liberação da semana conta as 8 (sócios 61 = 53 PLANTEL + 8
+# DOADO). Quem de fato saiu já cai fora por outro caminho — LOCAL='MATO GROSSO',
+# que está em HEADCOUNT_LOCAIS_FORA. Excluir por DOADO tirava 8 animais que estão
+# aqui e punha o headcount 8 abaixo do divulgado.
 #
 # A comparação é EXATA, não por substring: 'VENDIDO' como pedaço de texto casaria
 # com 'VENDIDO E ENTREGUE' e traria de volta justamente quem já foi embora.
-STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA")
+STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA", "DOADO")
 # Categoria que não é animal do headcount: embrião não nasceu; receptora é contada
 # pela planilha de receptoras, e somar aqui duplicaria.
 CATEGORIAS_FORA_DO_HEADCOUNT = ("EMBRIAO", "RECEPTORA")
@@ -1434,20 +1396,20 @@ def _plantel_por_status() -> dict:
         # animal não é mais da casa nem está mais nela.
         cota = r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None
         condicao = _norm(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else ""
-        if condicao == CONDICAO_SAIU and (cota is None or not cota):
+        # DOADO fica de fora desta regra: foi a própria doação que zerou a cota
+        # ("DOADO PARA O MATO GROSSO - ZEROU A % E O VALOR"), e o animal segue no
+        # LOCAL de antes. Aplicar aqui derrubava 4 dos 8 doados em 31/08/2026.
+        if (condicao == CONDICAO_SAIU and (cota is None or not cota)
+                and _norm(r[L["status"]]) != "DOADO"):
             fora["saiu_sem_cota"] = fora.get("saiu_sem_cota", 0) + 1
             continue
-        # STATUS='VENDIDO' cobre dois sentidos opostos: venda NOSSA ainda não
-        # entregue (conta — animal continua aqui) e COMPRA ainda não entregue pelo
-        # vendedor (NÃO conta — animal ainda não chegou). Achado em 28/08/2026: a
-        # ELEITA tinha STATUS='VENDIDO' e entrava no headcount como se já estivesse
-        # na fazenda, mas a OBS diz "o vendedor entregará" — é compra, não saiu daqui
-        # coisa nenhuma porque nunca chegou. Único marcador vivo hoje é essa frase
-        # na OBS; se aparecer outro caso com texto diferente, ajustar aqui.
-        obs = _norm(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else ""
-        if _norm(r[L["status"]]) == "VENDIDO" and "VENDEDOR ENTREGARA" in obs:
-            fora["compra_nao_entregue"] = fora.get("compra_nao_entregue", 0) + 1
-            continue
+        # REVERTIDO em 04/09/2026. Havia aqui uma exclusão de "compra não entregue"
+        # baseada na OBS "o vendedor entregará", disparada pela ELEITA DA PAO
+        # GRANDE. Leitura errada: ELEITA é DA PAO GRANDE e o STATUS='VENDIDO' é
+        # venda NOSSA — o vendedor somos nós, o animal está na fazenda e sai da
+        # conta só quando for entregue (aí o status vira 'VENDIDO E ENTREGUE').
+        # Com a exclusão, FPG saía 88 contra 89 divulgados; sem ela, 71 animais +
+        # 18 receptoras = 89, exato.
         mae = _s(r[COL_MENSAL_MAE]) if len(r) > COL_MENSAL_MAE else None
         pai = _s(r[COL_MENSAL_PAI]) if len(r) > COL_MENSAL_PAI else None
         chave = _chave_animal(nome, mae, pai)
@@ -2068,31 +2030,14 @@ def _compute_movimento(rep: Report):
                   f"saiu de fato, fora da conta de saídas: "
                   + "; ".join(e["animal"] for e in sai_pendente))
             sai = [e for e in sai if _norm(e.get("animal")) not in pendentes_nomes]
-        # união com as doações de MOVIMENTAÇÕES (ver _doacoes_do_mov): a aba
-        # oficial não recebe esse lançamento, e sem isso a saída física fica de fora.
-        ja_na_aba = {_norm(e.get("animal")) for e in sai}
-        todas = [d for d in _doacoes_do_mov(date.fromisoformat(rep.semana_inicio),
-                                            date.fromisoformat(rep.semana_fim))
-                 if _norm(d["animal"]) not in ja_na_aba]
-        # Doação de quem JÁ estava fora da contagem não é saída desta semana: os 4
-        # animais em MATO GROSSO saíram do haras em 07/05/2026 ("SAIU DO HARAS - FOI
-        # PARA MATO GROSSO") e a doação de 31/08 só formalizou a titularidade —
-        # zerou cota e valor. Contá-los aqui punha 19 saídas numa semana de 15.
-        doacoes = [d for d in todas if d["afeta_headcount"]]
-        ja_fora = [d for d in todas if not d["afeta_headcount"]]
-        if doacoes:
-            print(f"  [saídas] +{len(doacoes)} doação(ões) lançada(s) em MOVIMENTAÇÕES "
-                  f"e ausente(s) da aba SAIDAS-ENTRADAS: "
-                  + "; ".join(f"{d['animal']} ({d['local_saida']})" for d in doacoes))
-            sai = sai + doacoes
-        if ja_fora:
-            print(f"  [saídas] {len(ja_fora)} doação(ões) de animal que já estava fora "
-                  f"da contagem, não contadas como saída da semana: "
-                  + "; ".join(f"{d['animal']} ({d['local_saida'] or 'sem local'})"
-                              for d in ja_fora))
+        # Doação NÃO é saída: em 31/08/2026 entrou um lote de 14 doações pro Mato
+        # Grosso e nenhum daqueles animais mudou de lugar — trocou a titularidade e
+        # zerou a cota, e 8 deles seguem com LOCAL='SOCIO', contados no headcount
+        # (ver STATUS_NO_PLANTEL). Contar como saída punha 15 saídas na semana onde
+        # a fonte oficial registra 7.
         rep.saidas["saidas_semana"] = len(sai)
         rep.saidas["entradas_semana"] = len(ent)
-        rep.saidas["fonte"] = "SAIDAS-ENTRADAS + MOVIMENTAÇÕES (doações)" if doacoes else "SAIDAS-ENTRADAS"
+        rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
         # O Δ do headcount só pode ser conferido contra quem entra/sai da CONTAGEM:
         # saída pro sócio deixa a fazenda e continua contada (ver CLASSIF_FORA_DO_DELTA).
         rep.saidas["saidas_no_headcount"] = sum(1 for x in sai if x.get("afeta_headcount"))
