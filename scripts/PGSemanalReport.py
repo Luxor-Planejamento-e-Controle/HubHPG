@@ -119,24 +119,35 @@ def _rotulo_safra(safra: str | None) -> str | None:
 BASES_DIR = BASE_DIR / "bases"
 JSON_OUT = BASES_DIR / "semanal_data.json"
 
-# Alvos do docx 17-07-26 (semana 03/07-17/07) — só pra validação em tela
-DOCX_1707 = {
-    "acumulado_estacao": 61,
-    "confirmados_semana": 2,
-    "nascimentos": 1,
-    "abortos_obitos": 1,
-    "receptoras_total": 63,
-    "receptoras_prenhas": 36,
-    "receptoras_vazias": 27,
-    "headcount_total": 206,
-    "headcount_fpg": 104,
-    "headcount_arr": 43,
-    "headcount_cte": 1,
-    "headcount_soc": 58,
-    "saidas_semana": 8,
-    "vendidos_pendentes": 2,
-    "sociedade_pendentes": 2,
-}
+# Alvo da validação em tela = a liberação do haras DAQUELA semana (o docx cuja
+# data de referência é o fim da janela). Era um dicionário fixo com os números
+# de 17-07-26, de quando aquele era o único relatório parseado: em 04/09/2026 a
+# tela cobrava headcount 206 e receptoras 63/36/27 de julho contra o cálculo de
+# setembro, e todo item aparecia divergente sem ter divergência nenhuma. Semana
+# ainda não liberada não tem alvo — melhor sem comparação do que comparando com
+# a semana errada.
+def _alvos(rep) -> dict:
+    w = (rep.docx_ref or {}).get(rep.semana_atual)
+    if not w:
+        return {}
+    pr, rc, hc, sa = (w.get(k) or {} for k in ("producao", "receptoras", "headcount", "saidas"))
+    return {
+        "acumulado_estacao": pr.get("acumulado_estacao"),
+        "confirmados_semana": pr.get("confirmados_semana"),
+        "nascimentos": pr.get("nascimentos"),
+        "abortos_obitos": pr.get("abortos_obitos"),
+        "receptoras_total": rc.get("total"),
+        "receptoras_prenhas": rc.get("prenhas"),
+        "receptoras_vazias": rc.get("vazias"),
+        "headcount_total": hc.get("total"),
+        "headcount_fpg": hc.get("fazenda_pg"),
+        "headcount_arr": hc.get("arrendamento"),
+        "headcount_cte": hc.get("cte"),
+        "headcount_soc": hc.get("socio"),
+        "saidas_semana": sa.get("saidas_semana"),
+        "vendidos_pendentes": sa.get("vendidos_pendentes"),
+        "sociedade_pendentes": sa.get("sociedade_pendentes"),
+    }
 
 
 # ------------------------------------------------------------------
@@ -2556,15 +2567,27 @@ def _load_docx_ref() -> dict:
     return out
 
 
+class _SemAlvo(dict):
+    """Sem liberação da semana, todo alvo é None e o _cmp não imprime comparação."""
+    def __getitem__(self, k):
+        return None
+    def get(self, k, d=None):
+        return None
+
+
 def _cmp(label, got, target):
     flag = "" if target is None else ("  OK" if got == target else f"  (docx: {target})")
     print(f"    {label:38} {got}{flag}")
 
 
 def print_report(rep: Report):
+    alvo = _alvos(rep)
+    DOCX_1707 = _SemAlvo() if not alvo else alvo
     print("=" * 66)
     print(f"ATUALIZAÇÃO SEMANAL — {rep.semana_inicio} a {rep.semana_fim}")
     print("=" * 66)
+    print("Comparando com: " + ("liberação do haras de "
+          + rep.semana_atual if alvo else "nada — o haras ainda não liberou esta semana"))
     print("Fontes:")
     for k, v in rep.fontes.items():
         print(f"    {k}: {v}")
