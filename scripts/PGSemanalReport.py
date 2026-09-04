@@ -1040,9 +1040,57 @@ def _categorize_mov(obs: str):
         return "TRANSFERENCIA"
     if "SAIU DO HARAS" in obs:
         return "SAIDA"
+    # Doação também é saída física, e não vem escrita como "SAIU DO HARAS".
+    if "DOADO" in obs or "DOACAO" in obs:
+        return "SAIDA"
     if "CHEGOU NO HARAS" in obs:
         return "ENTRADA"
     return None
+
+
+def _doacoes_do_mov(ini: date, fim: date) -> list:
+    """Doações lançadas em MOVIMENTAÇÕES na janela, uma por animal.
+
+    A aba SAIDAS-ENTRADAS é a fonte oficial de saída, mas não é a única fonte de
+    saída FÍSICA: doação sai do haras e o haras registra em MOVIMENTAÇÕES. Em
+    31/08/2026 entraram 14 linhas "DOADO PARA O MATO GROSSO - ZEROU A % E O
+    VALOR" (8 animais em SOCIO, ainda contados na semana anterior, e 4 já em
+    MATO GROSSO) sem UMA linha em SAIDAS-ENTRADAS. O headcount caiu 14, a aba
+    oficial dizia 7 saídas e a abertura do Δ dizia -4: três números diferentes
+    na mesma tela, nenhum deles errado isolado.
+
+    `afeta_headcount` sai do LOCAL do animal: quem já estava em MATO GROSSO nunca
+    entrou na contagem (regra de negócio de 31/07/2026), então sua doação não
+    pode aparecer como queda."""
+    wb = _load(_latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal"))
+    L = PLANTEL_LAYOUT_MENSAL
+    local_de = {}
+    for i, r in enumerate(wb["PLANTEL"].iter_rows(values_only=True), start=1):
+        if i < L["linha1"] or r[L["nome"]] is None:
+            continue
+        local_de.setdefault(_norm(_sem_cotista(_s(r[L["nome"]]))), _norm(r[L["local"]]))
+    vistos, out = set(), []
+    for i, r in enumerate(wb["MOVIMENTAÇÕES"].iter_rows(values_only=True), start=1):
+        if i < 3 or len(r) < 5 or r[2] is None or r[3] is None:
+            continue
+        obs = _norm(r[4])
+        if "DOADO" not in obs and "DOACAO" not in obs:
+            continue
+        d = _dt(r[3])
+        if not d or not (ini <= d <= fim):
+            continue
+        nome = _sem_cotista(_s(r[2]))
+        chave = _norm(nome)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        local = local_de.get(chave, "")
+        out.append({"animal": nome, "classificacao": "SAIDA-DOACAO",
+                    "local_saida": local or None, "local_entrada": None,
+                    "data": d.isoformat(), "ocorrencia": _s(r[4]),
+                    "afeta_headcount": bool(local) and local in HEADCOUNT_BUCKETS})
+    wb.close()
+    return out
 
 
 # Aba SAIDAS-ENTRADAS do controle mensal (reunião 2026-07-31): fonte oficial de
@@ -2002,9 +2050,20 @@ def _compute_movimento(rep: Report):
                   f"saiu de fato, fora da conta de saídas: "
                   + "; ".join(e["animal"] for e in sai_pendente))
             sai = [e for e in sai if _norm(e.get("animal")) not in pendentes_nomes]
+        # união com as doações de MOVIMENTAÇÕES (ver _doacoes_do_mov): a aba
+        # oficial não recebe esse lançamento, e sem isso a saída física fica de fora.
+        doacoes = [d for d in _doacoes_do_mov(ini, fim)
+                   if _norm(d["animal"]) not in {_norm(e.get("animal")) for e in sai}]
+        if doacoes:
+            na_contagem = sum(1 for d in doacoes if d["afeta_headcount"])
+            print(f"  [saídas] +{len(doacoes)} doação(ões) lançada(s) em MOVIMENTAÇÕES "
+                  f"e ausente(s) de SAIDAS-ENTRADAS ({na_contagem} dentro da contagem): "
+                  + "; ".join(f"{d['animal']} ({d['local_saida'] or 'sem local'})"
+                              for d in doacoes))
+            sai = sai + doacoes
         rep.saidas["saidas_semana"] = len(sai)
         rep.saidas["entradas_semana"] = len(ent)
-        rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
+        rep.saidas["fonte"] = "SAIDAS-ENTRADAS + MOVIMENTAÇÕES (doações)" if doacoes else "SAIDAS-ENTRADAS"
         # O Δ do headcount só pode ser conferido contra quem entra/sai da CONTAGEM:
         # saída pro sócio deixa a fazenda e continua contada (ver CLASSIF_FORA_DO_DELTA).
         rep.saidas["saidas_no_headcount"] = sum(1 for x in sai if x.get("afeta_headcount"))
