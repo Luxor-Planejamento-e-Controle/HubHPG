@@ -421,6 +421,27 @@ function movimentacaoDoMes(mes){
   return {movs, log, renomes};
 }
 
+/* Cancelamento DESFAZ um evento anterior, e a mesma palavra serve pros dois
+   sentidos: "VENDA CANCELADA" devolve cota pra Pao Grande, "COMPRA CANCELADA"
+   zera a cota de animal que nunca foi nosso. Sem ler isso, o aumento de cota de
+   uma venda cancelada era sugerido como 'compra' — evento que não houve.
+   As regras são as mesmas de scripts/_pg_cancelamentos.py (58 ocorrências reais
+   do controle de plantel); mexer em uma, mexer na outra. */
+const RX_CANCEL_TERCEIRO = /CANCEL\w*\s+A\s+COMPRA|COMPRA\s+DE\s+[\d,.]+%?\s+CANCEL/;
+const RX_CANCEL_COMPRA = /COMPRA\s+CANCELAD/;
+const RX_CANCEL_VENDA = /VENDA[^.]{0,80}?CANCELAD|CANCELAD\w*\s+A\s+VENDA|CANCELAMENTO\s+DE/;
+const RX_CANCEL_REVENDA = /CANCELAD\w*[^.]{0,40}?VENDID/;
+
+function cancelamento(oc){
+  const s = norm(oc);
+  if (!/CANCEL/.test(s)) return null;
+  if (RX_CANCEL_REVENDA.test(s)) return {tipo: 'venda', sentido: 'sai', revenda: true};
+  if (RX_CANCEL_TERCEIRO.test(s)) return {tipo: 'venda', sentido: 'volta'};
+  if (RX_CANCEL_COMPRA.test(s)) return {tipo: 'compra', sentido: 'sai'};
+  if (RX_CANCEL_VENDA.test(s)) return {tipo: 'venda', sentido: 'volta'};
+  return {tipo: null, sentido: null};
+}
+
 /* sugestão pelo padrão — só sugestão; o registro é o input de quem fecha.
    Dinheiro manda na ordem: renome é tipo 1-Nome e não move saldo, então só
    ganha a sugestão quando o patrimônio ficou igual. E patrimônio é
@@ -445,6 +466,14 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
     if (/DOAD|DOACAO/.test(oc)) return 'doacao';
     return 'venda';
   }
+  /* Cancelamento é ESTORNO: entra na MESMA causa do evento desfeito, com o sinal
+     invertido. Venda cancelada devolve cota, então é 'venda' com valor positivo —
+     as duas linhas se anulam no resumo, que é o que de fato aconteceu. Sugerir
+     'compra' criava uma compra que nunca existiu, e inflava tanto compras quanto
+     vendas do mês. */
+  const canc = cancelamento(oc);
+  if (canc && canc.sentido === 'volta') return 'venda';
+  if (canc && canc.tipo === 'compra' && canc.sentido === 'sai') return 'compra';
   if (q1 > q0) return 'compra';
   if (q1 < q0) return /MORREU|OBITO/.test(oc) ? 'morte' : /DOAD/.test(oc) ? 'doacao' : 'venda';
   if (mexeu || v1 !== v0) return 'reavaliacao';
@@ -815,6 +844,10 @@ function linhaMov(m){
     </td>`;
 
   const oque = [];
+  const canc = (m.log || []).map(x => cancelamento(x.ocorrencia)).find(c => c && c.tipo);
+  if (canc) oque.push(canc.revenda
+    ? '<b>venda cancelada e revendido</b>'
+    : `<b>${canc.tipo} cancelada</b> (cota ${canc.sentido === 'volta' ? 'volta' : 'sai'})`);
   if (m.renome) oque.push(`renome: <b>${esc(m.renome.de)}</b> → <b>${esc(m.renome.para)}</b>`);
   if (m.entrou) oque.push('entrou no plantel');
   if (m.saiu) oque.push('saiu do controle');

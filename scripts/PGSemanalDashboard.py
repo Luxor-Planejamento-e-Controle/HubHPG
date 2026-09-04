@@ -298,7 +298,7 @@ const SECTIONS = [
     {p:"hc.arr", l:"Arrendamento", get:s=>s.headcount?.arrendamento},
     {p:"hc.cte", l:"Centro de Treinamento", get:s=>s.headcount?.cte},
     {p:"hc.soc", l:"Sócios", get:s=>s.headcount?.socio},
- ]},
+ ], det:[["Venda cancelada, cadastro pendente","cancelamentos_pendentes"]]},
  {n:"4", t:"TERCEIROS NA PROPRIEDADE", wide:true, kpis:[
     // "Total terceiros" É "vendidos pendentes" (o próprio relatório oficial escreve
     // "05 (vendidos pendentes)" nesta linha) — só animal, embrião não ocupa espaço
@@ -358,7 +358,8 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   sexo_potro:"Sexo",nome_potro:"Potro",data_paricao:"Parição",data_aborto:"Aborto",data_obito:"Óbito",
   status:"Status",categoria:"Categoria",comprador:"Comprador / Sócio",nome:"Nome",cota:"Cota",
   tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)",
-  mae:"Mãe",pai:"Pai",afeta_headcount:"Conta no Δ"};
+  mae:"Mãe",pai:"Pai",afeta_headcount:"Conta no Δ",cancelado_em:"Cancelado em",
+  contraparte:"Contraparte",condicao:"Condição atual"};
 // `afeta_headcount` DEIXOU de ser interno: sem ela a tabela diz 'SAIDA-SOCIO'
 // para casos que se comportam ao contrário. Receptora que vai pro sócio SAI da
 // contagem (só conta em Pao Grande/Arrendamento), enquanto animal que vai pro

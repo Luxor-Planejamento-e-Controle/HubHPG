@@ -35,6 +35,7 @@ from pathlib import Path
 
 import openpyxl
 
+from _pg_cancelamentos import pendencias as _cancel_pendencias
 from _pg_common import DRIVE_ROOT, ensure_cache
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # raiz do projeto (scripts/ fica 1 nível abaixo)
@@ -1917,6 +1918,7 @@ def build_report(ini: date, fim: date) -> Report:
     build_comerciais(rep)
     build_pendentes(rep)
     rep.docx_ref = _load_docx_ref()               # relatórios oficiais (validação + seed do 1º caso)
+    rep.detalhe["cancelamentos_pendentes"] = _cancelamentos_pendentes(rep)
     _compute_movimento(rep)                       # saídas/entradas = diff da população contada
     _paricoes_do_roster(rep)                      # potro no roster sem parição na ESTAÇÃO
     _registra_caminhos(rep)                       # pasta de cada fonte, p/ auditoria
@@ -1974,6 +1976,44 @@ def _mapa_receptoras_anterior(semana: str) -> dict:
         if wid < semana and hist[wid].get("receptoras_locais"):
             prev = hist[wid]["receptoras_locais"]
     return prev
+
+
+def _cancelamentos_pendentes(rep: Report) -> list:
+    """Cancelamento que a planilha registrou na cota mas não no cadastro.
+
+    Ver scripts/_pg_cancelamentos.py: "VENDA CANCELADA" devolve a cota pra Pao
+    Grande, e enquanto STATUS/CONDIÇÃO seguirem dizendo que o animal saiu, ele
+    fica fora do headcount mesmo tendo voltado a ser nosso. Não dá pra corrigir
+    daqui — o cadastro é do haras —, então isto vira aviso e tabela, todo
+    fechamento, até a linha ser arrumada na origem.
+    """
+    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
+    wb = _load(src)
+    L = PLANTEL_LAYOUT_MENSAL
+    linhas = []
+    for i, r in enumerate(wb["PLANTEL"].iter_rows(values_only=True), start=1):
+        if i < L["linha1"] or r[L["nome"]] is None:
+            continue
+        linhas.append({
+            "nome": _s(r[L["nome"]]), "status": _s(r[L["status"]]), "local": _s(r[L["local"]]),
+            "condicao": _s(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else None,
+            "cota": r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None})
+    log = []
+    for i, r in enumerate(wb["MOVIMENTAÇÕES"].iter_rows(values_only=True), start=1):
+        if i < 3 or r[2] is None or len(r) < 5:
+            continue
+        d = _dt(r[3])
+        log.append({"produto": _s(r[2]), "data": d.isoformat() if d else None,
+                    "ocorrencia": _s(r[4])})
+    wb.close()
+    pend = _cancel_pendencias(linhas, log, ate=rep.semana_fim)
+    if pend:
+        print(f"  [cancelamento] {len(pend)} animal(is) com venda cancelada e cota de volta, "
+              f"mas cadastro ainda dizendo que saiu — FORA do headcount até a origem corrigir:")
+        for x in pend:
+            print(f"    - {x['animal']} (cota {x['cota']}, LOCAL {x['local']}, "
+                  f"STATUS {x['status']}, cancelado em {x['cancelado_em']})")
+    return pend
 
 
 def _refina_afeta_headcount(rep: Report):
@@ -2643,6 +2683,9 @@ def _snap_from_rep(rep: Report) -> dict:
             "abortos_obitos": rep.detalhe.get("abortos_obitos_semana"),
             "saidas": rep.detalhe.get("saidas_diff"),
             "entradas": rep.detalhe.get("entradas_diff"),
+            # cancelamento que o cadastro do haras não acompanhou: fica de fora do
+            # headcount e não aparecia em relatório nenhum (ver _cancelamentos_pendentes)
+            "cancelamentos_pendentes": rep.detalhe.get("cancelamentos_pendentes"),
             "pendentes_saida": rep.detalhe.get("pendentes_saida"),
             # Faltava esta — mesmo esquecimento do fontes_caminhos e do
             # acumulado_estacao_proxima: existe em rep.detalhe, nunca chegava no
