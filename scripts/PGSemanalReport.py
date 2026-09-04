@@ -9,7 +9,7 @@ Fontes (ver memória project-hpg-semanal):
   - Headcount   : ATUALIZACAO SEMANAL/CONTROLE PLANTEL.xlsx  aba CONTAGEM (pré-agregada)
   - Receptoras  : idem, aba 'RECEPTORAS ' (censo; filtro do report a definir)
   - Produção    : REPRODUÇÃO/ESTAÇÃO DE MONTA/Estação 2025-2026/{YYMMDD} ESTACAO DE MONTA.xlsx
-                  aba ESTAÇÃO (embrião confirmado = coluna 60D == '+')
+                  aba ESTAÇÃO (confirmado = coluna '+ / -' == 'OK'; data = TE + 15 dias)
   - Movimentação: PLANILHAS SEMANAIS/SAIDA E ENTRADA DE ANIMAIS - MODELO ENVIAR NO GRUPO.xlsx
   - Comerciais  : REPRODUÇÃO/EMBRIOES A ENTREGAR - A RECEBER.xlsx  abas PAINEL/ENTREGAR/RECEBER
 
@@ -638,10 +638,19 @@ def build_producao(rep: Report, ini: date, fim: date):
         if safra_linha not in (SAFRA_ATUAL, SAFRA_PROXIMA):
             continue
         ia = _dt(r[7])
+        te = _dt(r[9])
         # confirmação oficial = coluna +/- (idx17) == 'OK' (validado: os embriões
         # confirmados no docx têm +/-='OK', 60D às vezes nem marcado). Conta = PLANEJAMENTO.
         confirmado = _norm(r[17]) == "OK"
-        data_conf = (ia + timedelta(days=60)) if ia else None
+        # QUANDO ele conta como confirmado: no primeiro diagnóstico positivo, que é
+        # o exame de 15 dias contado da TE/coleta. Era IA + 60 dias, e isso jogava
+        # o embrião dois meses pra frente: em 04/09/2026 o JAVA DA PAO GRANDE x
+        # XODÓ PORTEIRA AZUL (TE 19/08, LAVADO '+', 15D '+', +/-='OK') é o
+        # "confirmado na semana" da liberação do haras, e caía em 09/10 aqui — a
+        # semana fechava com 0 contra 1 deles. Sem TE lançada, IA+15 aproxima (a
+        # coleta vem ~7 dias depois da IA).
+        base_conf = te or ia
+        data_conf = (base_conf + timedelta(days=15)) if base_conf else None
         cotas = _to_num(r[5])
         # split PG / sócio / vendido (defs do comitê: total produzido aberto nessas 3 fatias)
         comprador = _s(r[34])
