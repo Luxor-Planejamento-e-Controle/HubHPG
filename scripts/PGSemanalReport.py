@@ -1316,6 +1316,15 @@ COL_MENSAL_OBS = 24
 # A comparação é EXATA, não por substring: 'VENDIDO' como pedaço de texto casaria
 # com 'VENDIDO E ENTREGUE' e traria de volta justamente quem já foi embora.
 STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA")
+# MARRETADA, autorizada pelo Arthur em 04/09/2026: animal que saiu do plantel e
+# cuja linha no controle mensal ainda não foi atualizada. A lista que o haras usa
+# na atualização semanal já não o tem. Cada fechamento imprime um aviso, e a
+# entrada sai daqui no dia em que a origem for corrigida — override permanente
+# esconde erro de cadastro em vez de resolver.
+FORA_NA_MAO = {
+    "MINEIRO DA PAO GRANDE":
+        "saiu do plantel (Ana, 04/09/2026); linha ainda diz PLANTEL / ARRENDAMENTO",
+}
 # Categoria que não é animal do headcount: embrião não nasceu; receptora é contada
 # pela planilha de receptoras, e somar aqui duplicaria.
 CATEGORIAS_FORA_DO_HEADCOUNT = ("EMBRIAO", "RECEPTORA")
@@ -1428,6 +1437,10 @@ def _plantel_por_status() -> dict:
             fora["status"] += 1
             _fora_linha(descartadas, r, L, "status fora do plantel")
             continue
+        if _norm(_sem_cotista(nome)) in {_norm(k) for k in FORA_NA_MAO}:
+            fora["na_mao"] = fora.get("na_mao", 0) + 1
+            _fora_linha(descartadas, r, L, "override manual (ver FORA_NA_MAO)")
+            continue
         categoria = _norm(r[L["categoria"]])
         if categoria in CATEGORIAS_FORA_DO_HEADCOUNT:
             fora["categoria"] += 1
@@ -1466,6 +1479,11 @@ def _plantel_por_status() -> dict:
                        "status_plantel": _s(r[L["status"]]), "local": _s(r[L["local"]]),
                        "mae": mae, "pai": pai})
     wb.close()
+    if fora.get("na_mao"):
+        print(f"  [marretada] {fora['na_mao']} linha(s) fora da contagem por override "
+              f"manual — corrigir na origem e apagar de FORA_NA_MAO:")
+        for k, motivo in FORA_NA_MAO.items():
+            print(f"    - {k}: {motivo}")
     compra_pend = fora.get("compra_nao_entregue", 0)
     extra = f", {compra_pend} compra(s) ainda não entregue(s)" if compra_pend else ""
     print(f"  [roster] {len(vistos)} animais em {src.name} "
