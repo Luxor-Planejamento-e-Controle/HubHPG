@@ -1306,16 +1306,16 @@ COL_MENSAL_OBS = 24
 # não sai ele é headcount. O que tira da conta é a ENTREGA — por isso 'VENDIDO E
 # ENTREGUE' fica de fora, junto de OBITO e DE TERCEIRO.
 #
-# DOADO conta (corrigido em 04/09/2026). Doação troca a TITULARIDADE, não o lugar
-# onde o bicho está: das 14 doações de 31/08/2026 pro Mato Grosso, 8 continuam com
-# LOCAL='SOCIO' e a liberação da semana conta as 8 (sócios 61 = 53 PLANTEL + 8
-# DOADO). Quem de fato saiu já cai fora por outro caminho — LOCAL='MATO GROSSO',
-# que está em HEADCOUNT_LOCAIS_FORA. Excluir por DOADO tirava 8 animais que estão
-# aqui e punha o headcount 8 abaixo do divulgado.
+# DOADO NÃO conta. Em 04/09/2026 eu tinha incluído (o 61 de sócios divulgado
+# batia com 53 PLANTEL + 8 DOADO), e estava errado: os 8 doados de 31/08/2026
+# estavam nos sócios e o Eduardo pediu para serem RETIRADOS do plantel — a
+# doação é a formalização dessa saída. A lista que o haras mantém para a
+# atualização semanal também não os tem. Com eles fora, a contagem vai para 184,
+# que é o número daquela lista.
 #
 # A comparação é EXATA, não por substring: 'VENDIDO' como pedaço de texto casaria
 # com 'VENDIDO E ENTREGUE' e traria de volta justamente quem já foi embora.
-STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA", "DOADO")
+STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA")
 # Categoria que não é animal do headcount: embrião não nasceu; receptora é contada
 # pela planilha de receptoras, e somar aqui duplicaria.
 CATEGORIAS_FORA_DO_HEADCOUNT = ("EMBRIAO", "RECEPTORA")
@@ -1440,11 +1440,7 @@ def _plantel_por_status() -> dict:
         # animal não é mais da casa nem está mais nela.
         cota = r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None
         condicao = _norm(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else ""
-        # DOADO fica de fora desta regra: foi a própria doação que zerou a cota
-        # ("DOADO PARA O MATO GROSSO - ZEROU A % E O VALOR"), e o animal segue no
-        # LOCAL de antes. Aplicar aqui derrubava 4 dos 8 doados em 31/08/2026.
-        if (condicao == CONDICAO_SAIU and (cota is None or not cota)
-                and _norm(r[L["status"]]) != "DOADO"):
+        if condicao == CONDICAO_SAIU and (cota is None or not cota):
             fora["saiu_sem_cota"] = fora.get("saiu_sem_cota", 0) + 1
             _fora_linha(descartadas, r, L, "saiu do haras e sem cota")
             continue
