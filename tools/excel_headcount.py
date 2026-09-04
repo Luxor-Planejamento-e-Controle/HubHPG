@@ -132,29 +132,54 @@ def monta(fim: date) -> Workbook:
     wr["B6"].font = Font(bold=True, color=AMBER)
     _larguras(wr, [30, 24])
 
-    # ---------------- CONFERIR x HARAS ----------------
-    # A lista serve para achar A LINHA que difere, em vez de discutir o total: com
-    # 193 do nosso lado e 194 do lado deles, é UM nome. As duas abas se olham por
-    # COUNTIF nos dois sentidos, então basta colar a lista do haras e as duas
-    # colunas acendem sozinhas.
-    # Nomes de aba SEM espaço, de propósito: fórmula com nome de aba espaçado
-    # precisa de apóstrofo e vira armadilha de escape na hora de gerar.
-    wc = wb.create_sheet("CONFERIR")
-    _cabecalho(wc, ["#", "ANIMAL", "LOCAL", "BUCKET", "ESTÁ NA LISTA DO HARAS?"])
-    nossos = [(r[1], r[7], r[8]) for r in ws.iter_rows(min_row=2, values_only=True)]
-    for i, (nome, local, bucket) in enumerate(sorted(nossos, key=lambda x: str(x[0])), start=1):
-        lin = i + 1
-        wc.append([i, nome, local, bucket,
-                   '=IF(COUNTIF(HARAS!$A:$A,B{0})>0,"sim","NAO - so na nossa")'.format(lin)])
-    _larguras(wc, [5, 52, 28, 14, 30])
+    # ---------------- DIFF x LISTA DO HARAS ----------------
+    # A aba PLANTEL de 'ATUALIZACAO SEMANAL/CONTROLE PLANTEL.xlsx' é a lista que o
+    # haras mantém à mão, e a aba CONTAGEM dele conta por COUNTIF sobre o LOCAL
+    # dela. Aqui ela serve SÓ para conferência: é pasta de divulgação, nunca fonte
+    # de cálculo (regra do Arthur; o pipeline avisa quando algum dado tenta vir de lá).
+    # O pareamento por prefixo é o que separa renome de diferença real: em
+    # 04/09/2026, de 15 nomes 'só na nossa', 6 eram o mesmo animal com nome antigo
+    # do lado deles (PRUDENCIA NADIA x PRUDENCIA, PRINCIPE MN DA PAO GRANDE x
+    # PRINCIPE MN DA MORADA NOVA...), e as 9 restantes eram reais.
+    wd = wb.create_sheet("DIFF HARAS")
+    _cabecalho(wd, ["ONDE ESTÁ", "ANIMAL", "LOCAL", "STATUS",
+                    "PROVÁVEL MESMO ANIMAL DO OUTRO LADO"])
+    try:
+        wb2 = R._load(Path(R.FALLBACK_DIR) / "CONTROLE PLANTEL.xlsx")
+        deles = {}
+        for i, r in enumerate(wb2["PLANTEL"].iter_rows(values_only=True), start=1):
+            if i == 1 or r[0] is None:
+                continue
+            deles[R._norm(R._sem_cotista(R._s(r[0])))] = (R._s(r[0]), R._s(r[4]), R._s(r[3]))
+        wb2.close()
+    except FileNotFoundError:
+        deles = {}
 
-    wh = wb.create_sheet("HARAS")
-    _cabecalho(wh, ["ANIMAL (cole aqui a lista do haras, a partir de A2)", "ESTÁ NA NOSSA?"])
-    for lin in range(2, 402):
-        wh.cell(row=lin, column=2).value = (
-            '=IF(A{0}="","",IF(COUNTIF(CONFERIR!$B:$B,A{0})>0,'
-            '"sim","NAO - so na lista do haras"))'.format(lin))
-    _larguras(wh, [56, 30])
+    nossa = {}
+    for l in plantel["linhas"]:
+        loc = R._norm(l.get("local"))
+        if loc in R.HEADCOUNT_LOCAIS_FORA or loc not in R.HEADCOUNT_BUCKETS:
+            continue
+        nossa[R._norm(l["nome"])] = (l["nome"], l.get("local"), l.get("status_plantel"))
+
+    def _parceiro(nome, universo):
+        """Nome parecido do outro lado: 14 primeiros caracteres, e só quando o
+        candidato é ÚNICO — prefixo curto casa dois potros diferentes."""
+        pre = nome[:14]
+        cands = [k for k in universo if k.startswith(pre) or nome.startswith(k[:14])]
+        return universo[cands[0]][0] if len(cands) == 1 else None
+
+    so_nossa = sorted(set(nossa) - set(deles))
+    so_deles = sorted(set(deles) - set(nossa))
+    for k in so_nossa:
+        n, loc, st = nossa[k]
+        wd.append(["só na NOSSA", n, loc, st, _parceiro(k, deles) or ""])
+    for k in so_deles:
+        n, loc, st = deles[k]
+        wd.append(["só na do HARAS", n, loc, st, _parceiro(k, nossa) or ""])
+    _larguras(wd, [16, 52, 28, 20, 46])
+    print(f"diff x haras: nossa {len(nossa)} x deles {len(deles)} "
+          f"| só nossa {len(so_nossa)} | só deles {len(so_deles)}")
 
     print(f"contados: {n}  (animais {animais} + receptoras {recept})")
     print("por bucket:", por_bucket)
