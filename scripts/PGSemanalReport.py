@@ -563,12 +563,26 @@ def _acumulado_grupo(safra: str = SAFRA_ATUAL) -> dict:
 OBS_BLOQUEIA_SAIDA = ("FALTANDO EXAME",)
 
 
+# Cotista é só CARLA ou EDUARDO. Entre parênteses também aparecem
+# '(AGUARDANDO FICAR PRONTO)' e '(MAE X PAI)', que NÃO podem ser apagados.
+RX_COTISTA = re.compile(r"\s*\((?:CARLA|EDUARDO)\)\s*")
+
+
 def _sem_cotista(n) -> str:
     """'PARIS DA PAO GRANDE (EDUARDO)' -> 'PARIS DA PAO GRANDE'.
 
-    O roster mensal repete a mesma linha por cotista, com o nome do cotista no fim
-    do nome. Sem tirar isso, um animal conta duas ou três vezes."""
-    return re.sub(r"\s*\([^)]*\)\s*$", "", _norm(n)).strip()
+    O roster mensal repete a mesma linha por cotista, com o nome do cotista no
+    nome. Sem tirar isso, um animal conta duas ou três vezes.
+
+    O cotista NÃO está sempre no fim: em produto de embrião ele vem no meio,
+    seguido de data e receptora — 'MACHO PROFESSORA RIOMINAS DA CACHOEIRA X
+    FEITICO BANDEIRANTE (EDUARDO) 17/08/2024 RECEP 46'. Tirando só o parêntese
+    final, as duas linhas (CARLA e EDUARDO) sobreviviam ao dedup e o potro
+    entrava DUAS vezes no headcount. Achado em 04/09/2026 pelo Arthur, na
+    conferência da lista em Excel."""
+    t = RX_COTISTA.sub(" ", _norm(n))
+    t = re.sub(r"\s*\([^)]*\)\s*$", "", t)
+    return " ".join(t.split()).strip()
 
 
 def _chave_animal(nome, mae, pai) -> tuple:
