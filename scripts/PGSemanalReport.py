@@ -2478,9 +2478,18 @@ def _compute_confirmados_diff(rep: Report):
         rep.producao["confirmados_semana"] = dx.get("confirmados_semana")
         rep.detalhe["confirmados_semana"] = []
 
-    # ACUMULADO NO MÊS = novos confirmados desde o último snapshot ANTES do mês corrente
-    # (docx "--" = 0; acumulado parado no mês → 0). Não usa IA+60 (proxy ruim).
-    month_start = rep.semana_atual[:8] + "01"          # YYYY-MM-01
+    # ACUMULADO NO MÊS = novos confirmados desde o último snapshot ANTES do mês de
+    # referência (docx "--" = 0; acumulado parado no mês → 0). Não usa IA+60 (proxy ruim).
+    #
+    # Mês de referência = mês em que a JANELA COMEÇA, não o do fechamento. Regra do
+    # Arthur em 04/09/2026: "como essa semana ainda pegou parte de agosto, estamos
+    # considerando o final mês de agosto" — e a liberação daquela semana escreve
+    # "Acumulado no mês (agosto): 01". Com o mês do fechamento (setembro) dava 0
+    # contra 1 divulgado, na semana que atravessa a virada do mês.
+    mes_ref = rep.semana_inicio[:7]                    # YYYY-MM da abertura da janela
+    rep.producao["mes_referencia"] = mes_ref
+    rep.producao["mes_referencia_rotulo"] = MESES_PT[int(mes_ref[5:7]) - 1]
+    month_start = mes_ref + "-01"                      # YYYY-MM-01
     prev_month_keys = None
     for wid in sorted(hist):
         if wid < month_start and hist[wid].get("confirmed_keys") is not None:
@@ -2542,6 +2551,9 @@ def _snap_from_rep(rep: Report) -> dict:
         "safra_proxima_rotulo": rep.producao.get("safra_proxima_rotulo"),
         "confirmados_semana": rep.producao.get("confirmados_semana"),
         "acumulado_mes": rep.producao.get("acumulado_mes"),
+        # o mês do acumulado é o da ABERTURA da janela (ver mes_ref): na semana que
+        # atravessa a virada, o card tem de dizer qual mês está somando
+        "mes_referencia_rotulo": rep.producao.get("mes_referencia_rotulo"),
         "nascimentos": rep.producao.get("nascimentos"),
         "abortos_obitos": rep.producao.get("abortos_obitos"),
         "acumulado_estacao_split": rep.producao.get("acumulado_estacao_split"),
@@ -2670,6 +2682,30 @@ def _parse_d(s: str) -> date:
     return date.fromisoformat(s)
 
 
+MESES_PT = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+            "agosto", "setembro", "outubro", "novembro", "dezembro")
+
+
+def _inicio_da_semana(fim: date) -> date:
+    """Começo da janela = dia SEGUINTE ao último fechamento.
+
+    Era `fim - 7` (sem argumento) e `fim - 14` (com um), e aí o dia do fechamento
+    anterior caía nas DUAS semanas: rodando 04/09/2026 assim, a saída da INUSITADA
+    DA PAO GRANDE (28/08, exatamente o fechamento anterior) foi contada de novo e a
+    semana fechou com 9 saídas contra as 8 divulgadas. O orquestrador PGSemanal.py
+    já fazia certo (`prev + 1`); quem rodava este script direto pegava a janela
+    torta. O último fechamento sai do snapshot congelado ou do docx — o mais
+    recente antes de `fim`."""
+    refs = set()
+    fp = BASES_DIR / "semanal_docx.json"
+    if fp.exists():
+        refs |= {w["ref"] for w in json.loads(fp.read_text(encoding="utf-8")) if w.get("ref")}
+    if HIST_SNAPSHOTS.exists():
+        refs |= {k for k in json.loads(HIST_SNAPSHOTS.read_text(encoding="utf-8")) if _is_iso(k)}
+    ant = max((r for r in refs if r < fim.isoformat()), default=None)
+    return date.fromisoformat(ant) + timedelta(days=1) if ant else fim - timedelta(days=6)
+
+
 def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -2678,10 +2714,9 @@ def main():
     args = sys.argv[1:]
     if len(args) >= 2:
         ini, fim = _parse_d(args[0]), _parse_d(args[1])
-    elif len(args) == 1:
-        fim = _parse_d(args[0]); ini = fim - timedelta(days=14)
     else:
-        fim = date.today(); ini = fim - timedelta(days=7)
+        fim = _parse_d(args[0]) if args else date.today()
+        ini = _inicio_da_semana(fim)
     rep = build_report(ini, fim)
     print_report(rep)
     JSON_OUT.parent.mkdir(parents=True, exist_ok=True)

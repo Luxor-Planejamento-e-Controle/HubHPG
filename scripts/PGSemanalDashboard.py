@@ -272,7 +272,9 @@ const SECTIONS = [
      get:s=>s.acumulado_estacao},
     {p:"prod.acum2", l:s=>`Acumulado na estação ${s.safra_proxima_rotulo||""}`.trim(),
      skip:s=>!s.safra_proxima_rotulo, get:s=>s.acumulado_estacao_proxima},
-    {p:"prod.mes", l:"Acumulado no mês", get:s=>s.acumulado_mes},
+    {p:"prod.mes", l:s=>s.mes_referencia_rotulo
+       ? `Acumulado no mês (${s.mes_referencia_rotulo})` : "Acumulado no mês",
+     get:s=>s.acumulado_mes},
     {p:"prod.nasc", l:"Nascimentos na semana", get:s=>s.nascimentos},
     {p:"prod.abor", l:"Abortos / óbitos na semana", get:s=>s.abortos_obitos},
   ], det:[["Embriões confirmados na semana","confirmados"],["Nascimentos na semana","nascimentos"],["Abortos / óbitos na semana","abortos_obitos"]]},
