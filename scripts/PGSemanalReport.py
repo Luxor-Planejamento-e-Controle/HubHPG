@@ -2462,9 +2462,18 @@ def _paricoes_do_roster(rep: Report):
     reg = {}
     if PARICOES_EXTRA.exists():
         try:
-            reg = json.loads(PARICOES_EXTRA.read_text(encoding="utf-8"))
+            bruto = json.loads(PARICOES_EXTRA.read_text(encoding="utf-8"))
         except Exception:
-            reg = {}
+            bruto = {}
+        # Chave normalizada com as regras de HOJE, e a entrada mais ANTIGA vence.
+        # O registro é cumulativo em disco, então mexer na normalização do nome
+        # fazia o MESMO potro entrar duas vezes: em 04/09/2026 o 'MACHO ...
+        # (EDUARDO) 17/08/2024 RECEP 46', gravado em 28/08 na safra 25/26,
+        # reapareceu como 'MACHO ... 17/08/2024 RECEP 46' depois da correção do
+        # cotista no meio do nome — virou parição da safra 26/27 e somou +1 no
+        # acumulado, que o piso travou em 2 contra 1 divulgado.
+        for k, v in sorted(bruto.items(), key=lambda kv: kv[1].get("semana") or ""):
+            reg.setdefault(_sem_cotista(k), v)
     if prev and rep.roster:
         # receptoras das parições que a ESTAÇÃO já entregou — evita contar duas vezes
         na_estacao = {_norm(e.get("receptora")) for e in rep.detalhe.get("nascimentos_semana", [])}
