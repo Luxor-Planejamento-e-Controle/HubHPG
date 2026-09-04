@@ -64,7 +64,11 @@ def monta(fim: date) -> Workbook:
     # ---------------- CONTAGEM ----------------
     ws = wb.active
     ws.title = "CONTAGEM"
-    _cabecalho(ws, ["#", "ANIMAL", "TIPO", "CATEGORIA", "STATUS", "LOCAL", "BUCKET", "COTA PG"])
+    # MÃE e PAI não são enfeite: dois potros diferentes aparecem no plantel só como
+    # 'MACHO', e é a filiação que os separa (é assim que a chave do roster os
+    # distingue). Sem as duas colunas, a lista parece ter linha repetida.
+    _cabecalho(ws, ["#", "ANIMAL", "MÃE", "PAI", "TIPO", "CATEGORIA", "STATUS",
+                    "LOCAL", "BUCKET"])
     n = 0
     por_bucket = {}
     for l in sorted(plantel["linhas"], key=lambda x: (R._norm(x.get("local")), R._norm(x.get("nome")))):
@@ -74,8 +78,8 @@ def monta(fim: date) -> Workbook:
         rot = R.HEADCOUNT_BUCKETS[local][0]
         n += 1
         por_bucket[rot] = por_bucket.get(rot, 0) + 1
-        ws.append([n, l.get("nome"), "ANIMAL", l.get("categoria"), l.get("status_plantel"),
-                   l.get("local"), rot, None])
+        ws.append([n, l.get("nome"), l.get("mae"), l.get("pai"), "ANIMAL",
+                   l.get("categoria"), l.get("status_plantel"), l.get("local"), rot])
     animais = n
 
     for nome, info in sorted(receptoras.items()):
@@ -87,10 +91,10 @@ def monta(fim: date) -> Workbook:
         bucket = R.HEADCOUNT_BUCKETS[R.RECEPTORAS_PARA_BUCKET[info["local"]]][0]
         n += 1
         por_bucket[bucket] = por_bucket.get(bucket, 0) + 1
-        ws.append([n, f"RECEPTORA {nome}", "RECEPTORA", "RECEPTORA", info.get("status"),
-                   info.get("local"), bucket, None])
+        ws.append([n, f"RECEPTORA {nome}", None, None, "RECEPTORA", "RECEPTORA",
+                   info.get("status"), info.get("local"), bucket])
     recept = n - animais
-    _larguras(ws, [5, 46, 11, 14, 22, 28, 14, 10])
+    _larguras(ws, [5, 46, 30, 26, 11, 14, 22, 28, 14])
 
     # ---------------- FORA ----------------
     wf = wb.create_sheet("FORA")
