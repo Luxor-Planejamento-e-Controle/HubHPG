@@ -1977,25 +1977,63 @@ def _mapa_receptoras_anterior(semana: str) -> dict:
 
 
 def _refina_afeta_headcount(rep: Report):
-    """SAIDA-SOCIO nao e igual pra todo mundo.
+    """Uma saída só mexe no headcount se o animal deixou de estar num LOCAL contado.
 
-    Animal que vai pro socio CONTINUA no headcount — a aba CONTAGEM tem bucket
-    SOCIO. Receptora, nao: ela so e contada em PAO GRANDE e ARRENDAMENTO, entao ir
-    pro socio a TIRA da conta. A regra unica marcava as duas como 'nao afeta', e o
-    Δ so nao denunciou porque os erros se cancelavam (0-1 e 2-3 dao -1).
+    Era decidido pela CLASSE do lançamento (SAIDA-SOCIO exceto receptora), regra de
+    quando SOCIO/DOADO não contavam. Com o bucket SOCIO valendo, isso passou a
+    contar como queda quem continua na conta: em 04/09/2026 a abertura saiu +0/-5
+    com 8 lançamentos, enquanto a liberação diz -06 — e -06 é o certo.
+
+    Quem manda é o retrato de agora, no controle mensal e no arquivo de receptoras:
+      - animal: sai da conta se o LOCAL não é bucket de headcount OU o status não é
+        de quem está aqui (QUANTICO, POTENTE, PAETE, PATRIMONIO e POTRA MORENA
+        ficaram LOCAL='OUTROS' com status 'VENDIDO E ENTREGUE' -> saíram);
+      - receptora: só é contada em PAO GRANDE e ARRENDAMENTO, então ir pro sócio a
+        tira da conta (RECEPTORA 397 -> saiu), e ela nunca aparece no diff do
+        roster, que é só do plantel;
+      - OUSADO e ADRENALINA foram pro sócio mas seguem LOCAL='SOCIO'/'PLANTEL':
+        trocaram de bucket, não saíram da conta.
     """
-    prev = _mapa_receptoras_anterior(rep.semana_atual)
-    if not prev:
-        return
-    for e in rep.detalhe.get("saidas_diff") or []:
-        if "SOCIO" not in _norm(e.get("classificacao")):
+    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
+    wb = _load(src)
+    L = PLANTEL_LAYOUT_MENSAL
+    local_de, status_de = {}, {}
+    for i, r in enumerate(wb["PLANTEL"].iter_rows(values_only=True), start=1):
+        if i < L["linha1"] or r[L["nome"]] is None:
             continue
-        chave = re.sub(r"^RECEPTORA\s+", "", _norm(e.get("animal")))
-        if chave in prev:
-            e["afeta_headcount"] = True
-            e["era_receptora_contada"] = True
+        k = _norm(_sem_cotista(_s(r[L["nome"]])))
+        local_de.setdefault(k, _norm(r[L["local"]]))
+        status_de.setdefault(k, _norm(r[L["status"]]))
+    wb.close()
+    rec_local = {}
+    try:
+        wb2 = _load(_latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras"))
+        for i, r in enumerate(wb2["ANIMAIS"].iter_rows(values_only=True), start=1):
+            if i < 4 or r[1] is None:
+                continue
+            rec_local.setdefault(_norm(r[1]), _norm(r[3]))
+        wb2.close()
+    except FileNotFoundError:
+        pass
+
+    def _fora_da_contagem(nome: str) -> bool:
+        n = _norm(_sem_cotista(nome))
+        if n.startswith("RECEPTORA"):
+            loc = rec_local.get(n.replace("RECEPTORA ", ""), "")
+            return loc not in RECEPTORAS_LOCAIS_ATIVOS
+        loc, st = local_de.get(n), status_de.get(n)
+        if loc is None:                      # sumiu do controle: saiu
+            return True
+        return loc not in HEADCOUNT_BUCKETS or st not in STATUS_NO_PLANTEL
+
+    for e in rep.detalhe.get("saidas_diff") or []:
+        e["afeta_headcount"] = _fora_da_contagem(str(e.get("animal") or ""))
+    for e in rep.detalhe.get("entradas_diff") or []:
+        e["afeta_headcount"] = not _fora_da_contagem(str(e.get("animal") or ""))
     rep.saidas["saidas_no_headcount"] = sum(
         1 for x in (rep.detalhe.get("saidas_diff") or []) if x.get("afeta_headcount"))
+    rep.saidas["entradas_no_headcount"] = sum(
+        1 for x in (rep.detalhe.get("entradas_diff") or []) if x.get("afeta_headcount"))
 
 
 def _compute_movimento(rep: Report):
@@ -2416,8 +2454,16 @@ def _conferir_delta(rep: Report):
         nasc = rep.producao.get("nascimentos") or 0
         lancadas = {_norm(e.get("animal")) for e in (rep.detalhe.get("saidas_diff") or [])}
         saiu_com_lancamento = {n for n in sairam if _norm(n) in lancadas}
-        rep.headcount["delta_entradas"] = nasc
-        rep.headcount["delta_saidas"] = len(saiu_com_lancamento)
+        if rep.saidas.get("fonte") == "SAIDAS-ENTRADAS":
+            # A aba oficial é a fonte da abertura quando existe: o diff do roster é
+            # só do PLANTEL, então perde receptora (a 397 foi pro sócio e saiu da
+            # conta) e conta como entrada apenas nascimento (o NASDAQ, ENTRADA-SOCIO,
+            # ficava de fora). Deu +0/-5 numa semana de +1/-6.
+            rep.headcount["delta_entradas"] = rep.saidas.get("entradas_no_headcount") or 0
+            rep.headcount["delta_saidas"] = rep.saidas.get("saidas_no_headcount") or 0
+        else:
+            rep.headcount["delta_entradas"] = nasc
+            rep.headcount["delta_saidas"] = len(saiu_com_lancamento)
 
         sem_causa_saida = sorted(sairam - saiu_com_lancamento)
         sem_causa_entrada = sorted(

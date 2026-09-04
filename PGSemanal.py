@@ -82,9 +82,13 @@ def _validacao(rep):
         ("Arrendamento", h["arrendamento"], dh["arrendamento"]),
         ("Centro de Treinamento", h.get("cte"), dh.get("cte")),
         ("Sócios", h["socio"], dh["socio"]),
-        # o Δ do relatorio conta so animais (+02/-01 = 2 potros, 1 vendido);
-        # o do total inclui receptora, que segue em linha propria
-        ("Δ headcount", h.get("delta_animais"), dh.get("delta_net")),
+        # O Δ do relatório é a ABERTURA (+entradas / -saídas efetivas), não a
+        # variação do total nem o Δ só de animais. Comparar `delta_animais` era
+        # comparar coisa diferente: em 04/09/2026 dava -4 contra -06 do relatório
+        # enquanto as saídas efetivas eram exatamente 6 nos dois lados (o -4
+        # ignora a receptora que saiu). Vai aberto em duas linhas.
+        ("Saídas efetivas (Δ)", h.get("delta_saidas"), dh.get("delta_saidas")),
+        ("Entradas efetivas (Δ)", h.get("delta_entradas"), dh.get("delta_entradas")),
         # bullet vazio ('--') cai no Δ do relatório, que diz a mesma coisa
         ("Saídas semana", s["saidas_semana"],
          ds["saidas_semana"] if ds["saidas_semana"] is not None else dh.get("delta_saidas")),

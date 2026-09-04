@@ -45,7 +45,9 @@ def _linhas(snap: dict, dx: dict) -> list:
         ("Arrendamento", hc.get("arrendamento"), dh["arrendamento"]),
         ("Centro de Treinamento", hc.get("cte"), dh.get("cte")),
         ("Sócios", hc.get("socio"), dh["socio"]),
-        ("Δ headcount", hc.get("delta_animais"), dh.get("delta_net")),
+        # ver PGSemanal._validacao: o Δ do relatório é a abertura, aberta em duas linhas
+        ("Saídas efetivas (Δ)", hc.get("delta_saidas"), dh.get("delta_saidas")),
+        ("Entradas efetivas (Δ)", hc.get("delta_entradas"), dh.get("delta_entradas")),
         ("Saídas semana", mv.get("saidas"),
          ds["saidas_semana"] if ds["saidas_semana"] is not None else dh.get("delta_saidas")),
         # ver PGSemanal._validacao: nascimento não é entrada, então não há atalho
