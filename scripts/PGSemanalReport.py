@@ -2026,10 +2026,34 @@ def _refina_afeta_headcount(rep: Report):
             return True
         return loc not in HEADCOUNT_BUCKETS or st not in STATUS_NO_PLANTEL
 
+    # Mexer no total é MUDAR DE ESTADO entre contado e não contado. Só "onde ele
+    # está agora" não basta: o NASDAQ DA PAO GRANDE chegou do sócio em 01/09/2026
+    # ("CHEGOU NO HARAS - ESTAVA NO SOCIO"), e ele já era headcount desde sempre —
+    # estava no bucket SOCIO desde 02/09/2025. A chegada troca o bucket (SOCIO ->
+    # FAZENDA PAO GRANDE), não soma +1, e também não é transferência interna, que é
+    # só FPG <-> ARRENDAMENTO. Contando como entrada, a abertura saía +1/-6 numa
+    # semana que é +0/-6.
+    roster_ant = set()
+    rec_ant = _mapa_receptoras_anterior(rep.semana_atual)
+    hist = _load_hist()
+    for wid in sorted(hist):
+        if wid < rep.semana_atual and hist[wid].get("roster"):
+            roster_ant = {_norm(x) for x in hist[wid]["roster"]}
+
+    def _era_contado(nome: str) -> bool:
+        n = _norm(_sem_cotista(nome))
+        if n.startswith("RECEPTORA"):
+            return rec_ant.get(n.replace("RECEPTORA ", ""), "") in RECEPTORAS_LOCAIS_ATIVOS
+        return n in roster_ant
+
     for e in rep.detalhe.get("saidas_diff") or []:
-        e["afeta_headcount"] = _fora_da_contagem(str(e.get("animal") or ""))
+        nome = str(e.get("animal") or "")
+        e["afeta_headcount"] = _era_contado(nome) and _fora_da_contagem(nome)
     for e in rep.detalhe.get("entradas_diff") or []:
-        e["afeta_headcount"] = not _fora_da_contagem(str(e.get("animal") or ""))
+        nome = str(e.get("animal") or "")
+        e["afeta_headcount"] = (not _era_contado(nome)) and not _fora_da_contagem(nome)
+        if not e["afeta_headcount"] and not _fora_da_contagem(nome):
+            e["trocou_de_bucket"] = True
     rep.saidas["saidas_no_headcount"] = sum(
         1 for x in (rep.detalhe.get("saidas_diff") or []) if x.get("afeta_headcount"))
     rep.saidas["entradas_no_headcount"] = sum(
