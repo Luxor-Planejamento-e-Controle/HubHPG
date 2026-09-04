@@ -298,7 +298,7 @@ const SECTIONS = [
     {p:"hc.arr", l:"Arrendamento", get:s=>s.headcount?.arrendamento},
     {p:"hc.cte", l:"Centro de Treinamento", get:s=>s.headcount?.cte},
     {p:"hc.soc", l:"Sócios", get:s=>s.headcount?.socio},
- ], det:[["Venda cancelada, cadastro pendente","cancelamentos_pendentes"]]},
+ ]},
  {n:"4", t:"TERCEIROS NA PROPRIEDADE", wide:true, kpis:[
     // "Total terceiros" É "vendidos pendentes" (o próprio relatório oficial escreve
     // "05 (vendidos pendentes)" nesta linha) — só animal, embrião não ocupa espaço
