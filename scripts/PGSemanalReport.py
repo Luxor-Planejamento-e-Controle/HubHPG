@@ -377,14 +377,28 @@ def _estacao_dirs() -> list:
 
 
 def _latest_no_plantel(pattern: str, rotulo: str) -> Path:
-    """Arquivo mais recente que casa o padrao em QUALQUER pasta de estacao."""
+    """Arquivo que casa o padrao em QUALQUER pasta de estacao, preferindo a CÓPIA
+    DE TRABALHO.
+
+    O mesmo mês vive em duas cópias irmãs: '..._AGO_26.xlsx' é o FECHAMENTO de
+    agosto, congelado, e '..._EDITAR OUTUBRO_..._AGO_26.xlsx' é onde o haras
+    lança o que acontece agora. Escolher por mtime pega quem salvou por último e
+    troca de fonte no meio do caminho: em 04/09/2026 a semana fechava 24/24 pela
+    cópia de trabalho e, depois de alguém salvar o fechamento de agosto, a MESMA
+    semana passou a 16/24 — sem NASDAQ (01/09), sem a saída da POTRA MORENA
+    (01/09) nem da ADRENALINA (04/09), porque nenhuma delas é evento de agosto.
+    Semanal precisa do estado de HOJE, então cópia de trabalho manda; o
+    fechamento mensal é o oposto e por isso o módulo de plantel ignora as
+    'EDITAR' (ver tools/seed_plantel_hub.py).
+    """
     cands = [f for d in _estacao_dirs() for f in d.glob(pattern)
              if not f.name.startswith("~$")]
     if not cands:
         raise FileNotFoundError(
             f"Nenhum {pattern!r} ({rotulo}) em: "
             + " | ".join(str(d) for d in _estacao_dirs()))
-    return _registra_fonte(rotulo, max(cands, key=lambda f: f.stat().st_mtime))
+    trabalho = [f for f in cands if "EDITAR" in f.name.upper()]
+    return _registra_fonte(rotulo, max(trabalho or cands, key=lambda f: f.stat().st_mtime))
 
 
 def _latest_estacao_master() -> Path:
@@ -1978,6 +1992,32 @@ def _mapa_receptoras_anterior(semana: str) -> dict:
     return prev
 
 
+def _avisa_troca_de_fonte(rep: Report):
+    """Rodar a MESMA semana em cima de arquivo diferente muda o número sem que
+    nenhuma regra tenha mudado.
+
+    O controle de plantel vive em cópias irmãs do mesmo mês — '..._AGO_26.xlsx' e
+    '..._EDITAR OUTUBRO_..._AGO_26.xlsx' —, e a escolha é por mtime: quem salvou
+    por último ganha. Em 04/09/2026 isso aconteceu no meio do fechamento: a cópia
+    EDITAR OUTUBRO reproduzia a semana divulgada (24/24 no placar) e, depois de a
+    Ana salvar a outra, a mesma semana passou a fechar com 6 saídas em vez de 8,
+    sem NASDAQ e com 2 pendentes a menos — 16/24. Sem aviso, isso vira número
+    publicado.
+    """
+    hist = _load_hist()
+    ant = (hist.get(rep.semana_atual) or {}).get("fontes_caminhos") or {}
+    if not ant:
+        return
+    mudou = [(r, ant[r], rep.fontes_caminhos.get(r))
+             for r in ant if rep.fontes_caminhos.get(r) and rep.fontes_caminhos[r] != ant[r]]
+    if mudou:
+        print(f"  [fonte] ATENÇÃO: a semana {rep.semana_atual} já foi fechada com OUTRO "
+              f"arquivo. Conferir qual é o certo ANTES de publicar:")
+        for r, antes, agora in mudou:
+            print(f"    - {r}: {antes}")
+            print(f"      agora: {agora}")
+
+
 def _cancelamentos_pendentes(rep: Report) -> list:
     """Cancelamento que a planilha registrou na cota mas não no cadastro.
 
@@ -2456,6 +2496,7 @@ def _registra_caminhos(rep: Report):
     em qual pasta clicar. Um dict à parte para não mexer no formato de rep.fontes,
     que os snapshots antigos já gravaram."""
     rep.fontes_caminhos = {r: caminho_curto(f) for r, f in _FONTES_USADAS.items()}
+    _avisa_troca_de_fonte(rep)
     rep.fontes_fora_de_lugar = sorted(FONTES_FORA_DE_LUGAR)
 
 
