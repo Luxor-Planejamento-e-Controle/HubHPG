@@ -1315,7 +1315,19 @@ COL_MENSAL_OBS = 24
 #
 # A comparação é EXATA, não por substring: 'VENDIDO' como pedaço de texto casaria
 # com 'VENDIDO E ENTREGUE' e traria de volta justamente quem já foi embora.
+# 'VENDIDO PENDENTE ...' é venda fechada com animal AINDA AQUI, e a planilha
+# escreve isso de três formas: 'VENDIDO PENDENTE SAIDA', 'VENDIDO PENDENTE DE
+# SAIDA' e 'VENDIDO PENDENDE DE SAIDA' (typo). A lista exata só tinha a primeira,
+# e em 10/09/2026 isso tirou MELISSA, MUSICA e PROSPERO do headcount de uma vez —
+# 3 animais que não saíram do lugar, só mudaram de status. Prefixo resolve as três
+# e não pega 'VENDIDO E ENTREGUE', que é quem de fato foi embora.
 STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA")
+PREFIXO_VENDIDO_PENDENTE = "VENDIDO PENDEN"
+
+
+def _status_conta(status) -> bool:
+    st = _norm(status)
+    return st in STATUS_NO_PLANTEL or st.startswith(PREFIXO_VENDIDO_PENDENTE)
 # MARRETADA, autorizada pelo Arthur em 04/09/2026: animal que saiu do plantel e
 # cuja linha no controle mensal ainda não foi atualizada. A lista que o haras usa
 # na atualização semanal já não o tem. Cada fechamento imprime um aviso, e a
@@ -1433,7 +1445,7 @@ def _plantel_por_status() -> dict:
         nome = _s(r[L["nome"]])
         if not nome:
             continue
-        if _norm(r[L["status"]]) not in STATUS_NO_PLANTEL:
+        if not _status_conta(r[L["status"]]):
             fora["status"] += 1
             _fora_linha(descartadas, r, L, "status fora do plantel")
             continue
@@ -2168,7 +2180,7 @@ def _refina_afeta_headcount(rep: Report):
         loc, st = local_de.get(n), status_de.get(n)
         if loc is None:                      # sumiu do controle: saiu
             return True
-        return loc not in HEADCOUNT_BUCKETS or st not in STATUS_NO_PLANTEL
+        return loc not in HEADCOUNT_BUCKETS or not _status_conta(st)
 
     # Mexer no total é MUDAR DE ESTADO entre contado e não contado. Só "onde ele
     # está agora" não basta: o NASDAQ DA PAO GRANDE chegou do sócio em 01/09/2026
