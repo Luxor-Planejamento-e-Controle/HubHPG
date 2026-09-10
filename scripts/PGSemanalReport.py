@@ -1297,7 +1297,14 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
 # 'Animais para sair', congelado em 24/07 (2 em vez de 6, faltando PATRIMONIO, PODIO e
 # PAETE) e terceiros saía 2 em vez de 8. O relatório oficial de 14/08 traz 08 terceiros
 # e 06 animais vendidos pendentes — os números do MENSAL.
-STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"
+STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"      # rótulo, para mensagem
+# Casar por SUBSTRING exata deixava de fora a grafia errada: em 10/09/2026 o
+# PROSPERO DA PAO GRANDE estava como 'VENDIDO PENDENDE DE SAIDA' (typo) e ficava
+# fora da lista de vendidos pendentes, mesmo já contando no headcount pelo
+# prefixo. Mesma tolerância nos dois lugares — ver PREFIXO_VENDIDO_PENDENTE.
+def _e_vendido_pendente(status_plantel) -> bool:
+    return PREFIXO_VENDIDO_PENDENTE in _norm(status_plantel)
+
 STATUS_TERCEIRO = "TERCEIRO"
 # Sociedade pendente de animal: até 28/08/2026 não tinha marca nenhuma (comentário
 # antigo em build_pendentes: "sociedade nunca recebe marca"), então soc_animais
@@ -1575,7 +1582,7 @@ def _status_plantel_mensal() -> dict:
         soc = _limpa_socio(r[COL_MENSAL_NOME_SOCIO]) if len(r) > COL_MENSAL_NOME_SOCIO else None
         if m_rec and soc:
             socio_por_recep[m_rec.group(1)] = soc
-        if STATUS_VENDIDO_PENDENTE in status_plantel:
+        if _e_vendido_pendente(status_plantel):
             marcado = True
             vendidos_pend.append({"nome": nome, "local": local, "cota": None,
                                   "comprador": None, "tipo": "VENDA",
