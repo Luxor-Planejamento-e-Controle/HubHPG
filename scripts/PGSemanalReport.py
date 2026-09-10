@@ -248,14 +248,19 @@ def caminho_curto(f) -> str:
 
 # so o orquestrador libera, via --forcar
 PERMITIR_FONTE_VELHA = False
-# Fontes que TEM de ser da semana: descrevem estado que muda toda semana (quem esta
-# onde, quem saiu, quantos embrioes em pe). Parada, a fonte esta perdida.
-# As demais — 'Animais para sair', embrioes a entregar — sao de baixa rotatividade:
-# so mudam quando ha venda ou entrega nova, e ficar parado e o normal. Para essas o
-# aviso sai, mas nao bloqueia: tratar "nada aconteceu" como "fonte perdida" travava o
-# fechamento sem motivo.
-FONTES_SEMANAIS = ("receptoras", "controle mensal", "roster do plantel",
-                   "estacao de monta", "acumulado na estação")
+# Fontes de ESTADO: descrevem quem esta onde AGORA e por isso mudam toda semana.
+# Paradas, a fonte esta perdida (mudou de pasta, foi renomeada, apagada) e o
+# fechamento nao pode publicar o retrato de outra semana como se fosse esta.
+#
+# Estacao de monta e 'EMBRIÕES E MATRIZES' NAO entram aqui, e isso foi corrigido em
+# 10/09/2026: elas sao fonte de EVENTO — sem IA, confirmacao, parição ou aborto na
+# semana, nao ha por que salvar o arquivo, e mtime parado significa "nada
+# aconteceu", nao "dado faltando". Naquele fechamento as duas estavam em 04/09 e a
+# liberacao do haras dizia exatamente a mesma coisa: confirmados '--',
+# nascimentos '--', abortos '--', acumulado parado em 01. O bloqueio travou um
+# fechamento correto. Para essas o aviso sai e o run segue — quem confirma que
+# nada aconteceu e o confronto com a liberacao, no placar.
+FONTES_SEMANAIS = ("receptoras", "controle mensal", "roster do plantel")
 
 
 def _avisar_fontes_velhas(ini: date, fim: date):
@@ -278,10 +283,11 @@ def _avisar_fontes_velhas(ini: date, fim: date):
           f"({ini.strftime('%d/%m')}-{fim.strftime('%d/%m')}) — o que sai delas nao "
           f"descreve esta semana:")
     for rotulo, nome, m in velhas:
-        marca = "  <- semanal, BLOQUEIA" if rotulo in FONTES_SEMANAIS else "  (baixa rotatividade)"
+        marca = ("  <- estado da semana, BLOQUEIA" if rotulo in FONTES_SEMANAIS
+                 else "  (fonte de evento: parada = nada aconteceu; conferir no placar)")
         print(f"    - {rotulo}: {nome} (salvo em {m.strftime('%d/%m/%Y')}){marca}")
     if not bloqueiam:
-        print("    Nenhuma delas deveria mudar toda semana — segue.")
+        print("    Nenhuma delas descreve estado — segue, e o placar confronta com a liberação.")
         return
     print("    Conferir se a copia de trabalho mudou de pasta, foi apagada ou renomeada.")
     if not PERMITIR_FONTE_VELHA:
