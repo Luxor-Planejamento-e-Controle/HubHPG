@@ -1785,7 +1785,15 @@ def build_pendentes(rep: Report):
     # a marcar direto na coluna OBS do roster mensal com a frase
     # STATUS_SOCIEDADE_PENDENTE, mesma ideia do VENDIDO PENDENTE SAIDA — então a
     # fonte agora é viva e o teste vira leitura direta, igual aos vendidos.
-    soc_animais = mensal["sociedade_pendentes"]
+    # A marca de sociedade vive na OBS do roster mensal, e a linha marcada pode ser
+    # de EMBRIÃO — foi o caso em 10/09/2026 com 'ADRENALINA DA PAO GRANDE X XODO
+    # PORTEIRA AZUL 14/03/2026 RECEP 532' (CATEGORIA=EMBRIAO), que entrava no card
+    # de ANIMAIS: 4 animais / 0 embriões, contra "03" do relatório, que conta
+    # animal. Separar por categoria acerta os dois cards e mantém o total.
+    soc_animais = [x for x in mensal["sociedade_pendentes"]
+                   if _norm(x.get("categoria")) != "EMBRIAO"]
+    soc_emb_roster = [x for x in mensal["sociedade_pendentes"]
+                      if _norm(x.get("categoria")) == "EMBRIAO"]
     # Embrião de sociedade: preferência é a marca direta na ESTAÇÃO (ver
     # _embrioes_pendentes_estacao, ajuste de 28/08/2026). Sem marca ainda, cai no
     # jeito indireto anterior — aba de sócios do grupo (COTAS/SÓCIO EMBRIÃO,
@@ -1794,6 +1802,9 @@ def build_pendentes(rep: Report):
         soc_embrioes = [e for e in emb_estacao if e["tipo"] == "SOCIEDADE"]
     else:
         soc_embrioes = _embrioes_sociedade_pendentes()
+    # embrião marcado na OBS do roster entra junto, sem duplicar quem a ESTAÇÃO já deu
+    ja = {_norm(e.get("nome")) for e in soc_embrioes}
+    soc_embrioes = soc_embrioes + [e for e in soc_emb_roster if _norm(e.get("nome")) not in ja]
     sociedade = soc_animais + soc_embrioes
     rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
 
