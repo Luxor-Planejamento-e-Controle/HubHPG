@@ -145,8 +145,27 @@ JSON_OUT = BASES_DIR / "semanal_data.json"
 # setembro, e todo item aparecia divergente sem ter divergência nenhuma. Semana
 # ainda não liberada não tem alvo — melhor sem comparação do que comparando com
 # a semana errada.
+def _docx_proximo(rep):
+    """Relatório publicado com data um pouco depois do nosso fechamento.
+
+    O haras nem sempre publica no dia do fechamento: a semana fechada em
+    10/09/2026 (quinta) saiu num arquivo datado 11/09. Sem isto o placar dizia
+    'sem relatório oficial nessa data' e a semana ficava sem conferência nenhuma.
+    Aceita até 3 dias DEPOIS — nunca antes, que seria comparar com a semana
+    passada."""
+    from datetime import timedelta
+    ref = date.fromisoformat(rep.semana_atual)
+    for dias in (1, 2, 3):
+        w = (rep.docx_ref or {}).get((ref + timedelta(days=dias)).isoformat())
+        if w:
+            print(f"  [placar] usando o relatório de {(ref + timedelta(days=dias)).strftime('%d/%m')} "
+                  f"para conferir a semana que fechou em {ref.strftime('%d/%m')}")
+            return w
+    return None
+
+
 def _alvos(rep) -> dict:
-    w = (rep.docx_ref or {}).get(rep.semana_atual)
+    w = (rep.docx_ref or {}).get(rep.semana_atual) or _docx_proximo(rep)
     if not w:
         return {}
     pr, rc, hc, sa = (w.get(k) or {} for k in ("producao", "receptoras", "headcount", "saidas"))
@@ -1728,23 +1747,36 @@ def _embrioes_pendentes() -> list:
     """Embriões prontos e aguardando entrega, tipo SOCIEDADE (cota parcial) ou VENDA."""
     wb = _load(EMB_COMERCIAIS)
     ws = wb["ENTREGAR"]
-    out, cols, ficam = [], None, []
+    out, cols, ficam, novos = [], None, [], []
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i == 3:
             cols = {n: _col_idx(r, n) for n in
                     ("ID Embrião", "Doadora", "Garanhão", "Comprador", "Cota PG",
                      "Status embrião", "Observação")}
             continue
-        if cols is None or r[cols["ID Embrião"]] is None:
+        # Linha sem ID ainda é venda: o ID entra depois. Exigir ID descartava a
+        # venda recém-digitada — em 10/09/2026 o embrião NATUREZA DA PAO GRANDE x
+        # LEGITIMO ELFAR (venda de 07/09, VENDA DIRETA) não chegava nem a ser
+        # avaliado. Identidade cai para doadora x garanhão quando falta o ID.
+        if cols is None or (r[cols["ID Embrião"]] is None and r[cols["Doadora"]] is None):
             continue
         status = _norm(r[cols["Status embrião"]])
-        if EMB_STATUS_PENDENTE not in status:
+        # Status vazio numa linha com venda lançada = venda nova, ainda sem
+        # tratamento: conta como pendente e sai avisada, para não ficar invisível
+        # esperando alguém preencher a coluna.
+        sem_status = not status and r[cols["Doadora"]] is not None
+        if EMB_STATUS_PENDENTE not in status and not sem_status:
             if status.startswith("PRONTO"):
                 ficam.append(f'{_s(r[cols["ID Embrião"]])} ({_s(r[cols["Status embrião"]])})')
             continue
+        if sem_status:
+            novos.append(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}')
         cota = r[cols["Cota PG"]]
+        # Cota ZERADA é 100% vendido (regra do Arthur, 11/09/2026), não sociedade:
+        # a coluna guarda a fatia que fica com a PG, e zero quer dizer que não
+        # sobrou nada. Só cota ENTRE 0 e 1 é sociedade.
         try:
-            parcial = cota is not None and float(cota) < 1
+            parcial = cota is not None and 0 < float(cota) < 1
         except (TypeError, ValueError):
             parcial = False
         out.append({
@@ -1758,6 +1790,9 @@ def _embrioes_pendentes() -> list:
     if ficam:
         print(f"  [embriões] {len(ficam)} pronto(s) que NÃO saem, fora da pendência: "
               + "; ".join(ficam))
+    if novos:
+        print(f"  [embriões] {len(novos)} venda(s) sem 'Status embrião' preenchido, "
+              f"contada(s) como pendente: " + "; ".join(novos))
     wb.close()
     return out
 
@@ -1793,10 +1828,29 @@ def build_pendentes(rep: Report):
     # verdade é o de cota 100% em EMB_COMERCIAIS/ENTREGAR, 'Pronto - Aguardando
     # Entrega' — é o que _embrioes_pendentes() já lia, sem ninguém consumir.
     emb_estacao = _embrioes_pendentes_estacao()
-    if emb_estacao:
-        vend_embrioes = [e for e in emb_estacao if e["tipo"] == "VENDA"]
-    else:
-        vend_embrioes = [e for e in pend_emb if e["tipo"] == "VENDA"]
+
+    def _chave_emb(x):
+        """doadora x garanhão, sem a cauda de data/receptora.
+
+        A mesma prenhez aparece com nomes diferentes nas duas fontes: na comercial
+        é 'ADRENALINA DA PAO GRANDE x XODO PORTEIRA AZUL' e no roster é a mesma
+        coisa mais '14/03/2026 RECEP 532'. Deduplicar pelo nome cru contava o
+        embrião duas vezes."""
+        n = _norm(x.get("nome"))
+        n = re.split(r"\s+\d{1,2}/\d{1,2}/\d{2,4}|\s+RECEP", n)[0]
+        return " ".join(n.split())
+
+    def _uniao_emb(principal, complemento):
+        vistos = {_chave_emb(x) for x in principal}
+        return principal + [x for x in complemento if _chave_emb(x) not in vistos]
+
+    # FONTE do embrião pendente é a planilha comercial (EMB_COMERCIAIS/ENTREGAR,
+    # coluna 'Status embrião') — decisão do Arthur em 11/09/2026. A marca da ESTAÇÃO
+    # entra como COMPLEMENTO, não como substituta: antes ela vencia sempre que
+    # existisse, e escondia o que só a comercial tem — o NATUREZA DA PAO GRANDE x
+    # LEGITIMO ELFAR, vendido em 07/09, ficava invisível nos dois cards.
+    vend_embrioes = _uniao_emb([e for e in pend_emb if e["tipo"] == "VENDA"],
+                               [e for e in emb_estacao if e["tipo"] == "VENDA"])
     # REPOSIÇÃO não é venda pendente: o animal está saindo para repor outro, não para
     # um comprador. O STATUS PLANTEL não tem essa marca — ela vive na coluna de obs do
     # Animais para sair —, então cruzamos os dois pelo núcleo do nome. Essa regra
@@ -1843,13 +1897,13 @@ def build_pendentes(rep: Report):
     # _embrioes_pendentes_estacao, ajuste de 28/08/2026). Sem marca ainda, cai no
     # jeito indireto anterior — aba de sócios do grupo (COTAS/SÓCIO EMBRIÃO,
     # sem parto nem aborto).
-    if emb_estacao:
-        soc_embrioes = [e for e in emb_estacao if e["tipo"] == "SOCIEDADE"]
-    else:
-        soc_embrioes = _embrioes_sociedade_pendentes()
-    # embrião marcado na OBS do roster entra junto, sem duplicar quem a ESTAÇÃO já deu
-    ja = {_norm(e.get("nome")) for e in soc_embrioes}
-    soc_embrioes = soc_embrioes + [e for e in soc_emb_roster if _norm(e.get("nome")) not in ja]
+    soc_embrioes = _uniao_emb([e for e in pend_emb if e["tipo"] == "SOCIEDADE"],
+                              [e for e in emb_estacao if e["tipo"] == "SOCIEDADE"]
+                              or _embrioes_sociedade_pendentes())
+    # embrião marcado na OBS do roster entra junto, sem duplicar — pela chave sem
+    # data/receptora (_chave_emb), senão a mesma prenhez entra duas vezes com nomes
+    # diferentes, que foi o que aconteceu com o ADRENALINA x XODO em 11/09/2026
+    soc_embrioes = _uniao_emb(soc_embrioes, soc_emb_roster)
     sociedade = soc_animais + soc_embrioes
     rep.fontes["embrioes_pendentes"] = EMB_COMERCIAIS.name
 
