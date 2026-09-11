@@ -59,7 +59,11 @@ def _janela(ref: date) -> tuple[date, date]:
 
 def _validacao(rep):
     """Placar calculado vs docx da semana de referência (se houver relatório)."""
-    dx = rep.docx_ref.get(rep.semana_atual)
+    # O haras publica o relatório da semana às vezes no dia seguinte: a semana
+    # fechada em 10/09/2026 saiu num arquivo datado 11/09, e o placar dizia "sem
+    # relatório oficial nessa data", deixando o fechamento sem conferência. Aceita
+    # até 3 dias DEPOIS — antes, nunca, que seria comparar com a semana passada.
+    dx = rep.docx_ref.get(rep.semana_atual) or R._docx_proximo(rep)
     if not dx:
         print("    (sem relatório oficial nessa data — nada p/ validar)")
         return

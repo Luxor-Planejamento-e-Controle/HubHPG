@@ -1897,9 +1897,15 @@ def build_pendentes(rep: Report):
     # _embrioes_pendentes_estacao, ajuste de 28/08/2026). Sem marca ainda, cai no
     # jeito indireto anterior — aba de sócios do grupo (COTAS/SÓCIO EMBRIÃO,
     # sem parto nem aborto).
-    soc_embrioes = _uniao_emb([e for e in pend_emb if e["tipo"] == "SOCIEDADE"],
-                              [e for e in emb_estacao if e["tipo"] == "SOCIEDADE"]
-                              or _embrioes_sociedade_pendentes())
+    # SOCIEDADE continua saindo da marca (ESTAÇÃO, senão a indireta pela aba de
+    # sócios). A planilha comercial tem 3 embriões de cota parcial em 'Pronto -
+    # Aguardando Entrega' e a liberação do haras conta 3 — só os ANIMAIS —, então
+    # puxar sociedade de lá inflava o card sem respaldo. A comercial manda só na
+    # VENDA, que foi o que o Arthur pediu (o NATUREZA).
+    if emb_estacao:
+        soc_embrioes = [e for e in emb_estacao if e["tipo"] == "SOCIEDADE"]
+    else:
+        soc_embrioes = _embrioes_sociedade_pendentes()
     # embrião marcado na OBS do roster entra junto, sem duplicar — pela chave sem
     # data/receptora (_chave_emb), senão a mesma prenhez entra duas vezes com nomes
     # diferentes, que foi o que aconteceu com o ADRENALINA x XODO em 11/09/2026
