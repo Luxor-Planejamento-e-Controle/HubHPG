@@ -1231,8 +1231,53 @@ def _transferencias_internas(rep: Report) -> list | None:
         prev = _receptoras_locais(anteriores[0])
         print(f"  [transferências] primeira semana com mapa de LOCAL: comparando com "
               f"{anteriores[0].name} (da próxima em diante, compara com o snapshot)")
-    return [{"animal": k, "local_saida": prev[k], "local_entrada": cur[k]}
-            for k in cur if k in prev and prev[k] != cur[k]]
+    transf = [{"animal": k, "tipo": "RECEPTORA", "local_saida": prev[k],
+               "local_entrada": cur[k]}
+              for k in cur if k in prev and prev[k] != cur[k]]
+    transf += _transferencias_de_animais(rep)
+    return transf
+
+
+# Transferência interna é FPG <-> ARRENDAMENTO, nos dois sentidos (regra do Arthur,
+# 10/09/2026). Qualquer outra troca de LOCAL é entrada, saída ou mudança de bucket,
+# não transferência.
+LOCAIS_INTERNOS = ("FAZENDA PAO GRANDE", "ARRENDAMENTO CESAR FURTADO")
+
+
+def _transferencias_de_animais(rep: Report) -> list:
+    """Animal do plantel que mudou de LOCAL entre a semana passada e esta.
+
+    O detector olhava só o mapa de RECEPTORAS, então transferência de animal
+    passava batido: em 10/09/2026 o LEGADO DA PAO GRANDE saiu de FAZENDA PAO
+    GRANDE para ARRENDAMENTO CESAR FURTADO, o haras publicou "Transferências
+    internas: 01" e o nosso card ficou 0 — o Arrendamento até subia para 44, sem
+    nada explicando de onde vinha.
+
+    A comparação sai do arquivo de linhas arquivado (ver _arquivo_anterior), que
+    guarda o LOCAL de cada animal do roster — é exatamente para isto que ele
+    existe."""
+    ant = {_norm(x.get("nome")): _norm(x.get("local"))
+           for x in (_arquivo_anterior(rep.semana_atual).get("roster") or [])}
+    if not ant:
+        return []
+    # as linhas do roster ainda nao estao em _LINHAS_BRUTAS aqui — este passo roda
+    # antes do build do headcount —, entao le direto (o workbook ja esta em cache)
+    linhas = _LINHAS_BRUTAS.get("roster") or _plantel_por_status()["linhas"]
+    out = []
+    for l in linhas:
+        k, agora = _norm(l.get("nome")), _norm(l.get("local"))
+        antes = ant.get(k)
+        if not antes or antes == agora:
+            continue
+        if antes in LOCAIS_INTERNOS and agora in LOCAIS_INTERNOS:
+            out.append({"animal": l.get("nome"), "tipo": _s(l.get("categoria")),
+                        "local_saida": antes, "local_entrada": agora})
+    if out:
+        print(f"  [transferências] {len(out)} animal(is) mudaram de LOCAL entre "
+              f"Fazenda e Arrendamento: "
+              + "; ".join(f"{x['animal']} ({x['local_saida']} -> {x['local_entrada']})"
+                          for x in out))
+    return out
 
 
 def build_movimentacao(rep: Report, ini: date, fim: date):
@@ -1867,7 +1912,12 @@ def build_pendentes(rep: Report):
     # — as duas linhas SÃO a mesma coisa). Embrião pendente de venda tem lista própria
     # na seção 5, porque não é "terceiro na propriedade": embrião não ocupa espaço.
     rep.detalhe["terceiros_vendidos_embrioes"] = terc_embrioes
-    rep.detalhe["terceiros_sociedade"] = sociedade        # sociedade pendente de saída, listada igual
+    # ANIMAIS e EMBRIÕES em listas separadas: são dois cards distintos no relatório
+    # ("Animais em sociedade pendentes de saída" e "Embriões em sociedade aguardando
+    # entrega"), e juntar os dois fazia a tabela de animais mostrar 4 com um EMBRIAO
+    # no meio (ADRENALINA x XODO RECEP 532), contra os 3 da liberação.
+    rep.detalhe["terceiros_sociedade"] = soc_animais
+    rep.detalhe["terceiros_sociedade_embrioes"] = soc_embrioes
     # lista completa da seção 5 = o que os dois KPIs contam. Era `pend + pend_emb` (só
     # o "Animais para sair"), então os marcados no STATUS PLANTEL não apareciam.
     rep.detalhe["pendentes_saida"] = vendidos + sociedade
@@ -2852,6 +2902,7 @@ def _snap_from_rep(rep: Report) -> dict:
             "terceiros_vendidos": rep.detalhe.get("terceiros_vendidos"),
             "terceiros_vendidos_embrioes": rep.detalhe.get("terceiros_vendidos_embrioes"),
             "terceiros_sociedade": rep.detalhe.get("terceiros_sociedade"),
+            "terceiros_sociedade_embrioes": rep.detalhe.get("terceiros_sociedade_embrioes"),
             "transferencias": rep.detalhe.get("transferencias_internas"),
         },
         "roster": rep.roster,

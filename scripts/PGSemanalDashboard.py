@@ -334,7 +334,8 @@ const SECTIONS = [
      get:s=>movVal(s,s.movimento?.entradas,(s.detalhe||{}).entradas)},
  ], det:[["Saídas na semana","saidas"],["Entradas na semana","entradas"],
          ["Embriões vendidos pendentes de saída","terceiros_vendidos_embrioes"],
-         ["Em sociedade pendentes de saída","terceiros_sociedade"]]},
+         ["Em sociedade pendentes de saída","terceiros_sociedade"],
+         ["Embriões em sociedade aguardando entrega","terceiros_sociedade_embrioes"]]},
 ];
 
 function rawVal(k){
