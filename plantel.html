@@ -5,17 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plantel Haras Pao Grande - Movimentação</title>
 <link rel="icon" href="assets/pg-logo.png">
-<link rel="stylesheet" href="assets/plantel/plantel.css?v=202609031200">
+<link rel="stylesheet" href="assets/plantel/plantel.css?v=202609161200">
 </head>
 <body>
 <div class="topo" id="topo"></div>
 <div class="caixa-import" id="import" hidden></div>
 <div class="abas" id="abas"></div>
 <div id="painel"></div>
+<!-- menu de filtro da coluna: fica fora de #painel porque o painel é
+     redesenhado inteiro a cada marcação e levaria o menu junto -->
+<div id="fpop" hidden></div>
 <!-- o arquivo do haras é lido no navegador: nada de planilha do plantel virando
      arquivo no site. O que persiste vai pro Supabase (snapshot do mês e registro
      das movimentações), sob a policy da aba 'plantel'. -->
 <script src="assets/vendor/xlsx.mini.min.js"></script>
-<script src="assets/plantel/plantel.js?v=202609041500"></script>
+<script src="assets/plantel/plantel.js?v=202609161200"></script>
 </body>
 </html>

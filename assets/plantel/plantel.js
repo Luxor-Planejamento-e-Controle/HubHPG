@@ -103,7 +103,10 @@ const ST = {
   aba: 'plantel',
   sub: 'movimentacoes',
   ordem: {plantel: {col: null, dir: 1}, mov: {col: null, dir: 1}},
+  /* filtro por coluna = LISTA de valores marcados (seleção múltipla), não texto */
   filtros: {plantel: {}, mov: {}},
+  pop: null,        // {qual, col, busca, foco} — menu de filtro aberto
+  ctx: {},          // por aba: base sem filtro + como ler o texto de cada coluna
 };
 
 /* ---- sessão do hub ---- */
@@ -538,6 +541,7 @@ function topo(){
        congelada no mês anterior. */
     ST.ordem = {plantel: {col: null, dir: 1}, mov: {col: null, dir: 1}};
     ST.filtros = {plantel: {}, mov: {}};
+    ST.pop = null;
     pinta();
   };
   document.getElementById('arq').onchange = importa;
@@ -685,6 +689,103 @@ async function atribui(mes, k, dono){
   if (c) await c.from('plantel_snapshot').update({atribuicao: ST.atrib[mes]}).eq('mes', mes);
 }
 
+/* ---------- filtro por seleção (estilo planilha) ----------
+   Era uma caixa de texto por coluna: pra ver DOIS valores ao mesmo tempo
+   (garanhão e matriz, venda e morte) não havia jeito — texto casa um padrão só,
+   e ninguém adivinha a grafia exata do que está na célula. Agora cada coluna
+   abre a lista dos valores que existem nela, com caixa de seleção.
+   O menu mora FORA de #painel: o painel inteiro é redesenhado a cada marcação,
+   e um menu desenhado dentro dele morria no primeiro clique. */
+const temFiltro = qual => Object.values(ST.filtros[qual] || {}).some(v => v && v.length);
+
+/* aplica os filtros da aba. `pular` deixa uma coluna de fora — é assim que a
+   lista de uma coluna continua oferecendo os valores dela mesma depois de
+   marcar alguns (senão sobrava só o que já estava marcado, e não dava pra
+   ampliar a seleção sem limpar tudo). */
+function aplicaFiltros(itens, qual, txtDe, pular){
+  for (const [ci, sel] of Object.entries(ST.filtros[qual] || {})) {
+    const i = +ci;
+    if (!sel || !sel.length || i === pular) continue;
+    const set = new Set(sel);
+    itens = itens.filter(it => set.has(txtDe(it, i)));
+  }
+  return itens;
+}
+
+function opcoesDe(itens, qual, txtDe, ordDe, i){
+  const m = new Map();
+  for (const it of aplicaFiltros(itens, qual, txtDe, i)) {
+    const t = txtDe(it, i), o = m.get(t);
+    if (o) o.n++; else m.set(t, {n: 1, ord: ordDe(it, i)});
+  }
+  // valor marcado que sumiu da base continua na lista, senão não dá pra desmarcar
+  for (const v of ST.filtros[qual][i] || []) if (!m.has(v)) m.set(v, {n: 0, ord: v});
+  return [...m.entries()].sort((a, b) =>
+    typeof a[1].ord === 'number' && typeof b[1].ord === 'number'
+      ? a[1].ord - b[1].ord
+      : String(a[0]).localeCompare(String(b[0]), 'pt-BR', {numeric: true}));
+}
+
+function btnFiltro(qual, i, rot){
+  const sel = ST.filtros[qual][i] || [];
+  const um = String(sel[0] == null ? '' : sel[0]);
+  const rotulo = !sel.length ? 'todos'
+    : sel.length === 1 ? (um.length > 16 ? um.slice(0, 15) + '…' : um)
+    : sel.length + ' itens';
+  return `<button type="button" class="filtro-btn${sel.length ? ' on' : ''}" data-fb="${qual}:${i}"`
+    + ` title="filtrar ${esc(rot)}">${esc(rotulo)} <span class="seta">▾</span></button>`;
+}
+
+function pintaPop(){
+  const el = document.getElementById('fpop');
+  if (!el) return;
+  const ctx = ST.pop ? ST.ctx[ST.pop.qual] : null;
+  if (!ST.pop || !ctx) { el.hidden = true; el.innerHTML = ''; return; }
+  const {qual, col, busca} = ST.pop;
+  const opts = opcoesDe(ctx.base, qual, ctx.txtDe, ctx.ordDe, col);
+  const sel = new Set(ST.filtros[qual][col] || []);
+  const b = norm(busca || '');
+  const vis = b ? opts.filter(([t]) => norm(t).includes(b)) : opts;
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="fpop-cab">${esc(ctx.rotulos[col] || '')}</div>
+    <input class="fpop-busca" id="fpopBusca" placeholder="buscar…" value="${esc(busca || '')}">
+    <div class="fpop-acoes">
+      <button type="button" data-fpop="todos">marcar ${vis.length}</button>
+      <button type="button" data-fpop="nenhum">desmarcar</button>
+      <button type="button" data-fpop="fecha">fechar</button>
+    </div>
+    <div class="fpop-lista">${vis.map(([t, o]) =>
+      `<label><input type="checkbox" data-fv="${esc(t)}"${sel.has(t) ? ' checked' : ''}>`
+      + `<span class="fpop-txt">${esc(t) || '<i>(vazio)</i>'}</span>`
+      + `<span class="fpop-n">${o.n}</span></label>`).join('')
+      || '<div class="fpop-vazio">nada encontrado</div>'}</div>`;
+  posPop();
+  if (ST.pop.foco) {
+    const bs = document.getElementById('fpopBusca');
+    if (bs) { bs.focus(); bs.setSelectionRange(bs.value.length, bs.value.length); }
+  }
+}
+
+/* o menu é fixed e se pendura no botão da coluna; como o painel é redesenhado
+   inteiro a cada marcação, a posição é recalculada depois de cada pintura */
+function posPop(){
+  const el = document.getElementById('fpop');
+  if (!ST.pop || !el || el.hidden) return;
+  const b = document.querySelector(`[data-fb="${ST.pop.qual}:${ST.pop.col}"]`);
+  if (!b) { ST.pop = null; el.hidden = true; el.innerHTML = ''; return; }
+  const r = b.getBoundingClientRect(), larg = el.offsetWidth || 250, alt = el.offsetHeight || 300;
+  el.style.left = Math.max(6, Math.min(r.left, window.innerWidth - larg - 6)) + 'px';
+  el.style.top = Math.max(6, Math.min(r.bottom + 4, window.innerHeight - alt - 6)) + 'px';
+}
+
+function marcaValor(qual, col, valor, ligado){
+  const atual = new Set(ST.filtros[qual][col] || []);
+  if (ligado) atual.add(valor); else atual.delete(valor);
+  if (atual.size) ST.filtros[qual][col] = [...atual];
+  else delete ST.filtros[qual][col];
+}
+
 /* ---------- aba Plantel: todas as colunas, filtro e ordenação por coluna ---------- */
 /* Plantel: as colunas são as do arquivo, todas, na ordem dele. Filtro e
    ordenação por coluna, como na planilha. */
@@ -701,12 +802,9 @@ function painelPlantel(){
   // o plantel do mês é o do FECHAMENTO: linha tocada depois do dia 31 entra com
   // o valor do mês anterior (ver linhasEfetivas), senão a capa mostra um número
   // e o resumo contábil mostra outro
-  let linhas = linhasEfetivas(ST.mes).slice();
-  for (const [ci, txt] of Object.entries(ST.filtros.plantel)) {
-    if (!txt) continue;
-    const i = +ci, t = norm(txt);
-    linhas = linhas.filter(l => norm(fmtCel(l, i, d.cab[i])).includes(t));
-  }
+  const base = linhasEfetivas(ST.mes).slice();
+  ST.ctx.plantel = {base, txtDe: txtPl, ordDe: ordPl, rotulos: Object.fromEntries(cols)};
+  let linhas = aplicaFiltros(base, 'plantel', txtPl);
   if (ST.ordem.plantel.col != null) {
     const i = ST.ordem.plantel.col, dir = ST.ordem.plantel.dir, rot = d.cab[i];
     linhas.sort((a, b) => EH_NUM(rot)
@@ -719,12 +817,12 @@ function painelPlantel(){
       <span>${linhas.length} de ${d.linhas.length} linhas</span>
       <span>Carla: <b>${rs(somaEsc('hpg'))}</b></span>
       <span>Carla + Eduardo: <b>${rs(somaEsc('carla_eduardo'))}</b></span>
-      ${Object.values(ST.filtros.plantel).some(v => v) ? '<button type="button" id="limpaF">limpar filtros</button>' : ''}
+      ${temFiltro('plantel') ? '<button type="button" id="limpaF">limpar filtros</button>' : ''}
     </div>
     <div class="rolagem"><table class="t">
       <thead>
         <tr>${cols.map(([i, r]) => `<th data-ord="plantel:${i}" class="${EH_NUM(r) ? '' : 'l'}${ST.ordem.plantel.col === i ? ' ord' : ''}">${esc(r)}${ST.ordem.plantel.col === i ? (ST.ordem.plantel.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}<th class="l">Dono</th></tr>
-        <tr class="filtros-linha">${cols.map(([i]) => `<th><input data-f="plantel:${i}" value="${esc(ST.filtros.plantel[i] || '')}"></th>`).join('')}<th></th></tr>
+        <tr class="filtros-linha">${cols.map(([i, r]) => `<th>${btnFiltro('plantel', i, r)}</th>`).join('')}<th></th></tr>
       </thead>
       <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) =>
         `<td class="${EH_NUM(r) ? '' : 'l'}">${esc(fmtCel(l, i, r))}</td>`).join('')}
@@ -732,6 +830,17 @@ function painelPlantel(){
           ST.sugeridos[chaveCom(l, ix)] ? ' <span class="sug">confirmar</span>' : ''}</td></tr>`).join('')}</tbody>
     </table></div>`;
 }
+
+/* o texto da célula é o mesmo que a lista de filtro oferece — se as duas
+   strings divergirem, marcar um valor não acha linha nenhuma */
+const txtPl = (l, i) => {
+  const d = ST.meses[ST.mes];
+  return (d ? fmtCel(l, i, d.cab[i]) : '') || '—';
+};
+const ordPl = (l, i) => {
+  const d = ST.meses[ST.mes];
+  return d && EH_NUM(d.cab[i]) ? num(l[i]) : String(l[i] == null ? '' : l[i]);
+};
 
 function fmtCel(l, i, rotulo){
   const v = l[i];
@@ -777,6 +886,20 @@ const classeDe = m => {
   const d = ST.decisoes[`${ST.mes}|${m.chave}`];
   return d ? d.classe : m.sugestao;
 };
+// colunas que carregam movimento de patrimônio (ganham sinal e cor)
+const COLS_DELTA = ['Compras', 'Embriões', 'Venda', 'Morte/doação', 'Reavaliação'];
+
+/* o texto da célula é o mesmo que a lista de filtro oferece — se as duas
+   strings divergirem, marcar um valor não acha linha nenhuma */
+function txtMov(m, i){
+  const [rot, pega, ehNum] = COLS_MOV[i];
+  const v = pega(m);
+  if (!ehNum) return String(v == null ? '' : v) || '—';
+  if (rot === 'Cota') return pct(v);
+  if (COLS_DELTA.includes(rot)) return v ? rs(v) : '—';
+  return rs(v);
+}
+const ordMov = (m, i) => COLS_MOV[i][2] ? num(COLS_MOV[i][1](m)) : String(COLS_MOV[i][1](m) || '');
 
 function subMovimentacoes(){
   const mv = movimentacaoDoMes(ST.mes);
@@ -784,12 +907,10 @@ function subMovimentacoes(){
   if (!ST.meses[mesAnterior(ST.mes)]) {
     return `<div class="aviso">Importe também ${rotMes(mesAnterior(ST.mes))} para comparar os dois meses.</div>`;
   }
-  let movs = mv.movs.filter(m => m.no_escopo || m.dono);
-  for (const [ci, txt] of Object.entries(ST.filtros.mov)) {
-    if (!txt) continue;
-    const i = +ci, alvo = norm(txt), pega = COLS_MOV[i][1], ehNum = COLS_MOV[i][2];
-    movs = movs.filter(m => norm(ehNum ? String(pega(m)) : pega(m)).includes(alvo));
-  }
+  const base = mv.movs.filter(m => m.no_escopo || m.dono);
+  ST.ctx.mov = {base, txtDe: txtMov, ordDe: ordMov,
+                rotulos: Object.fromEntries(COLS_MOV.map(([rot], i) => [i, rot]))};
+  let movs = aplicaFiltros(base, 'mov', txtMov);
   if (ST.ordem.mov.col != null) {
     const i = ST.ordem.mov.col, dir = ST.ordem.mov.dir, pega = COLS_MOV[i][1], ehNum = COLS_MOV[i][2];
     movs = movs.slice().sort((a, b) => ehNum
@@ -802,10 +923,10 @@ function subMovimentacoes(){
   }, 0);
   return `
     <div class="resumo-linha">
-      <span>${movs.length} animais com movimentação em ${rotMes(ST.mes)}</span>
+      <span>${movs.length}${movs.length === base.length ? '' : ' de ' + base.length} animais com movimentação em ${rotMes(ST.mes)}</span>
       <span>registrados: <b>${movs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length}</b> de ${movs.length}</span>
       <span>Δ patrimônio: <b class="${clsN(movs.reduce((s, m) => s + m.delta, 0))}">${rs(movs.reduce((s, m) => s + m.delta, 0))}</b></span>
-      ${Object.values(ST.filtros.mov).some(v => v) ? '<button type="button" id="limpaFMov">limpar filtros</button>' : ''}
+      ${temFiltro('mov') ? '<button type="button" id="limpaFMov">limpar filtros</button>' : ''}
     </div>
     <div class="rolagem"><table class="t">
       <thead>
@@ -816,9 +937,8 @@ function subMovimentacoes(){
             // e no fim da tabela ela caía fora da tela
             return i === 0 ? th + '<th class="l">Registro</th>' : th;
           }).join('')}<th class="l">O que foi feito</th></tr>
-        <tr class="filtros-linha">${COLS_MOV.map((c, i) =>
-            `<th><input data-f="mov:${i}"${i === 0 ? '' : ''} value="${esc(ST.filtros.mov[i] || '')}"></th>`
-            + (i === 0 ? '<th></th>' : '')
+        <tr class="filtros-linha">${COLS_MOV.map(([rot], i) =>
+            `<th>${btnFiltro('mov', i, rot)}</th>` + (i === 0 ? '<th></th>' : '')
           ).join('')}<th></th></tr>
       </thead>
       <tbody>${movs.map(m => linhaMov(m)).join('')}
@@ -862,13 +982,11 @@ function linhaMov(m){
     + `⚠ ${m.posterior.length} ocorrência(s) posterior(es) ao mês — mantido o valor do mês anterior</span>`);
 
   const cels = COLS_MOV.map(([rot, pega, ehNum], i) => {
-    const v = pega(m);
+    const v = pega(m), t = esc(txtMov(m, i));
     let txt;
-    if (!ehNum) txt = esc(v || '') || '<span class="zero">—</span>';
-    else if (rot === 'Cota') txt = pct(v);
-    else if (['Compras', 'Embriões', 'Venda', 'Morte/doação', 'Reavaliação'].includes(rot))
-      txt = v ? `<span class="${clsN(v)}">${rs(v)}</span>` : '—';
-    else txt = rs(v);
+    if (!ehNum) txt = t === '—' ? '<span class="zero">—</span>' : t;
+    else if (COLS_DELTA.includes(rot)) txt = v ? `<span class="${clsN(v)}">${t}</span>` : '—';
+    else txt = t;
     const td = `<td class="${ehNum ? '' : 'l'}${i === 0 ? ' nome' : ''}"${
       i === 0 ? ` title="${esc(m.nome)}"` : ''}>${txt}</td>`;
     return i === 0 ? td + celReg : td;
@@ -1008,14 +1126,15 @@ function pinta(){
     `<button type="button" data-aba="${id}" class="${ST.aba === id ? 'on' : ''}">${t}</button>`).join('');
   const el = document.getElementById('painel');
   el.innerHTML = ST.aba === 'plantel' ? painelPlantel() : ST.aba === 'mov' ? painelMov() : painelResumo();
+  posPop();
 }
 
 function liga(){
   document.body.addEventListener('click', async e => {
     const aba = e.target.closest('[data-aba]');
-    if (aba) { ST.aba = aba.dataset.aba; pinta(); return; }
+    if (aba) { ST.aba = aba.dataset.aba; ST.pop = null; pintaPop(); pinta(); return; }
     const sub = e.target.closest('[data-sub]');
-    if (sub) { ST.sub = sub.dataset.sub; pinta(); return; }
+    if (sub) { ST.sub = sub.dataset.sub; ST.pop = null; pintaPop(); pinta(); return; }
     const ord = e.target.closest('[data-ord]');
     if (ord) {
       const [qual, ci] = ord.dataset.ord.split(':');
@@ -1023,8 +1142,33 @@ function liga(){
       ST.ordem[qual] = {col: i, dir: atual.col === i ? -atual.dir : 1};
       pinta(); return;
     }
-    if (e.target.id === 'limpaF') { ST.filtros.plantel = {}; pinta(); return; }
-    if (e.target.id === 'limpaFMov') { ST.filtros.mov = {}; pinta(); return; }
+    if (e.target.id === 'limpaF') { ST.filtros.plantel = {}; ST.pop = null; pinta(); return; }
+    if (e.target.id === 'limpaFMov') { ST.filtros.mov = {}; ST.pop = null; pinta(); return; }
+    const fb = e.target.closest('[data-fb]');
+    if (fb) {
+      const [qual, ci] = fb.dataset.fb.split(':');
+      const col = +ci;
+      ST.pop = (ST.pop && ST.pop.qual === qual && ST.pop.col === col)
+        ? null : {qual, col, busca: '', foco: true};
+      pintaPop(); return;
+    }
+    const fa = e.target.closest('[data-fpop]');
+    if (fa && ST.pop) {
+      const {qual, col} = ST.pop;
+      if (fa.dataset.fpop === 'fecha') { ST.pop = null; pintaPop(); return; }
+      if (fa.dataset.fpop === 'nenhum') delete ST.filtros[qual][col];
+      else {
+        // 'marcar' vale só pro que está visível na busca, que é o que se vê
+        const ctx = ST.ctx[qual], b = norm(ST.pop.busca || '');
+        const opts = opcoesDe(ctx.base, qual, ctx.txtDe, ctx.ordDe, col)
+          .map(([t]) => t).filter(t => !b || norm(t).includes(b));
+        ST.filtros[qual][col] = opts;
+      }
+      ST.pop.foco = false;
+      pinta(); pintaPop(); return;
+    }
+    // clique fora fecha o menu — sem engolir o clique, que pode ser de outro botão
+    if (ST.pop && !e.target.closest('#fpop')) { ST.pop = null; pintaPop(); }
     const dono = e.target.closest('[data-dono]');
     if (dono) {
       const [k, dn] = dono.dataset.dono.split(':');
@@ -1032,17 +1176,20 @@ function liga(){
       pinta(); return;
     }
   });
+  // a busca só encurta a lista do menu; a tabela não é redesenhada a cada tecla
   document.body.addEventListener('input', e => {
-    if (e.target.dataset.f != null) {
-      const pos = e.target.dataset.f, [qual, ci] = pos.split(':');
-      ST.filtros[qual][+ci] = e.target.value;
-      pinta();
-      // redesenho o painel inteiro a cada tecla, então devolvo o foco e o cursor
-      const novo = document.querySelector(`[data-f="${pos}"]`);
-      if (novo) { novo.focus(); novo.setSelectionRange(novo.value.length, novo.value.length); }
+    if (e.target.id === 'fpopBusca' && ST.pop) {
+      ST.pop.busca = e.target.value;
+      ST.pop.foco = true;
+      pintaPop();
     }
   });
   document.body.addEventListener('change', async e => {
+    if (e.target.dataset.fv != null && ST.pop) {
+      marcaValor(ST.pop.qual, ST.pop.col, e.target.dataset.fv, e.target.checked);
+      ST.pop.foco = false;
+      pinta(); pintaPop(); return;
+    }
     const reg = e.target.closest('[data-reg]');
     if (!reg) return;
     const mv = movimentacaoDoMes(ST.mes);
