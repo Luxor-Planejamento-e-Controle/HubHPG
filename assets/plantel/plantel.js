@@ -235,11 +235,38 @@ const mesAnterior = m => {
    coluna PLANTEL HPG dela é 65.100. Na soma de jul/2026 isso é a diferença entre
    15.942.120,21 (só cota×valor) e 15.970.552,71 — o saldo do Resumo Contábil
    liberado. */
+/* De quem é a LINHA, lido do próprio arquivo do haras. Regra dada pelo Arthur
+   em 16/09/2026, e ela dispensa mapa, coluna 'Dono' na tela e classificação
+   manual — tudo que eu tinha montado em volta disso era rodeio:
+
+     NOME com '(CARLA)' ou '(EDUARDO)'   manda. É o caso dos dois donos no MESMO
+                                         animal, que o haras lança como duas
+                                         linhas (LATINO DA PAO GRANDE (CARLA) e
+                                         LATINO DA PAO GRANDE (EDUARDO)).
+     SUFIXO 'DA PAO GRANDE' ou 'OUTRO'   Carla.
+     qualquer outro sufixo ('- E xx%')   Eduardo.
+
+   Conferido contra jul/2026: pela regra a Carla soma R$ 15.970.553, que é
+   exatamente o saldo do Resumo Contábil divulgado — o mesmo número que o mapa
+   dava, sem precisar do mapa. */
+function donoDaLinha(l, ix){
+  ix = ix || (ST.meses[ST.mes] && ST.meses[ST.mes].ix) || {};
+  const nome = norm(l[ix.nome]);
+  if (nome.includes('(CARLA)')) return 'hpg';
+  if (nome.includes('(EDUARDO)')) return 'eduardo';
+  const suf = norm(l[ix.sufixo]);
+  return (suf === 'DA PAO GRANDE' || suf === 'OUTRO') ? 'hpg' : 'eduardo';
+}
+
 function patr(l, escopo, ix, mes){
   ix = ix || (ST.meses[ST.mes] && ST.meses[ST.mes].ix) || {};
-  const a = donoDe(mes || ST.mes, chaveCom(l, ix));
+  const a = donoDaLinha(l, ix);
   if (escopo === 'hpg' && a !== 'hpg') return 0;
-  if (escopo === 'carla_eduardo' && a !== 'hpg' && a !== 'eduardo') return 0;
+  if (escopo === 'eduardo' && a !== 'eduardo') return 0;
+  /* 'carla_eduardo' não filtra nada de propósito: pela regra do sufixo TODA
+     linha do arquivo é de um dos dois, então a soma dos dois é o arquivo
+     inteiro. Antes existia um terceiro estado ('nenhum'), que era artefato de
+     animal que o mapa não cobria — sem mapa, ele deixa de existir. */
   return num(l[ix.cota]) * num(l[ix.valor]) + num(l[ix.comissao]);
 }
 /* Linhas do mês já descontando o que foi editado DEPOIS do fim do mês. O arquivo
@@ -859,19 +886,18 @@ function painelPlantel(){
     <div class="resumo-linha">
       <span>${linhas.length} de ${d.linhas.length} linhas</span>
       <span>Carla: <b>${rs(somaEsc('hpg'))}</b></span>
-      <span>Carla + Eduardo: <b>${rs(somaEsc('carla_eduardo'))}</b></span>
+      <span>Eduardo: <b>${rs(somaEsc('eduardo'))}</b></span>
+      <span>Carla + Eduardo: <b>${rs(somaEsc('hpg') + somaEsc('eduardo'))}</b></span>
     </div>
     ${chipsFiltro('plantel')}
     <div class="rolagem"><table class="t">
       <thead>
-        <tr>${cols.map(([i, r]) => cabFiltro('plantel', i, r, EH_NUM(r), ST.ordem.plantel)).join('')}<th class="l">Dono</th></tr>
+        <tr>${cols.map(([i, r]) => cabFiltro('plantel', i, r, EH_NUM(r), ST.ordem.plantel)).join('')}</tr>
       </thead>
       <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) => {
           const txt = fmtCel(l, i, r);
           return `<td class="${EH_NUM(r) ? '' : 'l'} cort" title="${esc(txt)}">${esc(txt)}</td>`;
-        }).join('')}
-        <td class="l">${ATRIB[donoDe(ST.mes, chaveCom(l, ix))] || '<span class="zero">—</span>'}${
-          ST.sugeridos[chaveCom(l, ix)] ? ' <span class="sug">confirmar</span>' : ''}</td></tr>`).join('')}</tbody>
+        }).join('')}</tr>`).join('')}</tbody>
     </table></div>`;
 }
 
