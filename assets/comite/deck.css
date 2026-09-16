@@ -124,7 +124,13 @@ body.play .slide{box-shadow:none;border:0}
 .agenda .it p{margin:0;font-size:13px;color:var(--ink-3);line-height:1.5}
 
 /* tabelas */
-table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;table-layout:fixed}
+/* `table-layout:fixed` repartia a largura em partes iguais, ignorando o
+   conteúdo: DOADORA, GARANHÃO e COMPRADOR saíam cortados em "JAVA DA PAO GRA…"
+   enquanto CT, VALOR e PGTO sobravam espaço na mesma linha. Com `auto` a coluna
+   pede o que o texto precisa — no slide de embriões vendidos isso são ~900px
+   dos 1280 disponíveis, então tudo cabe inteiro. A reticência do `td` continua
+   como último recurso, para a tabela que realmente não couber. */
+table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;table-layout:auto}
 table.t th{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
   text-align:right;padding:0 10px 8px;font-weight:600;border-bottom:1px solid var(--line-2);white-space:nowrap}
 table.t th:first-child,table.t td:first-child{text-align:left}
