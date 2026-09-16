@@ -104,8 +104,18 @@ def num(v):
     return None if pd.isna(f) else f
 
 
-def pend(n, titulo, sub, fonte, motivo):
-    return {"t": "pendente", "n": n, "titulo": titulo, "sub": sub, "fonte": fonte, "motivo": motivo}
+def pend(n, titulo, sub, fonte, motivo, edita=None):
+    """Slide sem conteúdo ainda.
+
+    `edita` diz QUAL editor abre esse slide quando ele é de conteúdo humano
+    (comentários, exposições, manejo, fotos). Sem isso o deck marcava o slide
+    como `t="pendente"` e o botão Editar ficava apagado — o slide só virava
+    editável DEPOIS de já ter conteúdo, que é o contrário do que se precisa:
+    quem abre o deck vazio é justamente quem vai escrever."""
+    s = {"t": "pendente", "n": n, "titulo": titulo, "sub": sub, "fonte": fonte, "motivo": motivo}
+    if edita:
+        s["edita"] = edita
+    return s
 
 
 def brl_curto(v):
@@ -1080,7 +1090,8 @@ def slide_comentarios(c, m, ano):
     titulo = f"COMENTÁRIOS — {MESES[m-1].upper()} {ano}"
     if not itens:
         return pend(8, titulo, "Principais destaques do mês por categoria",
-                    "_docs/comite_conteudo.json → comentarios", FALTA_CONTEUDO)
+                    "_docs/comite_conteudo.json → comentarios", FALTA_CONTEUDO,
+                    edita="comentarios")
     return {"t": "comentarios", "n": 8, "titulo": titulo,
             "sub": "DRE 2026 | HPG · principais destaques do mês por categoria",
             "itens": itens}
@@ -1096,14 +1107,16 @@ def slides_exposicoes(c, ano):
                     "cols": ["EVENTO", "DATA", "LOCAL", "STATUS"], "rows": prog})
     else:
         out.append(pend(23, f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO", "Calendário de participações",
-                        "_docs/comite_conteudo.json → exposicoes.programacao", FALTA_CONTEUDO))
+                        "_docs/comite_conteudo.json → exposicoes.programacao", FALTA_CONTEUDO,
+                        edita="exposicoes"))
     if res:
         for k, r in enumerate(res):
             out.append({"t": "resultados", "n": 24 + k, "titulo": r["titulo"],
                         "sub": r.get("sub", ""), "animais": r["animais"]})
     else:
         out.append(pend(24, "RESULTADOS DAS EXPOSIÇÕES", "Animais, títulos e colocações",
-                        "_docs/comite_conteudo.json → exposicoes.resultados", FALTA_CONTEUDO))
+                        "_docs/comite_conteudo.json → exposicoes.resultados", FALTA_CONTEUDO,
+                        edita="exposicoes"))
     return out
 
 
@@ -1111,7 +1124,8 @@ def slide_manejo(c, m, ano):
     itens = c.get("manejo") or []
     if not itens:
         return pend(38, "MANEJO — PONTOS DE MELHORIA E DECISÕES", "Histórico de intervenções",
-                    "_docs/comite_conteudo.json → manejo", FALTA_CONTEUDO)
+                    "_docs/comite_conteudo.json → manejo", FALTA_CONTEUDO,
+                    edita="manejo")
     return {"t": "manejo", "n": 38, "titulo": "MANEJO — PONTOS DE MELHORIA E DECISÕES",
             "sub": f"Histórico de intervenções Jan–{ABR[m-1]} {ano}", "itens": itens}
 

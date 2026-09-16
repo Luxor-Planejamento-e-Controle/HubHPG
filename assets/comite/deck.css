@@ -197,6 +197,10 @@ table.t tr:not(.tot):not(.sub) td{color:var(--ink-2)}
 
 /* estado vazio — centralizado num cartão, não jogado no canto esquerdo */
 .vazio{height:100%;display:grid;place-items:center;text-align:center}
+.vazio-btn{margin-top:18px;background:var(--amber);color:#1a1300;border:0;border-radius:9px;
+  padding:9px 20px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.vazio-btn:hover{background:#b98803}
+.vazio-nota{color:var(--ink-3);font-size:12px;margin-top:14px}
 .vazio .box{max-width:640px;padding:34px 40px;border:1px dashed var(--line-2);border-radius:16px;
   background:rgba(10,48,80,.45)}
 .vazio .glyph{font-size:34px;line-height:1;color:var(--line-2);margin-bottom:16px}

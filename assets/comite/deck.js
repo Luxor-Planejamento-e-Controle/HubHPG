@@ -169,9 +169,35 @@ const R = {
     s.fotos.map(f => `<div class="f" style="background-image:url('${f}')"></div>`).join('') +
     `</div></div>`,
 
-  pendente: s => head(s) + `<div class="s-body">` +
-    vazio('◇', 'slide em aberto', s.titulo, s.sub || '', s.fonte, s.motivo) + `</div>`,
+  pendente: s => head(s) + `<div class="s-body">` + (editorDe(s)
+    ? vazioEditavel(s)
+    : vazio('◇', 'slide em aberto', s.titulo, s.sub || '', s.fonte, s.motivo)) + `</div>`,
 };
+
+/* Slide de conteúdo humano ainda vazio. O cartão antigo dizia "base que vai
+   alimentar: _docs/comite_conteudo.json → comentarios" e "por que ainda não tem:
+   escreva o conteúdo desse mês pelo hub" — caminho de arquivo e instrução
+   genérica, nenhum dos dois acionável de dentro do deck. Aqui o slide diz o que
+   falta e abre o editor no clique; quem não é editor vê só o aviso. */
+const NOMES_EDITOR = {
+  comentarios: 'os comentários',
+  manejo: 'os pontos de manejo e decisões',
+  exposicoes: 'as exposições',
+  fotos: 'as fotos',
+};
+
+function vazioEditavel(s){
+  const oque = NOMES_EDITOR[editorDe(s)] || 'o conteúdo';
+  return `<div class="vazio"><div class="box">
+    <div class="glyph">✎</div>
+    <span class="tag">a escrever</span>
+    <h2>${esc(s.titulo)}</h2>
+    <p>Ainda não há ${esc(oque)} deste mês.</p>
+    ${souEditor
+      ? `<button type="button" class="vazio-btn" data-abrir-editor="1">Escrever agora</button>`
+      : `<p class="vazio-nota">Quem edita o comitê pode preencher direto por aqui.</p>`}
+  </div></div>`;
+}
 
 /* Estado vazio comum aos dois casos — cartão centralizado, e não um bloco de
    texto solto no meio do slide, que era como ficava antes. */
@@ -206,7 +232,20 @@ const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho',
 const ABR_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const TIPOS_EDITAVEIS = new Set(['comentarios', 'manejo', 'fotos', 'resultados']);
 const ehExposicaoProg = s => s.t === 'tabela' && s.n === 23;
-const ehEditavel = s => TIPOS_EDITAVEIS.has(s.t) || ehExposicaoProg(s);
+
+/* Qual editor abre este slide, ou null se não é de conteúdo humano.
+
+   Slide vazio vem como t="pendente" e antes caía fora daqui — o Editar ficava
+   apagado justamente no slide que precisa ser escrito. Agora o pendente carrega
+   `edita` (posto pelo build) dizendo que editor ele quer. */
+const editorDe = s => {
+  if (!s) return null;
+  if (s.t === 'pendente') return s.edita || null;
+  if (s.t === 'resultados') return 'exposicoes';
+  if (ehExposicaoProg(s)) return 'exposicoes';
+  return TIPOS_EDITAVEIS.has(s.t) ? s.t : null;
+};
+const ehEditavel = s => !!editorDe(s);
 
 function hubSb(){ try { return window.parent.HUB && window.parent.HUB.sb; } catch (e) { return null; } }
 function hubEmail(){ try { return window.parent.HUB && window.parent.HUB.email; } catch (e) { return null; } }
@@ -229,6 +268,9 @@ async function checaEditor(){
   }
   const btn = document.getElementById('editar');
   if (btn) btn.hidden = !souEditor;
+  /* o slide vazio mostra o botao 'Escrever agora' so pra quem edita, e quem
+     edita so se sabe DEPOIS desta consulta — entao repinta o slide atual */
+  if (souEditor && typeof render === 'function' && slides.length) render();
 }
 
 const conteudoCache = {};   // {mes: linha do Supabase | null} — invalidado ao salvar
@@ -380,24 +422,25 @@ async function abreEditor(s){
   document.getElementById('edSalvar').disabled = true;
   const c = (await buscaConteudoAoVivo(mesAtual)) || {};
 
-  if (s.t === 'comentarios') {
+  const alvo = editorDe(s);
+  if (alvo === 'comentarios') {
     tipoAtual = 'comentarios';
     estado = JSON.parse(JSON.stringify(c.comentarios || []));
     document.getElementById('edTitulo').textContent = `Comentários — ${SPEC.labels[mesAtual]}`;
     renderComentarios();
-  } else if (s.t === 'manejo') {
+  } else if (alvo === 'manejo') {
     tipoAtual = 'manejo';
     estado = JSON.parse(JSON.stringify(c.manejo || []));
     document.getElementById('edTitulo').textContent = `Manejo — ${SPEC.labels[mesAtual]}`;
     renderManejo();
-  } else if (ehExposicaoProg(s) || s.t === 'resultados') {
+  } else if (alvo === 'exposicoes') {
     tipoAtual = 'exposicoes';
     const exp = c.exposicoes || {};
     estado = {programacao: JSON.parse(JSON.stringify(exp.programacao || [])),
               resultados: JSON.parse(JSON.stringify(exp.resultados || []))};
     document.getElementById('edTitulo').textContent = `Exposições — ${SPEC.labels[mesAtual]}`;
     renderExposicoes();
-  } else if (s.t === 'fotos') {
+  } else if (alvo === 'fotos') {
     tipoAtual = 'fotos';
     const fotos = c.fotos || [];
     estado = JSON.parse(JSON.stringify(
@@ -1028,6 +1071,10 @@ document.getElementById('pdf').onclick = exportarPdf;
 document.getElementById('pptx').onclick = e => exportarPptx(e.currentTarget);
 
 document.getElementById('editar').onclick = () => abreEditor(slides[idx]);
+/* mesmo editor, chamado do cartao do slide vazio */
+document.body.addEventListener('click', e => {
+  if (e.target.closest('[data-abrir-editor]')) abreEditor(slides[idx]);
+});
 
 const alvo = /^#([\d-]+)\/(\d+)$/.exec(location.hash);
 if (alvo && SPEC.decks[alvo[1]]) { idx = +alvo[2] - 1; mesAtual = alvo[1]; }
