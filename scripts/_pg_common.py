@@ -136,10 +136,27 @@ def _iter_source_files(source_root: Path = SOURCE_ROOT):
 def _score_candidate(path: Path) -> tuple:
     """Ordenação para escolher entre múltiplos arquivos do mesmo mês.
     Maior é melhor:
-      1) tem REAVALIAÇÃO no nome
-      2) mtime mais recente
+      1) NÃO é cópia de trabalho ('EDITAR ...')
+      2) tem REAVALIAÇÃO no nome
+      3) mtime mais recente
+
+    O critério 1 entrou em 16/09/2026. O mesmo mês vive em duas cópias irmãs:
+    `260901_CONTROLE_..._AGO_26.xlsx` é o FECHAMENTO, congelado, e
+    `260901_EDITAR OUTUBRO_CONTROLE_..._AGO_26.xlsx` é onde o haras lança o que
+    acontece AGORA. Como a cópia de trabalho é salva toda hora, o mtime dela é
+    sempre o mais novo e ela vencia — o `base_bi` de agosto saía com movimento
+    de setembro dentro, enquanto o slide 37 do comitê, que lê o congelado,
+    mostrava o fechamento. Dois números para o mesmo mês, no mesmo deck.
+
+    É a mesma regra que PGSemanalReport._latest_no_plantel descreve pelo avesso:
+    o semanal quer o estado de HOJE e por isso prefere a cópia de trabalho; o
+    fechamento mensal quer o mês fechado. Aqui é fechamento.
+
+    Fica como ordenação, não como filtro: mês ainda em andamento pode só ter a
+    cópia de trabalho, e aí ela é melhor que erro de arquivo não encontrado.
     """
-    return ("REAVALIA" in path.name.upper(), path.stat().st_mtime)
+    nome = path.name.upper()
+    return ("EDITAR" not in nome, "REAVALIA" in nome, path.stat().st_mtime)
 
 
 def find_source_files(mes: MesRef, source_root: Path = SOURCE_ROOT) -> list[Path]:
