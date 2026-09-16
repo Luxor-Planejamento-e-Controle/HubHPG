@@ -1057,7 +1057,8 @@ def _receptoras_por_local(src: Path | None = None) -> dict:
 
 
 def headcount_de(plantel_src: Path | None = None,
-                 receptoras_src: Path | None = None) -> tuple[dict, list[str]]:
+                 receptoras_src: Path | None = None,
+                 quando: date | None = None) -> tuple[dict, list[str]]:
     """Headcount por bucket a partir de UM par de arquivos (roster + receptoras).
 
     Separado de `build_headcount` porque o comitê precisa do mesmo número para um
@@ -1071,7 +1072,7 @@ def headcount_de(plantel_src: Path | None = None,
     #    funcionava porque a planilha semanal já vinha curada. Com o roster mensal
     #    isso contaria vendido, morto, embrião e a linha repetida por cotista.
     animais: dict[str, int] = {}
-    for linha in _plantel_por_status(plantel_src)["linhas"]:
+    for linha in _plantel_por_status(plantel_src, quando)["linhas"]:
         local = _norm(linha["local"])
         if not local:
             continue
@@ -1425,10 +1426,21 @@ def _status_conta(status) -> bool:
 # na atualização semanal já não o tem. Cada fechamento imprime um aviso, e a
 # entrada sai daqui no dia em que a origem for corrigida — override permanente
 # esconde erro de cadastro em vez de resolver.
+# Cada entrada guarda A PARTIR DE QUANDO vale. O fechamento semanal é o estado de
+# HOJE e usa todas, sempre — é o comportamento de sempre e não muda. A data existe
+# para quem reconstrói um mês PASSADO (o comitê): uma saída de 04/09/2026 não pode
+# apagar animal do fechamento de junho, onde a linha estava certa.
 FORA_NA_MAO = {
-    "MINEIRO DA PAO GRANDE":
-        "saiu do plantel (Ana, 04/09/2026); linha ainda diz PLANTEL / ARRENDAMENTO",
+    "MINEIRO DA PAO GRANDE": (
+        date(2026, 9, 4),
+        "saiu do plantel (Ana, 04/09/2026); linha ainda diz PLANTEL / ARRENDAMENTO"),
 }
+
+
+def _overrides_validos(quando: date | None = None) -> dict:
+    """{NOME: motivo}. `quando=None` (padrão) = todos, que é o que o semanal quer."""
+    return {_norm(k): motivo for k, (desde, motivo) in FORA_NA_MAO.items()
+            if quando is None or quando >= desde}
 # Categoria que não é animal do headcount: embrião não nasceu; receptora é contada
 # pela planilha de receptoras, e somar aqui duplicaria.
 CATEGORIAS_FORA_DO_HEADCOUNT = ("EMBRIAO", "RECEPTORA")
@@ -1515,11 +1527,13 @@ def _fora_linha(acc: list, r, L, motivo: str):
         "motivo": motivo})
 
 
-def _plantel_por_status(src: Path | None = None) -> dict:
+def _plantel_por_status(src: Path | None = None, quando: date | None = None) -> dict:
     """Roster do plantel a partir do CONTROLE_DE_PLANTEL mensal, na pasta PLANTEL.
 
-    `src` explícito serve pra reconstruir um mês PASSADO (o comitê pede o
-    fechamento do mês do deck, não o estado de hoje); sem ele, vale o de sempre.
+    `src` e `quando` servem pra reconstruir um mês PASSADO (o comitê pede o
+    fechamento do mês do deck, não o estado de hoje). Sem eles — que é como o
+    fechamento semanal chama —, nada muda: arquivo mais recente e todos os
+    overrides de FORA_NA_MAO.
 
     Antes vinha do `CONTROLE PLANTEL.xlsx` da pasta ATUALIZACAO SEMANAL, que é de
     divulgação. As regras estão no cabeçalho do commit e resumidas abaixo; cada uma
@@ -1533,6 +1547,7 @@ def _plantel_por_status(src: Path | None = None) -> dict:
     wb = _load(src)
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
+    overrides = _overrides_validos(quando)
     vistos, linhas, descartadas = {}, [], []
     fora = {"status": 0, "categoria": 0, "duplicado": 0}
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
@@ -1545,7 +1560,7 @@ def _plantel_por_status(src: Path | None = None) -> dict:
             fora["status"] += 1
             _fora_linha(descartadas, r, L, "status fora do plantel")
             continue
-        if _norm(_sem_cotista(nome)) in {_norm(k) for k in FORA_NA_MAO}:
+        if _norm(_sem_cotista(nome)) in overrides:
             fora["na_mao"] = fora.get("na_mao", 0) + 1
             _fora_linha(descartadas, r, L, "override manual (ver FORA_NA_MAO)")
             continue
@@ -1590,7 +1605,7 @@ def _plantel_por_status(src: Path | None = None) -> dict:
     if fora.get("na_mao"):
         print(f"  [marretada] {fora['na_mao']} linha(s) fora da contagem por override "
               f"manual — corrigir na origem e apagar de FORA_NA_MAO:")
-        for k, motivo in FORA_NA_MAO.items():
+        for k, motivo in overrides.items():
             print(f"    - {k}: {motivo}")
     compra_pend = fora.get("compra_nao_entregue", 0)
     extra = f", {compra_pend} compra(s) ainda não entregue(s)" if compra_pend else ""

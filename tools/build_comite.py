@@ -509,8 +509,12 @@ def slide_contagem(m, ano):
     rec = _receptoras_do_fechamento(src)
     if rec is not None:
         _registra("receptoras do fechamento", rec)
+    # último dia do mês do deck: override registrado DEPOIS disso não vale aqui
+    # (o de 04/09/2026 não pode apagar animal do fechamento de junho). O semanal
+    # não passa data e segue com todos, como sempre.
+    fim_do_mes = date(ano + m // 12, m % 12 + 1, 1) - timedelta(days=1)
     try:
-        hc, _ = headcount_de(src, rec)
+        hc, _ = headcount_de(src, rec, fim_do_mes)
     except Exception as e:
         return pend(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
                     f"{MESES[m-1].upper()} {ano}", src.name, f"não consegui contar: {e}")
