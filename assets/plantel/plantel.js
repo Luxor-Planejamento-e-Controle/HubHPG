@@ -18,7 +18,7 @@
 
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const CLASSES_MOV = ['compra', 'embriao', 'venda', 'morte', 'doacao', 'reavaliacao',
-                     'titularidade', 'renome', 'sem_efeito'];
+                     'renome', 'sem_efeito'];
 /* Mesmo corte do banco (plantel_mes_fechado): mês fechado não recebe registro.
    O RLS já recusava, mas calado — a tela oferecia o select e o erro só aparecia
    depois de escolher. */
@@ -415,8 +415,7 @@ function movimentacaoDoMes(mes){
       mudou_local: mudouLocal ? [a[ixa.local], b[ixb.local]] : null,
       log: itensLog, posterior,
       sugestao: sugere({q0, q1, v0, v1, p0, p1, ren, entrou: !a, saiu: !b, status: stB || stA,
-                        categoria: norm(linha[ixL.categoria]), itensLog,
-                        mudouDono: donoAnt !== dono}),
+                        categoria: norm(linha[ixL.categoria]), itensLog}),
       no_escopo: noEscopo(linha),
     });
   }
@@ -451,17 +450,16 @@ function cancelamento(oc){
    cota × valor + comissão — olhar só cota e valor deixava mudança de comissão
    como 'sem_efeito'. Juntas, as duas falhas jogavam R$ 241 mil de janeiro/26
    em causas que o resumo não tem linha pra mostrar. */
-function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, itensLog, mudouDono}){
+function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, itensLog}){
   const st = status || '', cat = categoria || '';
   const oc = norm((itensLog || []).map(x => x.ocorrencia).join(' '));
   const mexeu = Math.abs((p1 || 0) - (p0 || 0)) >= 0.01;
-  /* Sai do saldo da Carla sem venda: o animal continua o mesmo, com a mesma
-     cota e o mesmo valor, e só a titularidade mudou. É dinheiro e precisa de
-     linha própria — em jan/26 são R$ 220 mil de 8 animais que o mapa de
-     dez/25 conta como dela e o de jan/26 não. Vem ANTES do renome: quem
-     trocou de nome e de dono no mesmo mês tinha o dinheiro engolido pela
-     sugestão 'renome', que não tem linha no resumo (R$ 24 mil em jan/26). */
-  if (mudouDono && !mexeu) return 'titularidade';
+  /* Animal que troca de dono entre um mapa e outro SEM mudar cota nem valor
+     não é evento contábil: o fechamento nunca teve essa causa. O que existe é
+     diferença de atribuição entre os dois mapas (jan/26: 9 animais que o mapa
+     de dez/25 conta como da Carla e o de jan/26 não), e isso se resolve no
+     mapa, não virando linha no resumo. Cai em 'sem_efeito' e aparece na coluna
+     'O que foi feito' como troca de dono. */
   if (ren && !mexeu) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
   if (saiu || (q0 && !q1)) {
@@ -483,7 +481,10 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
   return 'sem_efeito';
 }
 
-/* ================= resumo contábil (YTD, só Carla) ================= */
+/* ================= resumo contábil (YTD, só Carla) =================
+   As linhas são AS DA PLANILHA, na mesma ordem e com os mesmos rótulos da aba
+   `Resumo Contabil` do mapa (ver tools/seed_plantel_hub.py). O hub reproduz o
+   fechamento que já era feito; linha que a planilha não tem, aqui não entra. */
 const LINHAS_RESUMO = [
   ['Saldo inicial', null],
   ['(+) Compras', ['compra']],
@@ -491,7 +492,6 @@ const LINHAS_RESUMO = [
   ['(−) Baixa vendas', ['venda']],
   ['(−) Baixa mortes e doações', ['morte', 'doacao']],
   ['(+/−) Reavaliações', ['reavaliacao']],
-  ['(+/−) Mudança de titularidade', ['titularidade']],
   ['Saldo final', null],
 ];
 
@@ -1064,8 +1064,9 @@ function subChecks(){
   /* Confronto com o que foi divulgado. Vem junto com o mês (aba Resumo Contabil
      do mapa) porque é o número que valeu, e não se reproduz de trás pra frente.
      De mar/26 a jul/26 bate em R$ 0. Os dois meses que não batem são da fonte:
-       jan/26  -257.425 = -8.925 (base dez/25) -244.000 (titularidade: 9 animais
-               que o mapa de dez/25 conta como da Carla e o de jan/26 não)
+       jan/26  -257.425 = -8.925 (base dez/25) -244.000 (atribuição: 9 animais
+               que o mapa de dez/25 conta como da Carla e o de jan/26 não —
+               diferença entre os dois mapas, não movimentação do mês)
                -9.000 (reavaliação) -3.000 (compra) +7.500 (embrião);
        fev/26   -1.500 = OASIS DA PAO GRANDE, cuja ocorrência está datada
                09/nov/2026 no arquivo de fevereiro e 09/fev/2026 no de março —
