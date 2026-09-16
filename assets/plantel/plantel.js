@@ -655,21 +655,36 @@ function normalizaSnapshot(r){
 const balde = () => { try { return window.parent.HUB_BUCKET || 'hpg-data'; } catch (e) { return 'hpg-data'; } };
 const arqDoMes = m => `plantel.${m}.json`;
 
-async function baixaMes(mes){
+/* Assina TODOS os meses pedidos numa chamada e baixa em paralelo.
+
+   Era uma `createSignedUrl` por mês, e cada uma é uma ida ao servidor: abrir a
+   aba virava lista + 2 assinaturas + 2 downloads, em série. Isso ficou MAIS
+   lento que a consulta única de antes, mesmo trazendo um oitavo do dado — o
+   custo aqui é número de idas e voltas, não byte. Com `createSignedUrls` (no
+   plural) é uma assinatura só para todos. */
+async function baixaMeses(lista){
   const c = sb();
-  if (!c) return null;
+  if (!c || !lista.length) return {};
+  const out = {};
   try {
-    const { data: signed, error } = await c.storage.from(balde())
-      .createSignedUrl(arqDoMes(mes), 60);
-    if (error || !signed) return null;
-    /* cache-busting pelo mesmo motivo do porteiro: o CDN na frente do bucket
-       serve HIT mesmo com 'no-store' no objeto, e um mês reimportado podia ficar
-       preso na borda parecendo cache do navegador. */
-    const url = signed.signedUrl + (signed.signedUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
-    const res = await fetch(url, {cache: 'no-store'});
-    if (!res.ok) return null;
-    return normalizaSnapshot(await res.json());
-  } catch (e) { return null; }
+    const { data, error } = await c.storage.from(balde())
+      .createSignedUrls(lista.map(arqDoMes), 60);
+    if (error || !data) return out;
+    await Promise.all(data.map(async it => {
+      if (!it || it.error || !it.signedUrl) return;
+      const m = /plantel\.(\d{4}-\d{2})\.json/.exec(it.path || '');
+      if (!m) return;
+      /* cache-busting pelo mesmo motivo do porteiro: o CDN na frente do bucket
+         serve HIT mesmo com 'no-store' no objeto, e um mês reimportado podia
+         ficar preso na borda parecendo cache do navegador. */
+      const url = it.signedUrl + (it.signedUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+      try {
+        const res = await fetch(url, {cache: 'no-store'});
+        if (res.ok) out[m[1]] = normalizaSnapshot(await res.json());
+      } catch (e) { /* esse mês cai pro fallback da tabela */ }
+    }));
+  } catch (e) { /* idem */ }
+  return out;
 }
 
 async function baixaMesDaTabela(mes){
@@ -687,8 +702,12 @@ async function baixaMesDaTabela(mes){
 async function garanteMeses(lista){
   const faltam = [...new Set(lista)].filter(m => m && !ST.meses[m]);
   if (!faltam.length) return;
-  await Promise.all(faltam.map(async m => {
-    const d = await baixaMes(m) || await baixaMesDaTabela(m);
+  const doBucket = await baixaMeses(faltam);
+  Object.assign(ST.meses, doBucket);
+  // só quem não tem arquivo vai à tabela (mês antigo, antes do backfill)
+  const resto = faltam.filter(m => !ST.meses[m]);
+  await Promise.all(resto.map(async m => {
+    const d = await baixaMesDaTabela(m);
     if (d) ST.meses[m] = d;
   }));
 }
@@ -708,11 +727,16 @@ async function listaMeses(){
       const m = /^plantel\.(\d{4}-\d{2})\.json$/.exec(o.name || '');
       if (m) achados.add(m[1]);
     }
-  } catch (e) { /* sem listagem, a tabela resolve */ }
-  try {
-    const { data } = await c.from('plantel_snapshot').select('mes');
-    for (const r of data || []) achados.add(r.mes);
-  } catch (e) { /* idem */ }
+  } catch (e) { /* sem listagem, a tabela resolve abaixo */ }
+  /* A tabela só é consultada quando o bucket não devolveu nada: depois do
+     backfill ela diria exatamente o mesmo, e a consulta extra custava uma ida e
+     volta na abertura de toda sessão. */
+  if (!achados.size) {
+    try {
+      const { data } = await c.from('plantel_snapshot').select('mes');
+      for (const r of data || []) achados.add(r.mes);
+    } catch (e) { /* idem */ }
+  }
   return [...achados].sort();
 }
 
@@ -1016,6 +1040,13 @@ function subMovimentacoes(){
     return s + ((dec ? dec.classe : m.sugestao) === k ? m.delta : 0);
   }, 0);
   return `
+    ${mesFechado(ST.mes) ? `<div class="aviso">
+      <b>${rotMes(ST.mes)} está fechado.</b> Mês fechado não recebe registro — o banco
+      recusa a gravação, e por isso os seletores da coluna Registro estão desativados.
+      O corte está em ${rotMes(FECHADO_ATE)} (constante <code>FECHADO_ATE</code> e função
+      <code>plantel_mes_fechado</code> no banco; mudar exige as duas).
+      Para fechar um mês novo, importe o arquivo dele em <b>Importar arquivo</b>.
+    </div>` : ''}
     <div class="resumo-linha">
       <span>${movs.length}${movs.length === base.length ? '' : ' de ' + base.length} animais com movimentação em ${rotMes(ST.mes)}</span>
       <span>registrados: <b>${movs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length}</b> de ${movs.length}</span>
@@ -1217,12 +1248,17 @@ function liga(){
   document.body.addEventListener('click', async e => {
     const aba = e.target.closest('[data-aba]');
     if (aba) {
-      ST.aba = aba.dataset.aba; ST.pop = null; pintaPop(); pinta();
-      // o resumo é YTD: só ele precisa de todos os meses, e paga por isso ao abrir
-      if (ST.aba === 'resumo' && ST.disponiveis.length > Object.keys(ST.meses).length) {
+      ST.aba = aba.dataset.aba; ST.pop = null; pintaPop();
+      /* O resumo é YTD: precisa de TODOS os meses. Pintar antes de carregar
+         mostrava um resumo com um mês só — o único que estava na memória —, que
+         se corrigia sozinho no clique seguinte e parecia filtro quebrado. Agora
+         avisa que está carregando e só desenha com o ano inteiro na mão. */
+      if (ST.aba === 'resumo' && ST.disponiveis.some(m => !ST.meses[m])) {
+        document.getElementById('painel').innerHTML =
+          '<div class="aviso">Carregando os meses do ano para o resumo…</div>';
         await garanteMeses(ST.disponiveis);
-        pinta();
       }
+      pinta();
       return;
     }
     const sub = e.target.closest('[data-sub]');
@@ -1305,6 +1341,11 @@ function liga(){
   ST.disponiveis = await listaMeses();
   ST.mes = ST.disponiveis[ST.disponiveis.length - 1] || null;
   topo(); liga(); pinta();              // pinta já, mesmo sem o mês na mão
-  await Promise.all([garantePar(ST.mes), carregaDecisoes()]);
-  topo(); pinta();
+  /* O mês pedido primeiro e sozinho: é o que a aba Plantel precisa pra mostrar
+     alguma coisa. O mês ANTERIOR só serve pra aba Movimentações comparar, então
+     entra depois, sem segurar a primeira pintura. */
+  await garanteMeses([ST.mes]);
+  pinta();
+  garanteMeses([mesAnterior(ST.mes)]).then(pinta);
+  carregaDecisoes().then(pinta);
 })();

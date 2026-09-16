@@ -114,7 +114,9 @@ h3 .cont{display:inline-block;margin-left:6px;font-size:11px;background:var(--li
   border-radius:7px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer}
 .item .acoes button:hover{border-color:var(--amber);color:var(--amber)}
 .aviso{background:rgba(202,151,3,.1);border:1px solid rgba(202,151,3,.3);border-radius:9px;
-  padding:12px 14px;font-size:12.5px;color:var(--ink-2)}
+  padding:12px 14px;font-size:12.5px;color:var(--ink-2);margin-bottom:12px;line-height:1.5}
+.aviso b{color:var(--ink)}
+.aviso code{background:var(--card);border-radius:4px;padding:1px 5px;font-size:11.5px}
 .ok-vazio{color:var(--pos);font-size:13px;padding:10px 0}
 .tag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-radius:20px;padding:2px 9px;
   border:1px solid var(--line);color:var(--ink-2)}
