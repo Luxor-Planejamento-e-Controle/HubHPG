@@ -35,22 +35,33 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font)
 .resumo-linha button{background:transparent;border:1px solid var(--line);color:var(--ink-2);
   border-radius:7px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
 
-table.t{width:auto;min-width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:12.5px}
-table.t th{text-align:right;padding:6px 9px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+table.t{width:auto;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:12.5px}
+table.t th{text-align:right;padding:6px 7px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;
   color:var(--ink-3);border-bottom:1px solid var(--line-2);white-space:nowrap;background:var(--bg);
   position:sticky;top:0;cursor:pointer;-webkit-user-select:none;user-select:none}
 table.t th:hover{color:var(--ink)}
 table.t th.ord{color:var(--amber)}
-table.t tr.filtros-linha th{top:27px;padding:3px 5px;cursor:auto}
+/* o ícone de filtro fica na MESMA linha do nome: nada de linha extra de altura */
+.th-in{display:inline-flex;align-items:center;gap:4px;max-width:100%}
+table.t th.l .th-in{justify-content:flex-start}
+.th-rot{overflow:hidden;text-overflow:ellipsis}
+.fbtn{flex:none;background:transparent;border:0;color:var(--ink-3);cursor:pointer;
+  font:inherit;font-size:11px;line-height:1;padding:2px 3px;border-radius:4px;opacity:.55}
+.fbtn:hover{color:var(--ink);background:var(--card);opacity:1}
+.fbtn.on{color:var(--amber);opacity:1}
 
-/* filtro por seleção: botão na coluna + menu com as caixas de seleção */
-.filtro-btn{width:100%;min-width:76px;max-width:170px;display:flex;align-items:center;gap:4px;
-  justify-content:space-between;background:var(--card);border:1px solid var(--line);color:var(--ink-3);
-  border-radius:5px;padding:3px 6px;font:inherit;font-size:11.5px;cursor:pointer;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:none;letter-spacing:0}
-.filtro-btn:hover{border-color:var(--line-2);color:var(--ink)}
-.filtro-btn.on{border-color:var(--amber);color:var(--amber);font-weight:600}
-.filtro-btn .seta{flex:none;font-size:10px;opacity:.8}
+/* etiquetas do que está filtrado, acima da tabela */
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--card);
+  border:1px solid var(--line-2);border-radius:20px;padding:3px 5px 3px 10px;font-size:11.5px;
+  color:var(--ink);max-width:280px}
+.chip b{color:var(--ink-3);font-weight:600;font-size:10px;letter-spacing:.05em;text-transform:uppercase}
+.chip button{background:transparent;border:0;color:var(--ink-3);cursor:pointer;font:inherit;
+  font-size:13px;line-height:1;padding:0 4px;border-radius:50%}
+.chip button:hover{color:var(--neg)}
+.chip-limpa{background:transparent;border:1px solid var(--line);color:var(--ink-2);border-radius:20px;
+  padding:3px 11px;font:inherit;font-size:11.5px;cursor:pointer}
+.chip-limpa:hover{border-color:var(--amber);color:var(--amber)}
 
 #fpop[hidden]{display:none}
 #fpop{position:fixed;z-index:50;width:250px;background:var(--bg-2);border:1px solid var(--line-2);
@@ -71,7 +82,8 @@ table.t tr.filtros-linha th{top:27px;padding:3px 5px;cursor:auto}
 #fpop .fpop-txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #fpop .fpop-n{flex:none;font-size:10.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 #fpop .fpop-vazio{color:var(--ink-3);font-size:12px;padding:6px 4px}
-table.t td{padding:5px 9px;border-bottom:1px solid rgba(27,72,107,.45);text-align:right;white-space:nowrap}
+table.t td{padding:5px 7px;border-bottom:1px solid rgba(27,72,107,.45);text-align:right;
+  white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 table.t th.l,table.t td.l{text-align:left}
 table.t tr:hover td{background:rgba(10,48,80,.45)}
 table.t tr.tot td{font-weight:700;border-top:1px solid var(--line-2);border-bottom:none}

@@ -704,7 +704,6 @@ async function atribui(mes, k, dono){
    abre a lista dos valores que existem nela, com caixa de seleção.
    O menu mora FORA de #painel: o painel inteiro é redesenhado a cada marcação,
    e um menu desenhado dentro dele morria no primeiro clique. */
-const temFiltro = qual => Object.values(ST.filtros[qual] || {}).some(v => v && v.length);
 
 /* aplica os filtros da aba. `pular` deixa uma coluna de fora — é assim que a
    lista de uma coluna continua oferecendo os valores dela mesma depois de
@@ -734,14 +733,39 @@ function opcoesDe(itens, qual, txtDe, ordDe, i){
       : String(a[0]).localeCompare(String(b[0]), 'pt-BR', {numeric: true}));
 }
 
-function btnFiltro(qual, i, rot){
+/* O filtro mora NO cabeçalho, ao lado do nome da coluna — é onde a planilha
+   põe e onde a mão procura. A linha extra de caixas embaixo do cabeçalho saía
+   cara duas vezes: ocupava altura e, por ter largura mínima própria, esticava
+   coluna estreita (QTDE, LETRA, SEXO) muito além do texto que mostra. O que
+   está filtrado é dito ACIMA da tabela, em etiqueta, não dentro da coluna. */
+function iconeFiltro(qual, i, rot){
   const sel = ST.filtros[qual][i] || [];
-  const um = String(sel[0] == null ? '' : sel[0]);
-  const rotulo = !sel.length ? 'todos'
-    : sel.length === 1 ? (um.length > 16 ? um.slice(0, 15) + '…' : um)
-    : sel.length + ' itens';
-  return `<button type="button" class="filtro-btn${sel.length ? ' on' : ''}" data-fb="${qual}:${i}"`
-    + ` title="filtrar ${esc(rot)}">${esc(rotulo)} <span class="seta">▾</span></button>`;
+  return `<button type="button" class="fbtn${sel.length ? ' on' : ''}" data-fb="${qual}:${i}"`
+    + ` title="filtrar ${esc(rot)}">▾</button>`;
+}
+
+function cabFiltro(qual, i, rot, ehNum, ordem){
+  const seta = ordem.col === i ? (ordem.dir > 0 ? ' ▲' : ' ▼') : '';
+  return `<th data-ord="${qual}:${i}" class="${ehNum ? '' : 'l'}${ordem.col === i ? ' ord' : ''}">`
+    + `<span class="th-in"><span class="th-rot">${esc(rot)}${seta}</span>`
+    + `${iconeFiltro(qual, i, rot)}</span></th>`;
+}
+
+/* etiquetas do que está filtrado, acima da tabela: sem elas o filtro some de
+   vista assim que o menu fecha — só o ícone aceso denuncia, e ícone aceso em
+   coluna que rolou pra fora da tela não denuncia nada. */
+function chipsFiltro(qual){
+  const ctx = ST.ctx[qual] || {rotulos: {}};
+  const ativos = Object.entries(ST.filtros[qual]).filter(([, v]) => v && v.length);
+  if (!ativos.length) return '';
+  return `<div class="chips">${ativos.map(([ci, v]) => {
+      const um = String(v[0] == null ? '' : v[0]);
+      const txt = v.length === 1 ? (um.length > 22 ? um.slice(0, 21) + '…' : um)
+        : v.length + ' itens';
+      return `<span class="chip" title="${esc(v.join(' · '))}">`
+        + `<b>${esc(ctx.rotulos[ci] || '')}</b>${esc(txt)}`
+        + `<button type="button" data-fx="${qual}:${ci}" title="remover">×</button></span>`;
+    }).join('')}<button type="button" class="chip-limpa" data-fzerar="${qual}">limpar tudo</button></div>`;
 }
 
 function pintaPop(){
@@ -825,12 +849,11 @@ function painelPlantel(){
       <span>${linhas.length} de ${d.linhas.length} linhas</span>
       <span>Carla: <b>${rs(somaEsc('hpg'))}</b></span>
       <span>Carla + Eduardo: <b>${rs(somaEsc('carla_eduardo'))}</b></span>
-      ${temFiltro('plantel') ? '<button type="button" id="limpaF">limpar filtros</button>' : ''}
     </div>
+    ${chipsFiltro('plantel')}
     <div class="rolagem"><table class="t">
       <thead>
-        <tr>${cols.map(([i, r]) => `<th data-ord="plantel:${i}" class="${EH_NUM(r) ? '' : 'l'}${ST.ordem.plantel.col === i ? ' ord' : ''}">${esc(r)}${ST.ordem.plantel.col === i ? (ST.ordem.plantel.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}<th class="l">Dono</th></tr>
-        <tr class="filtros-linha">${cols.map(([i, r]) => `<th>${btnFiltro('plantel', i, r)}</th>`).join('')}<th></th></tr>
+        <tr>${cols.map(([i, r]) => cabFiltro('plantel', i, r, EH_NUM(r), ST.ordem.plantel)).join('')}<th class="l">Dono</th></tr>
       </thead>
       <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) =>
         `<td class="${EH_NUM(r) ? '' : 'l'}">${esc(fmtCel(l, i, r))}</td>`).join('')}
@@ -934,20 +957,16 @@ function subMovimentacoes(){
       <span>${movs.length}${movs.length === base.length ? '' : ' de ' + base.length} animais com movimentação em ${rotMes(ST.mes)}</span>
       <span>registrados: <b>${movs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length}</b> de ${movs.length}</span>
       <span>Δ patrimônio: <b class="${clsN(movs.reduce((s, m) => s + m.delta, 0))}">${rs(movs.reduce((s, m) => s + m.delta, 0))}</b></span>
-      ${temFiltro('mov') ? '<button type="button" id="limpaFMov">limpar filtros</button>' : ''}
     </div>
+    ${chipsFiltro('mov')}
     <div class="rolagem"><table class="t">
       <thead>
         <tr>${COLS_MOV.map(([rot, , ehNum], i) => {
-            const th = `<th data-ord="mov:${i}" class="${ehNum ? '' : 'l'}${ST.ordem.mov.col === i ? ' ord' : ''}">`
-              + rot + (ST.ordem.mov.col === i ? (ST.ordem.mov.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
+            const th = cabFiltro('mov', i, rot, ehNum, ST.ordem.mov);
             // o select de registro fica logo depois do nome: é a coluna de ação,
             // e no fim da tabela ela caía fora da tela
             return i === 0 ? th + '<th class="l">Registro</th>' : th;
           }).join('')}<th class="l">O que foi feito</th></tr>
-        <tr class="filtros-linha">${COLS_MOV.map(([rot], i) =>
-            `<th>${btnFiltro('mov', i, rot)}</th>` + (i === 0 ? '<th></th>' : '')
-          ).join('')}<th></th></tr>
       </thead>
       <tbody>${movs.map(m => linhaMov(m)).join('')}
         <tr class="tot">${COLS_MOV.map(([rot, pega, ehNum], i) => {
@@ -1144,15 +1163,6 @@ function liga(){
     if (aba) { ST.aba = aba.dataset.aba; ST.pop = null; pintaPop(); pinta(); return; }
     const sub = e.target.closest('[data-sub]');
     if (sub) { ST.sub = sub.dataset.sub; ST.pop = null; pintaPop(); pinta(); return; }
-    const ord = e.target.closest('[data-ord]');
-    if (ord) {
-      const [qual, ci] = ord.dataset.ord.split(':');
-      const i = +ci, atual = ST.ordem[qual];
-      ST.ordem[qual] = {col: i, dir: atual.col === i ? -atual.dir : 1};
-      pinta(); return;
-    }
-    if (e.target.id === 'limpaF') { ST.filtros.plantel = {}; ST.pop = null; pinta(); return; }
-    if (e.target.id === 'limpaFMov') { ST.filtros.mov = {}; ST.pop = null; pinta(); return; }
     const fb = e.target.closest('[data-fb]');
     if (fb) {
       const [qual, ci] = fb.dataset.fb.split(':');
@@ -1160,6 +1170,24 @@ function liga(){
       ST.pop = (ST.pop && ST.pop.qual === qual && ST.pop.col === col)
         ? null : {qual, col, busca: '', foco: true};
       pintaPop(); return;
+    }
+    const fx = e.target.closest('[data-fx]');
+    if (fx) {
+      const [qual, ci] = fx.dataset.fx.split(':');
+      delete ST.filtros[qual][+ci];
+      ST.pop = null; pintaPop(); pinta(); return;
+    }
+    const fz = e.target.closest('[data-fzerar]');
+    if (fz) {
+      ST.filtros[fz.dataset.fzerar] = {};
+      ST.pop = null; pintaPop(); pinta(); return;
+    }
+    const ord = e.target.closest('[data-ord]');
+    if (ord) {
+      const [qual, ci] = ord.dataset.ord.split(':');
+      const i = +ci, atual = ST.ordem[qual];
+      ST.ordem[qual] = {col: i, dir: atual.col === i ? -atual.dir : 1};
+      pinta(); return;
     }
     const fa = e.target.closest('[data-fpop]');
     if (fa && ST.pop) {
