@@ -671,12 +671,20 @@ async function carregaSnapshots(){
 }
 
 async function registra(mes, mov, classe, nota){
-  ST.decisoes[`${mes}|${mov.chave}`] = {classe, nota, autor: eu() || '(local)'};
+  const k = `${mes}|${mov.chave}`, antes = ST.decisoes[k];
+  ST.decisoes[k] = {classe, nota, autor: eu() || '(local)'};
   const c = sb();
   if (c) {
     const { error } = await c.from('plantel_mov_classificacao')
       .upsert({mes, chave: mov.chave, classe, nota: nota || null, nome: mov.nome}, {onConflict: 'mes,chave'});
-    if (error) { alert('não gravou: ' + error.message); return false; }
+    /* banco recusou: desfazer o estado local. Sem isto a linha ficava verde de
+       'registrada' na tela e vazia no banco — o alerta aparecia, a pessoa
+       seguia, e o registro só sumia no próximo carregamento da aba. */
+    if (error) {
+      if (antes) ST.decisoes[k] = antes; else delete ST.decisoes[k];
+      alert('não gravou: ' + error.message);
+      return false;
+    }
   }
   return true;
 }
