@@ -89,6 +89,7 @@ const ST = {
      arquivo (ver donoDaLinha). O que havia aqui — atrib por mês, inferido por
      sufixo e a fila 'sugeridos' de confirmação — foi removido em 16/09/2026. */
   mes: null,
+  disponiveis: [],  // meses que existem no bucket/tabela, sem estarem carregados
   decisoes: {},     // 'mes|chave' -> {classe, nota, autor}
   aba: 'plantel',
   sub: 'movimentacoes',
@@ -499,7 +500,7 @@ function resumoAno(){
 
 /* ================= UI ================= */
 function topo(){
-  const meses = Object.keys(ST.meses).sort();
+  const meses = ST.disponiveis.length ? ST.disponiveis : Object.keys(ST.meses).sort();
   // sem <h1> aqui: o cabeçalho do hub já mostra o nome da aba, e repetir era
   // exatamente o tipo de poluição que o painel não precisa
   document.getElementById('topo').innerHTML = `
@@ -512,8 +513,9 @@ function topo(){
       </label>
       <span id="statusImp"></span>
     </div>`;
-  document.getElementById('selMes').onchange = e => {
+  document.getElementById('selMes').onchange = async e => {
     ST.mes = e.target.value;
+    await garantePar(ST.mes);
     /* Filtro e ordenação são por coluna DAQUELE mês, então trocar de mês limpa
        os dois — mas mantendo a forma {plantel, mov}. Zerando pra {} e {col,dir}
        todo render seguinte morria em Object.entries(undefined), e a tela ficava
@@ -583,6 +585,8 @@ function confirmaImport(d, arquivo, mesSugerido){
     const mes = document.getElementById('impMes').value;
     ST.meses[mes] = d;
     ST.mes = mes;
+    // mês novo entra na lista do seletor sem precisar recarregar a aba
+    if (!ST.disponiveis.includes(mes)) ST.disponiveis = [...ST.disponiveis, mes].sort();
     fecha();
     await salvaSnapshot(mes, d, arquivo);
     topo(); pinta();
@@ -592,14 +596,27 @@ function confirmaImport(d, arquivo, mesSugerido){
 async function salvaSnapshot(mes, d, arquivo){
   const c = sb();
   if (!c) return;
+  const pacote = {
+    mes, arquivo,
+    linhas: {cab: d.cab, ix: d.ix, rows: d.linhas},
+    log: d.log.map(x => ({...x, data: (x.data instanceof Date ? x.data : new Date(x.data)).toISOString()})),
+  };
+  // 1) tabela: registro durável do fechamento
   try {
-    await c.from('plantel_snapshot').upsert({
-      mes, arquivo,
-      linhas: {cab: d.cab, ix: d.ix, rows: d.linhas},
-      log: d.log.map(x => ({...x, data: (x.data instanceof Date ? x.data : new Date(x.data)).toISOString()})),
-      atribuicao: {},     // o dono sai do arquivo; a coluna fica só por compatibilidade
-    }, {onConflict: 'mes'});
+    await c.from('plantel_snapshot').upsert({...pacote, atribuicao: {}}, {onConflict: 'mes'});
   } catch (err) { console.warn('[plantel] snapshot não gravado', err.message || err); }
+  // 2) arquivo: é o que a aba lê depois. Falhar aqui não perde dado — a leitura
+  //    cai pra tabela —, mas tira a velocidade, então avisa alto.
+  try {
+    const corpo = new Blob([JSON.stringify(pacote)], {type: 'application/json'});
+    const { error } = await c.storage.from(balde())
+      .upload(arqDoMes(mes), corpo, {upsert: true, contentType: 'application/json'});
+    if (error) throw error;
+  } catch (err) {
+    console.warn('[plantel] arquivo do mês não gravado', err.message || err);
+    document.getElementById('statusImp').textContent =
+      'mês salvo, mas o arquivo rápido não subiu: ' + (err.message || err);
+  }
 }
 
 /* `linhas` no banco é autocontido: {cab, ix, rows}. O cabeçalho e o mapa de
@@ -620,20 +637,92 @@ function normalizaSnapshot(r){
   };
 }
 
-async function carregaSnapshots(){
+/* ---------- leitura: arquivo no bucket, não consulta no banco ----------
+
+   A aba fazia `select('mes,arquivo,linhas,log')` SEM filtro: trazia todos os
+   meses do Postgres, que tinha de ler o JSONB, converter pra texto e streamar
+   pela API — sem CDN e com trabalho de banco por byte. As abas rápidas do hub
+   (semanal, comitê, e o indicadores no P&C) fazem outra coisa: URL assinada +
+   GET de objeto estático servido pela borda (assets/auth.js, loadData).
+
+   Agora é o mesmo caminho: um arquivo por mês, `plantel.<AAAA-MM>.json`, e só
+   os meses que a tela precisa. Abrir a aba carrega DOIS — o mês e o anterior,
+   porque a movimentação compara os dois. O resto entra sob demanda.
+
+   A tabela continua gravada e serve de fallback: mês que ainda não tem arquivo
+   (os que existiam antes desta mudança) é lido dela, sem o usuário perceber. */
+
+const balde = () => { try { return window.parent.HUB_BUCKET || 'hpg-data'; } catch (e) { return 'hpg-data'; } };
+const arqDoMes = m => `plantel.${m}.json`;
+
+async function baixaMes(mes){
+  const c = sb();
+  if (!c) return null;
+  try {
+    const { data: signed, error } = await c.storage.from(balde())
+      .createSignedUrl(arqDoMes(mes), 60);
+    if (error || !signed) return null;
+    /* cache-busting pelo mesmo motivo do porteiro: o CDN na frente do bucket
+       serve HIT mesmo com 'no-store' no objeto, e um mês reimportado podia ficar
+       preso na borda parecendo cache do navegador. */
+    const url = signed.signedUrl + (signed.signedUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+    const res = await fetch(url, {cache: 'no-store'});
+    if (!res.ok) return null;
+    return normalizaSnapshot(await res.json());
+  } catch (e) { return null; }
+}
+
+async function baixaMesDaTabela(mes){
+  const c = sb();
+  if (!c) return null;
+  try {
+    const { data } = await c.from('plantel_snapshot')
+      .select('mes,arquivo,linhas,log').eq('mes', mes).maybeSingle();
+    return data ? normalizaSnapshot(data) : null;
+  } catch (e) { return null; }
+}
+
+/* Garante que os meses pedidos estão em ST.meses. Arquivo primeiro, tabela
+   depois — e o que não existe em lugar nenhum simplesmente não entra. */
+async function garanteMeses(lista){
+  const faltam = [...new Set(lista)].filter(m => m && !ST.meses[m]);
+  if (!faltam.length) return;
+  await Promise.all(faltam.map(async m => {
+    const d = await baixaMes(m) || await baixaMesDaTabela(m);
+    if (d) ST.meses[m] = d;
+  }));
+}
+
+/* O mês e o anterior: é o par que a aba Movimentações precisa pra existir. */
+const garantePar = mes => garanteMeses([mes, mesAnterior(mes)]);
+
+/* Quais meses existem, sem baixar nenhum. Vem da listagem do bucket (barata) e
+   se completa com a tabela, que ainda tem os meses sem arquivo. */
+async function listaMeses(){
+  const c = sb();
+  if (!c) return [];
+  const achados = new Set(Object.keys(ST.meses));
+  try {
+    const { data } = await c.storage.from(balde()).list('', {limit: 1000});
+    for (const o of data || []) {
+      const m = /^plantel\.(\d{4}-\d{2})\.json$/.exec(o.name || '');
+      if (m) achados.add(m[1]);
+    }
+  } catch (e) { /* sem listagem, a tabela resolve */ }
+  try {
+    const { data } = await c.from('plantel_snapshot').select('mes');
+    for (const r of data || []) achados.add(r.mes);
+  } catch (e) { /* idem */ }
+  return [...achados].sort();
+}
+
+async function carregaDecisoes(){
   const c = sb();
   if (!c) return;
   try {
-    const { data, error } = await c.from('plantel_snapshot')
-      .select('mes,arquivo,linhas,log,atribuicao').order('mes');
-    if (error) throw error;
-    for (const r of data || []) {
-      ST.meses[r.mes] = normalizaSnapshot(r);
-      // atribuicao do snapshot é legado: o dono vem do arquivo (ver donoDaLinha)
-    }
-    const { data: dec } = await c.from('plantel_mov_classificacao').select('mes,chave,classe,nota,autor');
-    for (const r of dec || []) ST.decisoes[`${r.mes}|${r.chave}`] = r;
-  } catch (err) { console.warn('[plantel] sem dados salvos', err.message || err); }
+    const { data } = await c.from('plantel_mov_classificacao').select('mes,chave,classe,nota,autor');
+    for (const r of data || []) ST.decisoes[`${r.mes}|${r.chave}`] = r;
+  } catch (err) { console.warn('[plantel] decisões não carregadas', err.message || err); }
 }
 
 async function registra(mes, mov, classe, nota){
@@ -1127,7 +1216,15 @@ function pinta(){
 function liga(){
   document.body.addEventListener('click', async e => {
     const aba = e.target.closest('[data-aba]');
-    if (aba) { ST.aba = aba.dataset.aba; ST.pop = null; pintaPop(); pinta(); return; }
+    if (aba) {
+      ST.aba = aba.dataset.aba; ST.pop = null; pintaPop(); pinta();
+      // o resumo é YTD: só ele precisa de todos os meses, e paga por isso ao abrir
+      if (ST.aba === 'resumo' && ST.disponiveis.length > Object.keys(ST.meses).length) {
+        await garanteMeses(ST.disponiveis);
+        pinta();
+      }
+      return;
+    }
     const sub = e.target.closest('[data-sub]');
     if (sub) { ST.sub = sub.dataset.sub; ST.pop = null; pintaPop(); pinta(); return; }
     const fb = e.target.closest('[data-fb]');
@@ -1205,8 +1302,9 @@ function liga(){
 }
 
 (async function boot(){
-  await carregaSnapshots();
-  const meses = Object.keys(ST.meses).sort();
-  ST.mes = meses[meses.length - 1] || null;
-  topo(); liga(); pinta();
+  ST.disponiveis = await listaMeses();
+  ST.mes = ST.disponiveis[ST.disponiveis.length - 1] || null;
+  topo(); liga(); pinta();              // pinta já, mesmo sem o mês na mão
+  await Promise.all([garantePar(ST.mes), carregaDecisoes()]);
+  topo(); pinta();
 })();
