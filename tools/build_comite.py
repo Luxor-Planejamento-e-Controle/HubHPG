@@ -39,9 +39,9 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 # Caminhos do Drive e helpers vêm do pipeline que já roda — não duplicar.
 from PGSemanalReport import (                                    # noqa: E402
-    DRIVE_ROOT, EMB_COMERCIAIS, MAPA_VENDAS_DIR, SAFRA_ATUAL, _controle_plantel,
-    _latest_by_yymmdd, _latest_estacao_master, _load, _norm, _s, _to_num,
-    caminho_curto,
+    DRIVE_ROOT, EMB_COMERCIAIS, ESTACAO_MONTA_BASE, MAPA_VENDAS_DIR,
+    _controle_plantel, _estacao_dirs, _latest_by_yymmdd, _latest_estacao_master,
+    _load, _norm, _s, _to_num, caminho_curto, headcount_de,
 )
 # os resolvedores de fonte compartilhados anotam ali o arquivo que escolheram
 from PGSemanalReport import _FONTES_USADAS as _FONTES_COMPARTILHADAS   # noqa: E402
@@ -427,88 +427,152 @@ def slide_movimentacao(m, ano):
             "cols": cols, "rows": rows}
 
 
+RE_PREFIXO_DATA = re.compile(r"^(\d{6})")
+
+
+def _fechamento_do_mes(ano: int, m: int):
+    """CONTROLE_DE_PLANTEL do FECHAMENTO daquele mês, em qualquer pasta de estação.
+
+    O nome traz o mês de REFERÊNCIA (`..._AGO_26.xlsx`) e o prefixo é a data em que
+    o arquivo foi gerado, já no mês seguinte. Cópia de trabalho ('EDITAR ...') fica
+    de fora: ela é editada durante o mês seguinte e mistura dois meses — mesma
+    regra do módulo de plantel (tools/seed_plantel_hub.py)."""
+    alvo = _norm(f"_{ABR[m - 1]}_")
+    padrao = re.compile(re.escape(alvo) + r"(20)?" + str(ano)[2:] + r"(?!\d)")
+    cands = []
+    for d in _estacao_dirs():
+        for f in d.glob("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx"):
+            n = _norm(f.name)
+            if f.name.startswith("~$") or "EDITAR" in n or not padrao.search(n):
+                continue
+            cands.append(f)
+    if not cands:
+        return None
+    # mais recente pela data no prefixo do nome, e depois por mtime — a mesma
+    # regra de escolha de versão do módulo de plantel
+    return max(cands, key=lambda f: ((RE_PREFIXO_DATA.match(f.name) or [""])[0]
+                                     if RE_PREFIXO_DATA.match(f.name) else "",
+                                     f.stat().st_mtime))
+
+
+def _receptoras_do_fechamento(ref):
+    """ARRENDAMENTOS E RECEPTORAS como estava quando aquele fechamento foi gerado.
+
+    O arquivo de receptoras não traz mês de referência no nome, só o prefixo com a
+    data em que foi salvo. A âncora, então, é o prefixo do próprio fechamento: vale
+    a versão mais recente que NÃO seja posterior a ele. Sem isso, o deck de um mês
+    passado contaria as receptoras de hoje contra o roster daquele mês.
+
+    None quando não há candidato anterior — aí quem chama usa o resolvedor padrão."""
+    pref = RE_PREFIXO_DATA.match(ref.name) if ref else None
+    if not pref:
+        return None
+    limite = pref.group(1)
+    cands = []
+    for d in _estacao_dirs():
+        for f in d.glob("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx"):
+            mm = RE_PREFIXO_DATA.match(f.name)
+            if f.name.startswith("~$") or not mm or mm.group(1) > limite:
+                continue
+            cands.append((mm.group(1), f))
+    if not cands:
+        return None
+    return max(cands)[1]
+
+
 def slide_contagem(m, ano):
-    """S37 — contagem por local do MÊS do deck.
+    """S37 — contagem por local no FECHAMENTO do mês do deck.
 
-    A aba CONTAGEM do CONTROLE PLANTEL não serve aqui: ela é um retrato AO VIVO, sem
-    dimensão de mês. Lendo direto dela, o deck de JUNHO/2026 exibia 203 animais
-    (100/44/1/58) — a contagem de 14/08 — enquanto junho fechou com 206 (104/43/1/58).
-    O rótulo dizia junho e o número era de agosto.
+    Passou por três fontes. A aba CONTAGEM do CONTROLE PLANTEL não serve: é um
+    retrato AO VIVO, sem dimensão de mês — o deck de JUNHO/2026 exibia 203 animais
+    (a contagem de 14/08) enquanto junho fechou com 206.
 
-    O `base_bi` também não resolve: ele vem do CONTROLE_DE_PLANTEL mensal, cujo roster
-    não reconcilia com a CONTAGEM (junho dá 221, com 88 sócios contra 58) e que quase
-    não tem receptora, porque receptora mora no arquivo de ARRENDAMENTOS E RECEPTORAS.
+    Depois veio o snapshot do fechamento SEMANAL, pegando o último do mês. Também
+    não é o fechamento: o último semanal de agosto/2026 é 28/08 e agosto fechou em
+    31/08 — o que entrou e saiu no 29, 30 e 31 ficava de fora, e quem cobre o fim
+    de agosto é o snapshot de 04/09, que um filtro por prefixo `2026-08` nunca
+    alcança. Em junho/2026 o último semanal era 26/06. Só bate com o fechamento
+    quando a sexta cai no último dia do mês, o que é coincidência de calendário.
 
-    Quem tem o número certo E datado é o snapshot do fechamento semanal: usamos o
-    último snapshot do mês pedido. Antes de 06/2026 não existe snapshot — aí a
-    pendência é explícita, em vez de mostrar o número de outro mês."""
-    from PGSemanalReport import HIST_SNAPSHOTS, HIST_HEADCOUNT
-    prefixo = f"{ano}-{m:02d}"
+    A fonte é o CONTROLE_DE_PLANTEL do mês (o que o mapeamento do comitê já
+    dizia: S11, S12 e S37 saem dele), contado pelas MESMAS regras do fechamento
+    — `headcount_de` é a função do semanal, com os arquivos daquele mês no lugar
+    dos de hoje. Sem o arquivo do mês, a pendência é explícita, em vez de mostrar
+    o número de outro mês."""
+    src = _fechamento_do_mes(ano, m)
+    if src is None:
+        return pend(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
+                    f"{MESES[m-1].upper()} {ano}", "CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx",
+                    f"nenhum fechamento do haras para {ABR[m-1]}/{str(ano)[2:]} nas "
+                    f"pastas de estação (cópia 'EDITAR' não conta: mistura dois meses)")
+    _registra("contagem do fechamento", src)
+    rec = _receptoras_do_fechamento(src)
+    if rec is not None:
+        _registra("receptoras do fechamento", rec)
+    try:
+        hc, _ = headcount_de(src, rec)
+    except Exception as e:
+        return pend(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
+                    f"{MESES[m-1].upper()} {ano}", src.name, f"não consegui contar: {e}")
 
-    def _ler(f):
-        try:
-            return json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
-    # snapshot completo primeiro (tem a abertura animais/receptoras); o
-    # headcount_history é mais magro mas cobre meses anteriores — junho/2026 só existe lá
-    snaps, leves = _ler(HIST_SNAPSHOTS), _ler(HIST_HEADCOUNT)
-    wids = sorted(w for w in snaps if w.startswith(prefixo))
-    if wids:
-        wid = wids[-1]
-        det = snaps[wid].get("headcount_detalhe") or {}
-        hc = snaps[wid].get("headcount") or {}
-    else:
-        wids = sorted(w for w in leves if w.startswith(prefixo))
-        if not wids:
-            todos = sorted(set(snaps) | set(leves))
-            return pend(37, "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
-                        f"{MESES[m-1].upper()} {ano}", "snapshot do fechamento semanal",
-                        f"nenhum fechamento semanal guardado em {prefixo}; o histórico "
-                        f"começa em {todos[0] if todos else '—'}")
-        wid = wids[-1]
-        det = {}
-        # headcount_history usa nomes curtos
-        hc = {"total": leves[wid].get("total"), "fazenda_pg": leves[wid].get("fpg"),
-              "arrendamento": leves[wid].get("arr"), "cte": leves[wid].get("cte"),
-              "socio": leves[wid].get("soc")}
-    if det:
-        ordem = [k for k in ("FAZENDA", "ARRENDAMENTO", "CTE", "SOCIO") if k in det]
-        rows = [[k.title(), int(det[k]["animais"]), int(det[k]["receptoras"]),
-                 int(det[k]["total"])] for k in ordem]
-    else:
-        # snapshot antigo, sem a abertura animais/receptoras. Preencher essas colunas
-        # com zero afirmaria "nenhuma receptora"; melhor a tabela ter só o total.
-        rows = [[l, int(hc.get(k) or 0)] for l, k in
-                (("Fazenda", "fazenda_pg"), ("Arrendamento", "arrendamento"),
-                 ("Cte", "cte"), ("Socio", "socio")) if hc.get(k) is not None]
+    det = {k: v for k, v in (hc.get("detalhe") or {}).items() if k != "TOTAL GERAL"}
+    ordem = [k for k in ("FAZENDA", "ARRENDAMENTO", "CTE", "SOCIO") if k in det]
+    ordem += [k for k in det if k not in ordem]
+    rows = [[k.title(), int(det[k]["animais"]), int(det[k]["receptoras"]),
+             int(det[k]["total"])] for k in ordem]
     total = int(hc.get("total") or sum(r[-1] for r in rows))
-    kp = [{"v": f"{int(r[-1])}", "l": r[0].upper(), "s": f"{r[-1]/total*100:.0f}% do total"}
-          for r in rows[:3]]
+    kp = [{"v": f"{r[-1]}", "l": r[0].upper(),
+           "s": f"{r[-1]/total*100:.0f}% do total" if total else "—"} for r in rows[:3]]
     kp.append({"v": f"{total}", "l": "TOTAL GERAL", "s": "sob responsabilidade da PG"})
-    cols = (["LOCAL", "ANIMAIS", "RECEPTORAS", "TOTAL"] if det else ["LOCAL", "TOTAL"])
-    d, mm, aa = wid[8:10], wid[5:7], wid[:4]
     return {"t": "kpis_tabela", "n": 37, "titulo": "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
-            "sub": f"{MESES[m-1].upper()} {ano} · fechamento semanal de {d}/{mm}/{aa}",
+            "sub": f"{MESES[m-1].upper()} {ano} · fechamento mensal do haras · {src.name}",
             "kpis": kp,
-            "tabela": {"cols": cols, "rows": rows}}
+            "tabela": {"cols": ["LOCAL", "ANIMAIS", "RECEPTORAS", "TOTAL"], "rows": rows}}
 
 
 # ============================================================ Estação (S16–S20)
+def safra_do_deck(ano: int, m: int) -> str:
+    """Safra da estação do MÊS DO DECK. A estação corre de agosto a julho (ver
+    MESES_ESTACAO), então o deck de AGOSTO/2026 já é 2026/2027 e o de julho/2026
+    ainda é 2025/2026.
+
+    Vinha de SAFRA_ATUAL, que é calculado por `date.today()` (a virada de 26/27
+    está cadastrada em 04/09/2026). Com isso o rótulo dependia de QUANDO o build
+    rodou, não do mês do deck: o deck de agosto gerado em 20/08 saía 25/26, e
+    reconstruir hoje o deck de JULHO sai 26/27."""
+    return f"{ano}/{ano + 1}" if m >= 8 else f"{ano - 1}/{ano}"
+
+
+def _master_da_safra(safra: str):
+    """Master 'ESTACAO DE MONTA.xlsx' da pasta daquela safra.
+
+    `_latest_estacao_master()` devolve a pasta mais nova por mtime — é o certo pro
+    semanal, que quer HOJE, e o errado pro deck de um mês passado, que pediria a
+    safra antiga dentro do arquivo da safra nova. Sem a pasta da safra, cai no
+    comportamento antigo em vez de quebrar o deck inteiro."""
+    a, b = safra.split("/")
+    for nome in (f"Estação {a}-{b}", f"Estacao {a}-{b}"):
+        d = ESTACAO_MONTA_BASE / nome
+        if d.is_dir():
+            cands = [f for f in d.glob("*ESTACAO DE MONTA.xlsx") if not f.name.startswith("~$")]
+            if cands:
+                return max(cands, key=lambda f: f.stat().st_mtime)
+    return _latest_estacao_master()
+
+
 def _estacao_wb():
     return _load(_latest_estacao_master())
 
 
-def slides_estacao():
+def slides_estacao(safra: str):
     """S16 funil, S17 garanhões, S18 comparativo, S19/S20 doadoras A e B.
 
-    A estação é da SAFRA, não do mês — o mesmo conteúdo vale para qualquer mês do
-    deck. Definições (do guia): absorção = perda antes dos 60d; aborto = embrião
+    A estação é da SAFRA — o mesmo conteúdo vale para qualquer mês DA MESMA safra.
+    Definições (do guia): absorção = perda antes dos 60d; aborto = embrião
     confirmado que não nasceu; óbito = nasceu e morreu.
     """
     try:
-        src = _latest_estacao_master()
+        src = _master_da_safra(safra)
         wb = _load(src)
     except Exception as e:
         p = pend(16, "ESTAÇÃO DE MONTA — EMBRIÕES E PRENHEZES", "", "ESTACAO DE MONTA.xlsx",
@@ -517,19 +581,19 @@ def slides_estacao():
                 dict(p, n=18, titulo="ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES"),
                 dict(p, n=19, titulo="ESTAÇÃO DE MONTA — DOADORAS TIME A"),
                 dict(p, n=20, titulo="ESTAÇÃO DE MONTA — DOADORAS TIME B")]
-    out = [funil(wb), garanhoes(wb), comparativo(wb)] + doadoras(wb)
+    out = [funil(wb, safra), garanhoes(wb, safra), comparativo(wb)] + doadoras(wb, safra)
     wb.close()
     return out
 
 
-def funil(wb):
+def funil(wb, safra):
     """S16 — aba ESTAÇÃO. Colunas (1-based): 11 LAVADO, 13 15D, 14 30D, 15 45D,
     16 60D, 17 ABORTO, 36 ESTAÇÃO. Confirmado = lavado+ e 15d+ e (30/45/60 '+' ou
     vazio), menos aborto=SIM."""
     ws = wb["ESTAÇÃO"]
     tent = lav = p15 = p30 = p45 = p60 = ab = 0
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
-        if i < 3 or r[0] is None or _s(r[35]) != SAFRA_ATUAL:
+        if i < 3 or r[0] is None or _s(r[35]) != safra:
             continue
         tent += 1
         if _norm(r[10]) != "+":
@@ -555,14 +619,14 @@ def funil(wb):
             ab += 1
     conf = p60 - ab
     ref = lambda v: f"{v/lav*100:.0f}% dos lavados" if lav else "—"
-    return {"t": "kpis_tabela", "n": 16, "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — EMBRIÕES E PRENHEZES",
+    return {"t": "kpis_tabela", "n": 16, "titulo": f"ESTAÇÃO DE MONTA {safra} — EMBRIÕES E PRENHEZES",
             "sub": (f"{conf} embriões confirmados · taxa de recuperação {lav/tent*100:.0f}%"
                     f" · {tent} tentativas" if tent else "sem tentativas na safra"),
-            "kpis": [{"v": str(conf), "l": "Embriões Conf.", "s": f"Estação {SAFRA_ATUAL}"},
+            "kpis": [{"v": str(conf), "l": "Embriões Conf.", "s": f"Estação {safra}"},
                      {"v": str(lav), "l": "Lavados (+)", "s": f"{lav/tent*100:.0f}% de positivos" if tent else "—"},
-                     {"v": f"{lav/tent*100:.0f}%" if tent else "—", "l": "Taxa Recup.", "s": SAFRA_ATUAL},
+                     {"v": f"{lav/tent*100:.0f}%" if tent else "—", "l": "Taxa Recup.", "s": safra},
                      {"v": str(ab), "l": "Abortos", "s": "confirmados > 60d"}],
-            "tabela": {"cols": [f"FUNIL DE PRENHEZ — ESTAÇÃO {SAFRA_ATUAL}", "Nº", "REFERÊNCIA"],
+            "tabela": {"cols": [f"FUNIL DE PRENHEZ — ESTAÇÃO {safra}", "Nº", "REFERÊNCIA"],
                        "rows": [["Tentativas", tent, "100%"],
                                 ["Lavados (+)", lav, f"{lav/tent*100:.0f}%" if tent else "—"],
                                 ["Prenhez 15d", p15, ref(p15)], ["Prenhez 30d", p30, ref(p30)],
@@ -571,7 +635,7 @@ def funil(wb):
                                 ["Confirmados", conf, ref(conf)]]}}
 
 
-def garanhoes(wb):
+def garanhoes(wb, safra):
     """S17 — aba GARANHOES: 3 garanhão, 4 tipo de sêmen, 5 total lavados,
     6 lavados positivos, 7 %, 8 embriões confirmados, 9 prenhez, 10 aborto,
     11 total confirmados."""
@@ -600,7 +664,7 @@ def garanhoes(wb):
         a, b = por_tipo.get(r[1], (0, 0))
         por_tipo[r[1]] = (a + r[3], b + r[2])
     nome_tipo = {"R": "Refrigerado", "C": "Congelado", "F": "Fresco"}
-    return {"t": "kpis_tabela", "n": 17, "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — GARANHÕES",
+    return {"t": "kpis_tabela", "n": 17, "titulo": f"ESTAÇÃO DE MONTA {safra} — GARANHÕES",
             "sub": (f"{len(rows)} garanhões usados · {somas[0]} lavados · {somas[1]} positivos"
                     f" · {somas[2]} embriões confirmados · fonte: aba GARANHOES"),
             "kpis": [{"v": f"{p/t*100:.0f}%", "l": nome_tipo.get(k, k), "s": f"{p} de {t} lavados"}
@@ -680,7 +744,7 @@ def comparativo(wb):
             "tabela": {"cols": ["MÊS"] + curto, "rows": rows}}
 
 
-def doadoras(wb):
+def doadoras(wb, safra):
     """S19/S20 — meta × realizado por doadora. Meta e Time vêm do PLANEJAMENTO
     (7 TIME, 8 META TOTAL, 9 TOTAL EMBRIÕES); REC. EMBR. traz os lavados+."""
     ws = wb["PLANEJAMENTO"]
@@ -715,7 +779,7 @@ def doadoras(wb):
         lavp = sum(r[3] for r in rows)
         rows.sort(key=lambda x: -x[2])
         out.append({"t": "kpis_tabela", "n": 19 if time == "A" else 20,
-                    "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — DOADORAS TIME {time}",
+                    "titulo": f"ESTAÇÃO DE MONTA {safra} — DOADORAS TIME {time}",
                     "sub": f"{len(rows)} doadoras · meta {meta} embriões · realizado {real}",
                     "kpis": [{"v": str(meta), "l": "Meta", "s": f"Time {time}"},
                              {"v": str(real), "l": "Realizado", "s": "embriões confirmados"},
@@ -740,13 +804,13 @@ def _coberturas_path():
     return p if p.exists() else None
 
 
-def slide_coberturas():
+def slide_coberturas(safra):
     """S21 — aba Planilha2: 2 garanhão, 3 qtd comprada, 4 utilizadas, 5 saldo.
     A Planilha1 é o log de compra (uma linha por negócio); a Planilha2 é o
     consolidado por garanhão, que é o que o slide mostra."""
     f = _coberturas_path()
     if f is None:
-        return pend(21, f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — COBERTURAS DISPONÍVEIS",
+        return pend(21, f"ESTAÇÃO DE MONTA {safra} — COBERTURAS DISPONÍVEIS",
                     "Saldo por garanhão de fora",
                     "REPRODUÇÃO/COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx",
                     "arquivo não encontrado no Drive")
@@ -765,7 +829,7 @@ def slide_coberturas():
     rows.sort(key=lambda x: -x[3])
     com_saldo = [r for r in rows if r[3] > 0]
     return {"t": "kpis_tabela", "n": 21,
-            "titulo": f"ESTAÇÃO DE MONTA {SAFRA_ATUAL} — COBERTURAS DISPONÍVEIS",
+            "titulo": f"ESTAÇÃO DE MONTA {safra} — COBERTURAS DISPONÍVEIS",
             "sub": (f"Coberturas de garanhões de fora · {len(com_saldo)} garanhões com saldo"
                     f" · exclui {', '.join(x.title() for x in COBERTURAS_FORA)}"),
             "kpis": [{"v": str(sum(r[3] for r in rows)), "l": "Saldo Total", "s": "coberturas a usar"},
@@ -1002,14 +1066,19 @@ def conteudo_do_mes(todos, chave):
 
 
 def slide_comentarios(c, m, ano):
+    """S8 — comentários do MÊS do deck.
+
+    Era `VARIAÇÕES YTD JAN–<mês>`, e entrava logo depois do DRE acumulado: quem
+    escrevia o conteúdo comentava o acumulado do ano, porque era o que o slide
+    anterior mostrava. O deck é mensal — o comentário acompanha o mês, e por isso
+    o slide agora fica junto do bloco mensal (resumo, custos e despesas do mês)."""
     itens = c.get("comentarios") or []
+    titulo = f"COMENTÁRIOS — {MESES[m-1].upper()} {ano}"
     if not itens:
-        return pend(8, f"COMENTÁRIOS — VARIAÇÕES YTD JAN–{ABR[m-1].upper()} {ano}",
-                    "Principais destaques acumulados por categoria",
+        return pend(8, titulo, "Principais destaques do mês por categoria",
                     "_docs/comite_conteudo.json → comentarios", FALTA_CONTEUDO)
-    return {"t": "comentarios", "n": 8,
-            "titulo": f"COMENTÁRIOS — VARIAÇÕES YTD JAN–{ABR[m-1].upper()} {ano}",
-            "sub": "DRE 2026 | HPG · principais destaques acumulados por categoria",
+    return {"t": "comentarios", "n": 8, "titulo": titulo,
+            "sub": "DRE 2026 | HPG · principais destaques do mês por categoria",
             "itens": itens}
 
 
@@ -1348,6 +1417,10 @@ def so_mensal(slides):
 
 def monta_deck(m, ano, ctx):
     cont = conteudo_do_mes(ctx["conteudo"], f"{ano}-{m:02d}")
+    safra = safra_do_deck(ano, m)
+    if safra not in ctx["estacao_por_safra"]:
+        ctx["estacao_por_safra"][safra] = (slides_estacao(safra), slide_coberturas(safra))
+    est_slides, cob_slide = ctx["estacao_por_safra"][safra]
     s = [
         {"t": "capa", "titulo": "RELATÓRIO DE DESEMPENHO ESTRATÉGICO",
          "mes": f"{MESES[m-1].upper()} / {ano}", "org": "HARAS PAO GRANDE"},
@@ -1375,11 +1448,11 @@ def monta_deck(m, ano, ctx):
     s += so_mensal(divide(dre(6, f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
                     "Despesas do mês · linhas zeradas no mês omitidas",
                     dre_grupo("HPG", "Competência", ano, m, "DESPESAS"))))
+    s.append(slide_comentarios(cont, m, ano))
     s += divide(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
                     "DRE 2026 | HPG · acumulado no ano",
                     dre_ytd("HPG", "Competência", ano, m, so_subtotal=True),
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
-    s.append(slide_comentarios(cont, m, ano))
     s.append(slide_investimentos(m, ano))
     s += so_mensal(divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}",
                     "FC 2026 | HPG · caixa mensal",
@@ -1393,9 +1466,9 @@ def monta_deck(m, ano, ctx):
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", "Embriões · Doadoras · Garanhões"))
-    for x in ctx["estacao"]:
+    for x in est_slides:
         s += divide_tab(x)
-    s += divide_tab(ctx["coberturas"])
+    s += divide_tab(cob_slide)
 
     s.append(divisor(3, "EXPOSIÇÕES", "Programação e resultados"))
     for x in slides_exposicoes(cont, ano):
@@ -1450,8 +1523,9 @@ def build(so_mes=None):
         meses = [so_mes.month] if so_mes else [date.today().month]
         aviso("nenhum mês com realizado no DRE — deck sai só com as bases não-financeiras")
 
-    ctx["estacao"] = slides_estacao()
-    ctx["coberturas"] = slide_coberturas()
+    # a estação é da safra do MÊS DO DECK, e um build pode montar meses de safras
+    # diferentes (julho é 25/26, agosto é 26/27) — resolve por safra, uma vez cada
+    ctx["estacao_por_safra"] = {}
     ctx["conteudo"] = le_conteudo()
     ctx["embrioes"] = slides_embrioes()
 

@@ -1036,9 +1036,10 @@ def _slug_local(local: str) -> str:
     return local.lower().replace(" ", "_")
 
 
-def _receptoras_por_local() -> dict:
+def _receptoras_por_local(src: Path | None = None) -> dict:
     """{LOCAL do roster: nº de receptoras}. Mesma regra da seção 2 (prenha/vazia)."""
-    src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
+    if src is None:
+        src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
     wb = _load(src)
     ws = wb["ANIMAIS"]
     out = {}
@@ -1055,20 +1056,29 @@ def _receptoras_por_local() -> dict:
     return out
 
 
-def build_headcount(rep: Report):
+def headcount_de(plantel_src: Path | None = None,
+                 receptoras_src: Path | None = None) -> tuple[dict, list[str]]:
+    """Headcount por bucket a partir de UM par de arquivos (roster + receptoras).
+
+    Separado de `build_headcount` porque o comitê precisa do mesmo número para um
+    mês PASSADO — e reimplementar a contagem lá seria ter duas versões da regra
+    (é a mesma razão pela qual tools/excel_headcount.py chama estas funções em
+    vez de refazer os filtros). Sem argumento, é o estado de hoje.
+
+    Devolve (headcount, LOCAIS desconhecidos fora da contagem)."""
     # 1) animais por LOCAL, do MESMO roster que o resto do fechamento usa.
     #    Relia a planilha aqui dentro e contava linha a linha sem filtro nenhum —
     #    funcionava porque a planilha semanal já vinha curada. Com o roster mensal
     #    isso contaria vendido, morto, embrião e a linha repetida por cotista.
     animais: dict[str, int] = {}
-    for linha in _plantel_por_status()["linhas"]:
+    for linha in _plantel_por_status(plantel_src)["linhas"]:
         local = _norm(linha["local"])
         if not local:
             continue
         animais[local] = animais.get(local, 0) + 1
 
     # 2) receptoras: contadas da fonte de receptoras
-    receptoras = _receptoras_por_local()
+    receptoras = _receptoras_por_local(receptoras_src)
 
     # 3) monta os buckets. LOCAL fora da contagem é ignorado; LOCAL desconhecido
     #    também não entra (a CONTAGEM não o teria), mas vira aviso — assim um
@@ -1091,14 +1101,19 @@ def build_headcount(rep: Report):
         "total": total,
     }
 
-    rep.headcount = {"total": total, **chaves, "detalhe": detalhe, "fora_da_contagem": fora}
-
     # A conferência contra a aba CONTAGEM saiu: aquela aba é um COUNTIF dentro do
     # arquivo de DIVULGAÇÃO, e conferir o cálculo contra o que foi divulgado não
     # confere nada — é o próprio número que se quer auditar. Quem confere o headcount
     # é o relatório oficial, no placar do fechamento.
     desconhecidos = [l for l in fora if l not in HEADCOUNT_LOCAIS_FORA]
+    return ({"total": total, **chaves, "detalhe": detalhe, "fora_da_contagem": fora},
+            desconhecidos)
+
+
+def build_headcount(rep: Report):
+    rep.headcount, desconhecidos = headcount_de()
     if desconhecidos:
+        fora = rep.headcount["fora_da_contagem"]
         print("  [headcount] LOCAL novo no roster, FORA da contagem — conferir:")
         for l in desconhecidos:
             print(f"    - {l}: {fora[l]}")
@@ -1500,8 +1515,11 @@ def _fora_linha(acc: list, r, L, motivo: str):
         "motivo": motivo})
 
 
-def _plantel_por_status() -> dict:
+def _plantel_por_status(src: Path | None = None) -> dict:
     """Roster do plantel a partir do CONTROLE_DE_PLANTEL mensal, na pasta PLANTEL.
+
+    `src` explícito serve pra reconstruir um mês PASSADO (o comitê pede o
+    fechamento do mês do deck, não o estado de hoje); sem ele, vale o de sempre.
 
     Antes vinha do `CONTROLE PLANTEL.xlsx` da pasta ATUALIZACAO SEMANAL, que é de
     divulgação. As regras estão no cabeçalho do commit e resumidas abaixo; cada uma
@@ -1510,7 +1528,8 @@ def _plantel_por_status() -> dict:
     O nome do animal NÃO é identidade aqui: o mensal batiza o potro
     (`PRINCIPE MN DA PAO GRANDE`) enquanto o semanal o descrevia pelo cruzamento
     (`MACHO LIBRA DA PAO GRANDE X OLIMPO DO MH`). Quem identifica é nome+MAE+PAI."""
-    src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
+    if src is None:
+        src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
     wb = _load(src)
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
