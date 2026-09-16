@@ -54,8 +54,9 @@ table.t th.l .th-in{justify-content:flex-start}
 .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
 .chip{display:inline-flex;align-items:center;gap:6px;background:var(--card);
   border:1px solid var(--line-2);border-radius:20px;padding:3px 5px 3px 10px;font-size:11.5px;
-  color:var(--ink);max-width:280px}
+  color:var(--ink);max-width:520px}
 .chip b{color:var(--ink-3);font-weight:600;font-size:10px;letter-spacing:.05em;text-transform:uppercase}
+.chip-v{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip button{background:transparent;border:0;color:var(--ink-3);cursor:pointer;font:inherit;
   font-size:13px;line-height:1;padding:0 4px;border-radius:50%}
 .chip button:hover{color:var(--neg)}
@@ -84,6 +85,11 @@ table.t th.l .th-in{justify-content:flex-start}
 #fpop .fpop-vazio{color:var(--ink-3);font-size:12px;padding:6px 4px}
 table.t td{padding:5px 7px;border-bottom:1px solid rgba(27,72,107,.45);text-align:right;
   white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+/* célula cortada: o cursor avisa que dá pra abrir, e aberta ela mostra o texto
+   inteiro quebrando linha — só ela, só enquanto estiver aberta */
+table.t td.cort{cursor:text}
+table.t td.aberta{white-space:normal;max-width:none;overflow:visible;
+  word-break:break-word;background:rgba(202,151,3,.08)}
 table.t th.l,table.t td.l{text-align:left}
 table.t tr:hover td{background:rgba(10,48,80,.45)}
 table.t tr.tot td{font-weight:700;border-top:1px solid var(--line-2);border-bottom:none}

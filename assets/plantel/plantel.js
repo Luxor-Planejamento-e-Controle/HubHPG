@@ -759,11 +759,22 @@ function chipsFiltro(qual){
   const ativos = Object.entries(ST.filtros[qual]).filter(([, v]) => v && v.length);
   if (!ativos.length) return '';
   return `<div class="chips">${ativos.map(([ci, v]) => {
-      const um = String(v[0] == null ? '' : v[0]);
-      const txt = v.length === 1 ? (um.length > 22 ? um.slice(0, 21) + '…' : um)
-        : v.length + ' itens';
-      return `<span class="chip" title="${esc(v.join(' · '))}">`
-        + `<b>${esc(ctx.rotulos[ci] || '')}</b>${esc(txt)}`
+      /* os VALORES, não a contagem: '2 itens' obriga a abrir o menu de novo pra
+         lembrar o que está filtrado, que é justamente o que a etiqueta existe
+         pra evitar. Lista inteira enquanto couber; passou disso, mostra os
+         primeiros e diz quantos sobraram (o title traz todos). */
+      let txt = v.join('; ');
+      if (txt.length > 64) {
+        const cabem = [];
+        let n = 0;
+        for (const x of v) {
+          if (n + String(x).length > 52 && cabem.length) break;
+          cabem.push(x); n += String(x).length + 2;
+        }
+        txt = cabem.join('; ') + ` +${v.length - cabem.length}`;
+      }
+      return `<span class="chip" title="${esc(v.join('; '))}">`
+        + `<b>${esc(ctx.rotulos[ci] || '')}</b><span class="chip-v">(${esc(txt)})</span>`
         + `<button type="button" data-fx="${qual}:${ci}" title="remover">×</button></span>`;
     }).join('')}<button type="button" class="chip-limpa" data-fzerar="${qual}">limpar tudo</button></div>`;
 }
@@ -855,8 +866,10 @@ function painelPlantel(){
       <thead>
         <tr>${cols.map(([i, r]) => cabFiltro('plantel', i, r, EH_NUM(r), ST.ordem.plantel)).join('')}<th class="l">Dono</th></tr>
       </thead>
-      <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) =>
-        `<td class="${EH_NUM(r) ? '' : 'l'}">${esc(fmtCel(l, i, r))}</td>`).join('')}
+      <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) => {
+          const txt = fmtCel(l, i, r);
+          return `<td class="${EH_NUM(r) ? '' : 'l'} cort" title="${esc(txt)}">${esc(txt)}</td>`;
+        }).join('')}
         <td class="l">${ATRIB[donoDe(ST.mes, chaveCom(l, ix))] || '<span class="zero">—</span>'}${
           ST.sugeridos[chaveCom(l, ix)] ? ' <span class="sug">confirmar</span>' : ''}</td></tr>`).join('')}</tbody>
     </table></div>`;
@@ -880,7 +893,10 @@ function fmtCel(l, i, rotulo){
   if (EH_PCT(rotulo)) return pct(v);
   if (EH_MOEDA(rotulo)) return rs(num(v));
   if (/IDADE/.test(norm(rotulo))) return num(v).toFixed(1);
-  return String(v);
+  /* espaço duplicado/no fim vira valor DIFERENTE na lista do filtro: 'DA PAO
+     GRANDE' aparecia duas vezes (292 e 15), e marcar uma não pegava a outra.
+     O arquivo do haras é digitado à mão; normalizar aqui junta as duas. */
+  return String(v).replace(/\s+/g, ' ').trim();
 }
 
 /* ---------- aba Movimentações ---------- */
@@ -925,7 +941,8 @@ const COLS_DELTA = ['Compras', 'Embriões', 'Venda', 'Morte/doação', 'Reavalia
 function txtMov(m, i){
   const [rot, pega, ehNum] = COLS_MOV[i];
   const v = pega(m);
-  if (!ehNum) return String(v == null ? '' : v) || '—';
+  // mesma normalização de espaço do plantel (ver fmtCel)
+  if (!ehNum) return String(v == null ? '' : v).replace(/\s+/g, ' ').trim() || '—';
   if (rot === 'Cota') return pct(v);
   if (COLS_DELTA.includes(rot)) return v ? rs(v) : '—';
   return rs(v);
@@ -1014,8 +1031,10 @@ function linhaMov(m){
     if (!ehNum) txt = t === '—' ? '<span class="zero">—</span>' : t;
     else if (COLS_DELTA.includes(rot)) txt = v ? `<span class="${clsN(v)}">${t}</span>` : '—';
     else txt = t;
-    const td = `<td class="${ehNum ? '' : 'l'}${i === 0 ? ' nome' : ''}"${
-      i === 0 ? ` title="${esc(m.nome)}"` : ''}>${txt}</td>`;
+    // title em TODA célula de texto, não só no nome: valor cortado sem jeito de
+    // ver inteiro é informação escondida
+    const td = `<td class="${ehNum ? '' : 'l'} cort${i === 0 ? ' nome' : ''}"`
+      + ` title="${esc(ehNum ? txtMov(m, i) : String(v == null ? '' : v))}">${txt}</td>`;
     return i === 0 ? td + celReg : td;
   }).join('');
 
@@ -1206,6 +1225,12 @@ function liga(){
     }
     // clique fora fecha o menu — sem engolir o clique, que pode ser de outro botão
     if (ST.pop && !e.target.closest('#fpop')) { ST.pop = null; pintaPop(); }
+    /* clique na célula corta/descorta o texto: a reticência resolve a largura
+       da coluna, mas some com o valor. O title já mostra no hover; o clique
+       serve pra quem quer ler sem segurar o mouse, e afeta só aquela célula —
+       a altura das outras linhas não muda. */
+    const cel = e.target.closest('td.cort');
+    if (cel) { cel.classList.toggle('aberta'); return; }
     const dono = e.target.closest('[data-dono]');
     if (dono) {
       const [k, dn] = dono.dataset.dono.split(':');
