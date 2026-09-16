@@ -85,19 +85,9 @@ const dataBR = v => {
 /* ---- estado ---- */
 const ST = {
   meses: {},        // 'AAAA-MM' -> {arquivo, linhas, log, ix}
-  /* De quem é cada animal EM CADA MÊS: {mes: {chave: hpg|eduardo|nenhum}}.
-     Medido: tratar como atributo fixo do animal erra feio — o dono muda no ano
-     (animal da Carla em janeiro vira 'nenhum' depois de repassado), e com uma
-     atribuição só o saldo de janeiro saiu R$ 2,49 milhões abaixo do liberado.
-     Mês sem atribuição própria herda do mês anterior mais próximo. */
-  atrib: {},
-  /* Inferência por SUFIXO fica separada e é por ANIMAL, não por mês. Misturada
-     com os mapas ela fabricava troca de dono: animal que o mapa de junho não
-     cobria (inferido Carla) e que o mapa de julho marca 'nenhum' virava R$ 449
-     mil de "mudança de dono" em julho, que nunca aconteceu. Mapa manda;
-     inferência é o último recurso. */
-  inferido: {},
-  sugeridos: {},    // chave -> true enquanto ninguém confirmou
+  /* Não existe mais estado de atribuição: o dono de cada linha sai do próprio
+     arquivo (ver donoDaLinha). O que havia aqui — atrib por mês, inferido por
+     sufixo e a fila 'sugeridos' de confirmação — foi removido em 16/09/2026. */
   mes: null,
   decisoes: {},     // 'mes|chave' -> {classe, nota, autor}
   aba: 'plantel',
@@ -114,6 +104,15 @@ function hub(){ try { return window.parent.HUB || null; } catch (e) { return nul
 function sb(){ const h = hub(); return h && h.sb; }
 function eu(){ const h = hub(); return (h && h.email) || null; }
 
+/* Espaço sobrando é sujeira, não informação: o arquivo do haras é digitado à
+   mão e jul/26 tem 'DA PAO GRANDE' (292 linhas) convivendo com 'DA PAO GRANDE '
+   (15, espaço no fim). Como valor de texto, os dois são diferentes: viravam duas
+   entradas na lista do filtro, e marcar uma deixava 15 animais de fora sem
+   avisar. Limpar na ENTRADA resolve pra todo mundo de uma vez — filtro, chave do
+   animal, agrupamento — em vez de cada consumidor lembrar de aparar. Data e
+   número passam intactos. */
+const limpaLinha = r => r.map(c => typeof c === 'string' ? c.replace(/\s+/g, ' ').trim() : c);
+
 /* ================= leitura do arquivo ================= */
 function lerArquivo(buf, nomeArquivo){
   const wb = XLSX.read(buf, {cellDates: true});
@@ -127,7 +126,7 @@ function lerArquivo(buf, nomeArquivo){
   if (iCab < 0) throw new Error('não achei o cabeçalho da aba PLANTEL (linha com NOME e CATEGORIA)');
   const cab = tudo[iCab];
   const ix = mapaColunas(cab);
-  const linhas = tudo.slice(iCab + 1).filter(r => r && r[ix.nome]);
+  const linhas = tudo.slice(iCab + 1).filter(r => r && r[ix.nome]).map(limpaLinha);
 
   // log de ocorrências (só o arquivo do haras tem): PRODUTO / DATA / OCORRENCIA
   let log = [];
@@ -165,61 +164,13 @@ function mesDoArquivo(nome){
    e marca como sugestão — animal novo aparece na conciliação pra ser confirmado,
    porque a atribuição não é fórmula (no mapa a cota inteira vai pra um dos dois
    e há animal em nenhum dos dois). */
-/* O mapa do Luxor é a fonte da atribuição: lê PLANTEL HPG / PLANTEL EDUARDO e
-   grava por animal. Ele NÃO vira snapshot de mês — o snapshot é sempre o arquivo
-   do haras, senão se compara a população curada do mapa (362 linhas em jul/26)
-   com a população cheia do haras (391) e nascem movimentações que não existiram. */
-function aplicaAtribuicaoDoMapa(d, mes){
-  const alvo = ST.atrib[mes] = ST.atrib[mes] || {};
-  let n = 0;
-  for (const l of d.linhas) {
-    const k = chaveCom(l, d.ix);
-    const temHpg = num(l[d.ix.hpgCota]) || num(l[d.ix.hpgVal]);
-    const temEd = num(l[d.ix.edCota]) || num(l[d.ix.edVal]);
-    alvo[k] = temHpg ? 'hpg' : temEd ? 'eduardo' : 'nenhum';
-    delete ST.sugeridos[`${mes}|${k}`];
-    n++;
-  }
-  return n;
-}
-
-/* Dono do animal NAQUELE mês: o próprio mês, senão herda do mês anterior mais
-   próximo que tenha atribuição. Não havendo nenhum mapa ANTES, vale o mapa mais
-   antigo que conheça o animal — dez/25 é base e não tem mapa, e adivinhar por
-   sufixo ali fabricava troca de dono em janeiro: R$ 220 mil saíam do saldo da
-   Carla em jan/26 como se o animal tivesse sido transferido, quando o mapa de
-   janeiro só estava dizendo o que já era verdade em dezembro. Mapa manda em
-   qualquer direção; sufixo é o último recurso. */
-function donoDe(mes, k){
-  const meses = Object.keys(ST.atrib).sort();
-  for (const m of meses.filter(m => m <= mes).reverse()) if (k in ST.atrib[m]) return ST.atrib[m][k];
-  for (const m of meses) if (k in ST.atrib[m]) return ST.atrib[m][k];
-  return k in ST.inferido ? ST.inferido[k] : null;
-}
-
-/* Animal que nenhum mapa atribuiu. A regra foi MEDIDA contra os 7 mapas de 2026:
-
-     sufixo simples (DA PAO GRANDE / OUTRO) e com valor -> Carla em 1248 de 1248
-     sufixo de parceria (- E xx%) e com valor            -> nenhum 200, Eduardo 30, Carla 1
-
-   Ou seja: sufixo simples com valor pode entrar direto; parceria NÃO se adivinha
-   (a cota inteira vai pra um dos dois ou pra nenhum, animal por animal) e vai pra
-   conciliação. Sem valor entra como 'nenhum': não mexe no saldo, e se um dia
-   ganhar valor a conciliação cobra. */
-function completaAtribuicao(mes){
-  const d = ST.meses[mes];
-  for (const l of d.linhas) {
-    const k = chaveCom(l, d.ix);
-    if (donoDe(mes, k) != null) continue;
-    const suf = norm(l[d.ix.sufixo]);
-    const simples = suf === 'DA PAO GRANDE' || suf === 'OUTRO';
-    const valor = num(l[d.ix.cota]) * num(l[d.ix.valor]) + num(l[d.ix.comissao]);
-    if (!valor) { ST.inferido[k] = 'nenhum'; continue; }
-    if (simples) { ST.inferido[k] = 'hpg'; continue; }
-    ST.inferido[k] = 'nenhum';
-    ST.sugeridos[k] = true;   // parceria com valor: quem fecha decide
-  }
-}
+/* O mapa do Luxor NÃO é mais fonte de atribuição. Ele era, e em volta disso
+   existia uma máquina inteira: gravar dono por animal e por mês, herdar do mês
+   anterior, inferir por sufixo quando o mapa não cobria, e uma fila de
+   'confirmar dono' na Conciliação. Tudo isso saiu em 16/09/2026 — o dono está
+   NO ARQUIVO (ver donoDaLinha), e a regra reproduz a Carla de jul/26 no
+   centavo. O mapa segue sendo importado só pelo Resumo Contábil divulgado, que
+   é o número contra o qual os checks conferem. */
 
 const mesAnterior = m => {
   if (!m) return null;
@@ -341,7 +292,9 @@ function movimentacaoDoMes(mes){
     const dt = x.data instanceof Date ? x.data : new Date(x.data);
     if (dt > fimMes) (posteriores[norm(x.produto)] = posteriores[norm(x.produto)] || []).push({...x, data: dt});
   }
-  const noEscopo = l => ['hpg', 'eduardo'].includes(donoDe(mes, chaveCom(l, ix)));
+  // com o dono vindo do arquivo, TODA linha é de um dos dois — não existe mais
+  // animal fora de escopo, que era artefato de mapa incompleto
+  const noEscopo = () => true;
 
   const log = (d.log || []).filter(x => {
     const dt = x.data instanceof Date ? x.data : new Date(x.data);
@@ -415,13 +368,12 @@ function movimentacaoDoMes(mes){
     const loA = a ? norm(a[ixa.local]) : '', loB = b ? norm(b[ixb.local]) : '';
     const mudouStatus = a && b && stA !== stB;
     const mudouLocal = a && b && loA !== loB;
-    const trocouDono = ant && donoDe(mesAnterior(mes), ponteInv[k] || k) !== donoDe(mes, k);
+    const trocouDono = !!(a && b && donoDaLinha(a, ixa) !== donoDaLinha(b, ixb));
     if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && !trocouDono && a && b) continue;
 
     const linha = b || a, ixL = b ? ixb : ixa;
-    const dono = donoDe(mes, k);
-    const kAnt = ponteInv[k] || k;
-    const donoAnt = ant ? donoDe(mesAnterior(mes), kAnt) : dono;
+    const dono = donoDaLinha(linha, ixL);
+    const donoAnt = a ? donoDaLinha(a, ixa) : dono;
     /* Trocar de dono MOVE patrimônio: animal que era da Carla e virou 'nenhum'
        sai do saldo dela mesmo sem venda registrada. Sem isto o check de julho
        acusava R$ 60 mil de diferença entre estoque e fluxo. */
@@ -619,10 +571,10 @@ function confirmaImport(d, arquivo, mesSugerido){
   document.getElementById('impNao').onclick = fecha;
   if (d.temSplit) {
     document.getElementById('impAtrib').onclick = async () => {
-      const n = aplicaAtribuicaoDoMapa(d, mesSugerido || ST.mes);
       fecha();
-      document.getElementById('statusImp').textContent = `atribuição de ${n} animais carregada`;
-      await salvaAtribuicao();
+      document.getElementById('statusImp').textContent =
+        'mapa lido — a atribuição Carla/Eduardo sai do próprio arquivo do haras, '
+        + 'pelo sufixo; do mapa só entra o Resumo Contábil divulgado';
       pinta();
     };
     return;
@@ -630,19 +582,11 @@ function confirmaImport(d, arquivo, mesSugerido){
   document.getElementById('impOk').onclick = async () => {
     const mes = document.getElementById('impMes').value;
     ST.meses[mes] = d;
-    completaAtribuicao(mes);
     ST.mes = mes;
     fecha();
     await salvaSnapshot(mes, d, arquivo);
     topo(); pinta();
   };
-}
-
-async function salvaAtribuicao(){
-  const c = sb();
-  if (!c || !ST.mes) return;
-  try { await c.from('plantel_snapshot').update({atribuicao: ST.atrib[ST.mes] || {}}).eq('mes', ST.mes); }
-  catch (e) { console.warn('[plantel] atribuição não gravada', e.message || e); }
 }
 
 async function salvaSnapshot(mes, d, arquivo){
@@ -653,7 +597,7 @@ async function salvaSnapshot(mes, d, arquivo){
       mes, arquivo,
       linhas: {cab: d.cab, ix: d.ix, rows: d.linhas},
       log: d.log.map(x => ({...x, data: (x.data instanceof Date ? x.data : new Date(x.data)).toISOString()})),
-      atribuicao: ST.atrib[mes] || {},
+      atribuicao: {},     // o dono sai do arquivo; a coluna fica só por compatibilidade
     }, {onConflict: 'mes'});
   } catch (err) { console.warn('[plantel] snapshot não gravado', err.message || err); }
 }
@@ -685,13 +629,8 @@ async function carregaSnapshots(){
     if (error) throw error;
     for (const r of data || []) {
       ST.meses[r.mes] = normalizaSnapshot(r);
-      ST.atrib[r.mes] = r.atribuicao || {};
+      // atribuicao do snapshot é legado: o dono vem do arquivo (ver donoDaLinha)
     }
-    // O mapa do mês não cobre todo animal do fechamento: em jan/26 faltavam
-    // R$ 612 mil e em abr/26 R$ 261 mil de animais que existem no arquivo do
-    // haras e não no mapa. A mesma regra do import preenche o resto, em ordem
-    // de mês — a atribuição de um mês herda do anterior.
-    for (const m of Object.keys(ST.meses).sort()) completaAtribuicao(m);
     const { data: dec } = await c.from('plantel_mov_classificacao').select('mes,chave,classe,nota,autor');
     for (const r of dec || []) ST.decisoes[`${r.mes}|${r.chave}`] = r;
   } catch (err) { console.warn('[plantel] sem dados salvos', err.message || err); }
@@ -714,14 +653,6 @@ async function registra(mes, mov, classe, nota){
     }
   }
   return true;
-}
-
-async function atribui(mes, k, dono){
-  // decisão humana vale daquele mês em diante (entra como se fosse mapa)
-  (ST.atrib[mes] = ST.atrib[mes] || {})[k] = dono;
-  delete ST.sugeridos[k];
-  const c = sb();
-  if (c) await c.from('plantel_snapshot').update({atribuicao: ST.atrib[mes]}).eq('mes', mes);
 }
 
 /* ---------- filtro por seleção (estilo planilha) ----------
@@ -1070,28 +1001,19 @@ function linhaMov(m){
 function subConciliacao(){
   const mv = movimentacaoDoMes(ST.mes);
   if (!mv) return semArquivo();
-  const dmes = ST.meses[ST.mes];
-  const semDono = Object.keys(ST.sugeridos)
-    .filter(k => dmes.linhas.some(l => chaveCom(l, dmes.ix) === k));
+  /* Saiu a fila 'animal novo sem dono definido': ela existia porque o mapa não
+     cobria todo animal e alguém tinha de escolher entre Carla e Eduardo. Com o
+     dono vindo do sufixo, não há o que escolher. */
   const semLog = mv.movs.filter(m => !m.log.length && Math.abs(m.delta) >= 1 && (m.no_escopo || m.dono));
   const logSemEfeito = mv.log.filter(l => l.tipo === 'financeira' &&
     !mv.movs.some(m => norm(m.nome) === norm(l.produto)));
   const naoRegistrados = mv.movs.filter(m => (m.no_escopo || m.dono) && !ST.decisoes[`${ST.mes}|${m.chave}`]);
   const bloco = (titulo, itens, render) => !itens.length ? '' :
     `<h3>${titulo} <span class="cont">${itens.length}</span></h3>${itens.map(render).join('')}`;
-  if (!semDono.length && !semLog.length && !logSemEfeito.length && !naoRegistrados.length) {
+  if (!semLog.length && !logSemEfeito.length && !naoRegistrados.length) {
     return `<div class="ok-vazio">Tudo conciliado em ${rotMes(ST.mes)}.</div>`;
   }
   return `
-    ${bloco('Animal novo sem dono definido', semDono, k => {
-      const dm = ST.meses[ST.mes], ixm = dm.ix;
-      const l = dm.linhas.find(x => chaveCom(x, ixm) === k) || [];
-      return `<div class="item"><b>${esc(l[ixm.nome])}</b> · ${esc(l[ixm.sufixo])} · ${esc(l[ixm.categoria])} ·
-        cota ${pct(l[ixm.cota])} · ${rs(num(l[ixm.cota]) * num(l[ixm.valor]) + num(l[ixm.comissao]))}
-        · sugerido: <b>${ATRIB[donoDe(ST.mes, k)]}</b>
-        <span class="acoes">${['hpg', 'eduardo', 'nenhum'].map(dn =>
-          `<button type="button" data-dono="${esc(k)}:${dn}">${ATRIB[dn]}</button>`).join('')}</span></div>`;
-    })}
     ${bloco('Movimentação sem ocorrência no log do haras', semLog, m =>
       `<div class="item"><b>${esc(m.nome)}</b> · ${rs(m.delta)} ·
         cota ${pct(m.cota_ant)} → ${pct(m.cota_atual)} · valor ${rs(m.valor_ant)} → ${rs(m.valor_atual)}
@@ -1257,12 +1179,6 @@ function liga(){
        a altura das outras linhas não muda. */
     const cel = e.target.closest('td.cort');
     if (cel) { cel.classList.toggle('aberta'); return; }
-    const dono = e.target.closest('[data-dono]');
-    if (dono) {
-      const [k, dn] = dono.dataset.dono.split(':');
-      await atribui(ST.mes, k, dn);
-      pinta(); return;
-    }
   });
   // a busca só encurta a lista do menu; a tabela não é redesenhada a cada tecla
   document.body.addEventListener('input', e => {
