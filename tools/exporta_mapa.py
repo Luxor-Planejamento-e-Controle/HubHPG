@@ -140,6 +140,23 @@ def casa_linhas(itens, existentes, base_da_linha=None):
                     linha_de[a["chave"]] = r
                     usadas.add(r)
                     break
+        # 4. renome SILENCIOSO — o haras troca o nome sem registrar ocorrência:
+        #    "FACEIRA MAPEJO X IMPÉRIO SAPECADO (AGUARDANDO FICAR PRONTO)" passou
+        #    a ser "FACEIRA MAPEJO X IMPÉRIO SAPECADO - 26/09/2025 RECEP 258" e
+        #    nenhum log conta isso. Casa-se por começo longo de nome, e só quando
+        #    houver UM candidato livre: irmãos de mesma mãe e pai compartilham os
+        #    primeiros 20 caracteres ("JAVA DA PAO GRANDE X QUEBRUTO..."), e com
+        #    dois candidatos a escolha seria sorteio.
+        for a in itens:
+            if a["chave"] in linha_de:
+                continue
+            ini = norm(a["nome"])[:20]
+            if len(ini) < 20:
+                continue
+            cands = [r for n, r in livres if r not in usadas and n.startswith(ini)]
+            if len(cands) == 1:
+                linha_de[a["chave"]] = cands[0]
+                usadas.add(cands[0])
     for a in itens:
         if a["chave"] not in linha_de:
             novos.append(a)
