@@ -1231,11 +1231,18 @@ function subMovimentacoes(){
   if (!ST.meses[mesAnterior(ST.mes)]) {
     return `<div class="aviso">Importe também ${rotMes(mesAnterior(ST.mes))} para comparar os dois meses.</div>`;
   }
-  /* Movimentações é a FILA do que falta decidir: confirmada, a ficha sai daqui
-     e passa a viver na Conciliação. Mês fechado não tem fila — lista tudo. */
+  /* Movimentações é a FILA do que falta decidir. Mês FECHADO não tem fila: o
+     mês foi encerrado, não há o que perguntar, e mostrar as fichas com os
+     botões "Foi isto?" convidava a uma ação que o banco recusaria. O mês
+     encerrado se lê na Conciliação, que é onde ele fica inteiro à vista. */
   const todas = mv.movs.filter(m => m.no_escopo || m.dono);
   const fechado = mesFechado(ST.mes);
-  const base = fechado ? todas : todas.filter(m => !ST.decisoes[`${ST.mes}|${m.chave}`]);
+  if (fechado) {
+    return `<div class="ok-vazio">${rotMes(ST.mes)} está fechado — não há fila.
+      As ${todas.length} movimentações do mês estão na aba <b>Conciliação</b>.
+      Para mexer, use <b>Reabrir mês</b> no topo.</div>`;
+  }
+  const base = todas.filter(m => !ST.decisoes[`${ST.mes}|${m.chave}`]);
   ST.ctx.mov = {base, txtDe: txtMov, ordDe: ordMov,
                 rotulos: Object.fromEntries(COLS_MOV.map(([rot], i) => [i, rot]))};
   let movs = aplicaFiltros(base, 'mov', txtMov);
@@ -1245,8 +1252,8 @@ function subMovimentacoes(){
       ? (num(pega(a)) - num(pega(b))) * dir
       : String(pega(a) || '').localeCompare(String(pega(b) || ''), 'pt-BR') * dir);
   }
-  const nReg = fechado ? todas.length : todas.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length;
-  if (!fechado && !base.length) {
+  const nReg = todas.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length;
+  if (!base.length) {
     return `<div class="ok-vazio">Nada na fila: as ${todas.length} movimentações de
       ${rotMes(ST.mes)} já foram confirmadas. Elas estão na aba Conciliação.</div>`;
   }
@@ -1254,10 +1261,8 @@ function subMovimentacoes(){
   const FILTRAVEIS = [0, 1, 2, 3, 4];
   return `
     <div class="resumo-linha">
-      <span>${movs.length}${movs.length === base.length ? '' : ' de ' + base.length}${
-        fechado ? ` movimentações em ${rotMes(ST.mes)}` : ` na fila de ${rotMes(ST.mes)}`}</span>
-      <span>registrados: <b>${nReg}</b> de ${todas.length}${
-        fechado ? ' <span class="tag">mês fechado</span>' : ''}</span>
+      <span>${movs.length}${movs.length === base.length ? '' : ' de ' + base.length} na fila de ${rotMes(ST.mes)}</span>
+      <span>registrados: <b>${nReg}</b> de ${todas.length}</span>
       <span>Δ patrimônio: <b class="${clsN(movs.reduce((s, m) => s + m.delta, 0))}">${
         rs(movs.reduce((s, m) => s + m.delta, 0))}</b></span>
     </div>
@@ -1286,8 +1291,12 @@ function subConciliacao(){
      é onde o mês fechado fica à vista: tudo que já foi registrado, mais os
      cruzamentos entre as duas fontes (movimento que o log não menciona,
      ocorrência do log sem efeito no patrimônio). */
+  /* Mês fechado conta como resolvido por inteiro: ele foi encerrado fora desta
+     tela (ou por ela), e listar só o que passou pelo botão diria que um mês
+     fechado está vazio. Mês aberto lista o que já foi confirmado. */
   const registradas = mv.movs
-    .filter(m => (m.no_escopo || m.dono) && ST.decisoes[`${ST.mes}|${m.chave}`])
+    .filter(m => (m.no_escopo || m.dono)
+                 && (mesFechado(ST.mes) || ST.decisoes[`${ST.mes}|${m.chave}`]))
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
   const bloco = (titulo, itens, render) => !itens.length ? '' :
     `<h3>${titulo} <span class="cont">${itens.length}</span></h3>${itens.map(render).join('')}`;
@@ -1324,7 +1333,8 @@ function subConciliacao(){
         <thead><tr><th class="l">Animal</th><th class="l">Classificação</th><th>Δ patrimônio</th>
           <th class="l">Quem registrou</th></tr></thead>
         <tbody>${registradas.map(m => {
-          const d = ST.decisoes[`${ST.mes}|${m.chave}`];
+          // sem decisão (mês fechado sem registro na tela) vale a classe apurada
+          const d = ST.decisoes[`${ST.mes}|${m.chave}`] || {classe: m.sugestao, autor: 'apurado'};
           return `<tr><td class="l cort" title="${esc(m.nome)}">${esc(m.nome)}</td>
             <td class="l">${trancado ? `<span class="reg-ok">✓ ${esc(d.classe)}</span>`
               : `<select data-reg="${esc(m.chave)}">${CLASSES_MOV.map(c =>
