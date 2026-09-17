@@ -96,9 +96,23 @@ table.t tr.tot td{font-weight:700;border-top:1px solid var(--line-2);border-bott
 table.t tr.tot td:first-child{color:var(--amber)}
 table.t tr.reg td{background:rgba(76,195,138,.06)}
 table.t td.nome{max-width:300px;overflow:hidden;text-overflow:ellipsis}
-table.t td.oque{white-space:normal;width:360px;min-width:360px;font-size:11.5px;color:var(--ink-2);line-height:1.45}
-table.t td.oque .log{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:352px}
+/* A descrição é a única coisa da linha que não se deduz de outra coluna: é ela
+   que diz o que aconteceu com o animal. Cortar em "...ZEROU A % E O VA" perdia
+   justamente o motivo. Agora quebra linha e mostra inteiro; a coluna ganha
+   largura e teto, pra não empurrar o resto da tabela pra fora. */
+table.t td.oque{white-space:normal;min-width:340px;max-width:560px;font-size:11.5px;
+  color:var(--ink-2);line-height:1.45}
+table.t td.oque .log{display:block;white-space:normal;word-break:break-word}
 .sug{font-size:10px;color:var(--amber);border:1px solid rgba(202,151,3,.45);border-radius:10px;padding:0 6px}
+/* registro: a pergunta em primeiro plano, o escape ao lado e menor */
+.reg-cel{min-width:230px}
+.reg-perg,.reg-feito{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+.reg-conf{background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:8px;
+  padding:4px 10px;font:inherit;font-size:11.5px;cursor:pointer;white-space:nowrap}
+.reg-conf b{font-weight:700}
+.reg-conf:hover{background:var(--amber);color:#1a1300}
+.reg-perg select,.reg-feito select{height:26px;font-size:11px;max-width:120px;color:var(--ink-3)}
+.reg-ok{color:var(--pos);font-size:12px;font-weight:600;white-space:nowrap}
 .log{color:var(--ink-3)}
 .autor{display:block;font-size:10.5px;color:var(--ink-3)}
 .pos{color:var(--pos)} .neg{color:var(--neg)} .zero{color:var(--ink-3)}
@@ -107,6 +121,9 @@ table.t td.oque .log{display:block;overflow:hidden;text-overflow:ellipsis;white-
 h3{font-size:13px;margin:20px 0 8px;font-weight:600}
 h3 .cont{display:inline-block;margin-left:6px;font-size:11px;background:var(--line);color:var(--ink);
   border-radius:9px;padding:1px 7px}
+.h3-acao{margin-left:12px;background:transparent;border:1px solid var(--line);color:var(--ink-3);
+  border-radius:7px;padding:3px 10px;font:inherit;font-size:11.5px;font-weight:400;cursor:pointer}
+.h3-acao:hover{border-color:var(--neg);color:var(--neg)}
 .item{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 12px;
   margin-bottom:7px;font-size:12.5px}
 .item .acoes{margin-left:10px;display:inline-flex;gap:6px}

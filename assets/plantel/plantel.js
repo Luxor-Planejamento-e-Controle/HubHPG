@@ -768,6 +768,21 @@ async function registra(mes, mov, classe, nota){
   return true;
 }
 
+/* Apaga TODAS as decisões do mês e recomeça. Existe porque quem roda o
+   fechamento pela primeira vez classifica meia dúzia testando, percebe que o
+   critério estava errado e quer o mês limpo — reclassificar item por item para
+   um valor que também não vale não é recomeçar. O banco só deixa em mês aberto
+   (policy pmc_delete). */
+async function reiniciaMes(mes){
+  const c = sb();
+  if (c) {
+    const { error } = await c.from('plantel_mov_classificacao').delete().eq('mes', mes);
+    if (error) { alert('não deu pra reiniciar: ' + error.message); return false; }
+  }
+  for (const k of Object.keys(ST.decisoes)) if (k.startsWith(mes + '|')) delete ST.decisoes[k];
+  return true;
+}
+
 /* ---------- filtro por seleção (estilo planilha) ----------
    Era uma caixa de texto por coluna: pra ver DOIS valores ao mesmo tempo
    (garanhão e matriz, venda e morte) não havia jeito — texto casa um padrão só,
@@ -1025,7 +1040,13 @@ function subMovimentacoes(){
   if (!ST.meses[mesAnterior(ST.mes)]) {
     return `<div class="aviso">Importe também ${rotMes(mesAnterior(ST.mes))} para comparar os dois meses.</div>`;
   }
-  const base = mv.movs.filter(m => m.no_escopo || m.dono);
+  /* Movimentações é a FILA do que falta decidir: confirmada, a linha sai daqui
+     e passa a viver na Conciliação, que é onde o mês inteiro fica visível. Sem
+     isso as duas abas mostravam a mesma lista e não dava pra saber, de relance,
+     quanto ainda falta. Mês fechado não tem fila — mostra tudo, só leitura. */
+  const todas = mv.movs.filter(m => m.no_escopo || m.dono);
+  const base = mesFechado(ST.mes) ? todas
+    : todas.filter(m => !ST.decisoes[`${ST.mes}|${m.chave}`]);
   ST.ctx.mov = {base, txtDe: txtMov, ordDe: ordMov,
                 rotulos: Object.fromEntries(COLS_MOV.map(([rot], i) => [i, rot]))};
   let movs = aplicaFiltros(base, 'mov', txtMov);
@@ -1045,11 +1066,17 @@ function subMovimentacoes(){
      botão não funciona é pior que não ter botão. Então some a coluna e a conta
      fecha em N de N. */
   const fechado = mesFechado(ST.mes);
-  const nReg = fechado ? movs.length : movs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length;
+  const nReg = fechado ? todas.length : todas.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length;
+  if (!fechado && !base.length) {
+    return `<div class="ok-vazio">Nada na fila: as ${todas.length} movimentações de
+      ${rotMes(ST.mes)} já foram confirmadas. Elas estão na aba Conciliação.</div>`;
+  }
   return `
     <div class="resumo-linha">
-      <span>${movs.length}${movs.length === base.length ? '' : ' de ' + base.length} animais com movimentação em ${rotMes(ST.mes)}</span>
-      <span>registrados: <b>${nReg}</b> de ${movs.length}${
+      <span>${movs.length}${movs.length === base.length ? '' : ' de ' + base.length}${
+        fechado ? ` animais com movimentação em ${rotMes(ST.mes)}`
+                : ` na fila de ${rotMes(ST.mes)}`}</span>
+      <span>registrados: <b>${nReg}</b> de ${todas.length}${
         fechado ? ' <span class="tag">mês fechado</span>' : ''}</span>
       <span>Δ patrimônio: <b class="${clsN(movs.reduce((s, m) => s + m.delta, 0))}">${rs(movs.reduce((s, m) => s + m.delta, 0))}</b></span>
     </div>
@@ -1077,13 +1104,25 @@ function linhaMov(m){
   const dec = ST.decisoes[`${ST.mes}|${m.chave}`];
   const classe = dec ? dec.classe : null;
   const trancado = mesFechado(ST.mes);
+  /* A sugestão vinha como um '(sugerido)' dentro do select — quem fecha o mês
+     tinha de abrir a lista pra descobrir qual era, e então escolher. Como o
+     cálculo acerta a grande maioria, o trabalho real é CONFIRMAR, e é isso que
+     a tela oferece agora: um clique aceita a sugestão, e o select fica ao lado
+     pra quando a sugestão estiver errada. */
   // em mês fechado a coluna inteira não é desenhada (ver subMovimentacoes)
-  const celReg = trancado ? '' : `<td class="l">
-      <select data-reg="${esc(m.chave)}">
-        <option value="">— registrar —</option>
-        ${CLASSES_MOV.map(c => `<option value="${c}"${classe === c ? ' selected' : ''}>${c}${
-          !classe && c === m.sugestao ? ' (sugerido)' : ''}</option>`).join('')}
-      </select>${dec ? `<span class="autor">${esc(dec.autor || '')}</span>` : ''}
+  const opcoes = c => CLASSES_MOV.map(x =>
+    `<option value="${x}"${c === x ? ' selected' : ''}>${x}</option>`).join('');
+  const celReg = trancado ? '' : `<td class="l reg-cel">${dec
+    ? `<div class="reg-feito"><span class="reg-ok">✓ ${esc(classe)}</span>
+         <select data-reg="${esc(m.chave)}" title="trocar a classificação">
+           <option value="">trocar…</option>${opcoes(classe)}</select></div>
+       ${dec.autor ? `<span class="autor">${esc(dec.autor)}</span>` : ''}`
+    : `<div class="reg-perg">
+         <button type="button" class="reg-conf" data-conf="${esc(m.chave)}:${esc(m.sugestao)}"
+           title="confirmar que foi isto">Foi <b>${esc(m.sugestao)}</b>? &nbsp;Confirmar</button>
+         <select data-reg="${esc(m.chave)}" title="foi outra coisa">
+           <option value="">foi outra coisa…</option>${opcoes(null)}</select>
+       </div>`}
     </td>`;
 
   const oque = [];
@@ -1129,18 +1168,41 @@ function subConciliacao(){
   const semLog = mv.movs.filter(m => !m.log.length && Math.abs(m.delta) >= 1 && (m.no_escopo || m.dono));
   const logSemEfeito = mv.log.filter(l => l.tipo === 'financeira' &&
     !mv.movs.some(m => norm(m.nome) === norm(l.produto)));
-  /* Saiu o bloco "Movimentação ainda não registrada": era a mesma lista da aba
-     Movimentações, com outro nome. A divisão é essa — Movimentações é onde se
-     FAZ (a fila e o seletor de registro); Conciliação é onde se CONFERE se as
-     duas fontes contam a mesma história. O que fica aqui é só cruzamento:
-     movimento que o log do haras não menciona, e ocorrência do log que não
-     achou efeito no patrimônio. */
+  /* A divisão é essa — Movimentações é a FILA do que falta decidir; Conciliação
+     é onde o mês fechado fica à vista: tudo que já foi registrado, mais os
+     cruzamentos entre as duas fontes (movimento que o log não menciona,
+     ocorrência do log sem efeito no patrimônio). */
+  const registradas = mv.movs
+    .filter(m => (m.no_escopo || m.dono) && ST.decisoes[`${ST.mes}|${m.chave}`])
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
   const bloco = (titulo, itens, render) => !itens.length ? '' :
     `<h3>${titulo} <span class="cont">${itens.length}</span></h3>${itens.map(render).join('')}`;
-  if (!semLog.length && !logSemEfeito.length) {
-    return `<div class="ok-vazio">Tudo conciliado em ${rotMes(ST.mes)}.</div>`;
+  if (!registradas.length && !semLog.length && !logSemEfeito.length) {
+    return `<div class="ok-vazio">Nada registrado em ${rotMes(ST.mes)} ainda —
+      a fila está na aba Movimentações.</div>`;
   }
+  const trancado = mesFechado(ST.mes);
   return `
+    ${!registradas.length ? '' : `
+      <h3>Movimentações registradas em ${rotMes(ST.mes)} <span class="cont">${registradas.length}</span>${
+        trancado ? '' : `<button type="button" class="h3-acao" data-reiniciar="${ST.mes}"
+          title="apaga todas as classificações deste mês">reiniciar conciliação do mês</button>`}</h3>
+      <div class="rolagem"><table class="t">
+        <thead><tr><th class="l">Animal</th><th class="l">Classificação</th><th>Δ patrimônio</th>
+          <th class="l">Quem registrou</th></tr></thead>
+        <tbody>${registradas.map(m => {
+          const d = ST.decisoes[`${ST.mes}|${m.chave}`];
+          return `<tr><td class="l cort" title="${esc(m.nome)}">${esc(m.nome)}</td>
+            <td class="l">${trancado ? `<span class="reg-ok">✓ ${esc(d.classe)}</span>`
+              : `<select data-reg="${esc(m.chave)}">${CLASSES_MOV.map(c =>
+                  `<option value="${c}"${d.classe === c ? ' selected' : ''}>${c}</option>`).join('')}</select>`}</td>
+            <td class="${clsN(m.delta)}">${rs(m.delta)}</td>
+            <td class="l">${esc(d.autor || '')}</td></tr>`;
+        }).join('')}
+        <tr class="tot"><td>total</td><td></td>
+          <td class="${clsN(registradas.reduce((s, m) => s + m.delta, 0))}">${
+            rs(registradas.reduce((s, m) => s + m.delta, 0))}</td><td></td></tr>
+        </tbody></table></div>`}
     ${bloco('Movimentação sem ocorrência no log do haras', semLog, m =>
       `<div class="item"><b>${esc(m.nome)}</b> · ${rs(m.delta)} ·
         cota ${pct(m.cota_ant)} → ${pct(m.cota_atual)} · valor ${rs(m.valor_ant)} → ${rs(m.valor_atual)}
@@ -1316,6 +1378,24 @@ function liga(){
        da coluna, mas some com o valor. O title já mostra no hover; o clique
        serve pra quem quer ler sem segurar o mouse, e afeta só aquela célula —
        a altura das outras linhas não muda. */
+    const rei = e.target.closest('[data-reiniciar]');
+    if (rei) {
+      const mes = rei.dataset.reiniciar;
+      const n = Object.keys(ST.decisoes).filter(k => k.startsWith(mes + '|')).length;
+      if (confirm(`Apagar as ${n} classificação(ões) de ${rotMes(mes)} e recomeçar?\n\n`
+                  + 'Elas voltam para a fila da aba Movimentações. Não dá pra desfazer.')) {
+        if (await reiniciaMes(mes)) pinta();
+      }
+      return;
+    }
+    const conf = e.target.closest('[data-conf]');
+    if (conf) {
+      const [chave, classe] = conf.dataset.conf.split(':');
+      const mv = movimentacaoDoMes(ST.mes);
+      const mov = mv && mv.movs.find(m => m.chave === chave);
+      if (mov) { await registra(ST.mes, mov, classe, ''); pinta(); }
+      return;
+    }
     const cel = e.target.closest('td.cort');
     if (cel) { cel.classList.toggle('aberta'); return; }
   });
