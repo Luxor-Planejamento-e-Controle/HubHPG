@@ -72,6 +72,23 @@ const COLUNA_CLASSE = {
 const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .replace(/\s+/g, ' ').trim().toUpperCase();
 
+/* O mapa e o arquivo do haras escrevem o mesmo animal de formas diferentes:
+   "MORENA L2 X DAMASCO" no mapa contra "POTRA MORENA L2 X DAMASCO" no haras,
+   "PERSIA DA PAO GRANDE" contra "PERSIA ING DA PAO GRANDE". Comparar pelo nome
+   cru acusa diverg\u00eancia onde h\u00e1 s\u00f3 grafia \u2014 e, pior, esconde a diverg\u00eancia real
+   no meio do ru\u00eddo. A chave tira o prefixo de sexo/categoria, corta data e
+   n\u00famero de receptora, e fica com o come\u00e7o significativo. */
+function chaveNome(s){
+  return norm(s)
+    .replace(/^(MACHO|FEMEA|POTRA|POTRO|EMBRIAO)\s+/, '')
+    .replace(/\s*-?\s*\d{2}\/\d{2}\/\d{2,4}.*$/, '')
+    .replace(/\s+RECEP\s+\d+.*$/, '')
+    .replace(/[()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 30);
+}
+
 function leMapa(mes){
   const arq = fs.readdirSync(MAPA_DIR)
     .find(f => f.includes(`(${ABR[mes.slice(5)]} ${mes.slice(0, 4)})`) && !f.startsWith('~$'));
@@ -90,7 +107,8 @@ function leMapa(mes){
   const out = {};
   for (const r of linhas.slice(iCab + 1)) {
     if (!r || !r[iNome]) continue;
-    const k = norm(r[iNome]);
+    if (/TOTA/.test(norm(r[iNome]))) continue;   // linha de totais do mapa
+    const k = chaveNome(r[iNome]);
     out[k] = out[k] || {};
     for (const [cls, j] of Object.entries(cols)) {
       const v = Number(r[j]);
@@ -111,7 +129,7 @@ function apuraAte(mes){
     for (const mo of M.movimentacaoDoMes(m).movs) {
       if (!mo.delta_carla) continue;
       const cls = mo.sugestao === 'morte' || mo.sugestao === 'doacao' ? 'morte_doacao' : mo.sugestao;
-      const k = norm(mo.nome);
+      const k = chaveNome(mo.nome);
       acc[k] = acc[k] || {};
       acc[k][cls || '(sem sugestao)'] = (acc[k][cls || '(sem sugestao)'] || 0) + mo.delta_carla;
     }
