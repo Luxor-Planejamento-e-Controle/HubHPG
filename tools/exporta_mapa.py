@@ -316,7 +316,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("mes", help="mês do fechamento, MM/AAAA")
     ap.add_argument("--template", help="mapa a usar de base (padrão: o do mês anterior)")
-    ap.add_argument("--saida", help="arquivo a gerar (padrão: ao lado do template)")
+    ap.add_argument("--saida", help="arquivo a gerar (padrão: na pasta atual — "
+                                    "passe o caminho do Drive para publicar)")
     a = ap.parse_args()
 
     mm, ano = a.mes.split("/")
@@ -326,9 +327,12 @@ def main():
     rot_mes = f"{MES_PT[int(mm) - 1]}/{ano}"
 
     template = Path(a.template) if a.template else acha_template(mes_ant)
+    # o padrão grava AQUI, não no Drive: o mapa é documento da Controladoria e
+    # uma execução de teste não pode aparecer na pasta compartilhada. Para
+    # publicar, passa-se --saida com o caminho de lá, de propósito.
     saida = Path(a.saida) if a.saida else (
-        template.parent / f"Plantel Haras Pao Grande - Movimentação Jan a Dez {ano} "
-                          f"({MES_PT[int(mm) - 1]} {ano}).xlsx")
+        Path.cwd() / f"Plantel Haras Pao Grande - Movimentação Jan a Dez {ano} "
+                     f"({MES_PT[int(mm) - 1]} {ano}).xlsx")
     if saida.resolve() == template.resolve():
         sys.exit("saída igual ao template: isso sobrescreveria a base. Use --saida.")
 
