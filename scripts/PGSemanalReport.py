@@ -704,10 +704,26 @@ def build_producao(rep: Report, ini: date, fim: date):
     wb = _load(master)
     ws = wb["ESTAÇÃO"]
     embrioes = []
+    _SAFRA_PARICAO_PENDENTE.clear()
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 3 or r[0] is None:
             continue
         safra_linha = _s(r[35])
+        # Receptora -> safra do embrião CONFIRMADO cuja parição ainda não foi
+        # lançada, de QUALQUER safra. Preenchido antes do filtro de safra porque é
+        # justamente a linha de fora da safra vigente que interessa: sem isto,
+        # _paricoes_do_roster carimba a safra do calendário no potro que o roster
+        # entrega e a parição vai parar na estação errada. Em 17/09/2026 os potros
+        # das recep 453 (IA 04/10/2025) e 440 (IA 11/10/2025) — embriões da safra
+        # 2025/2026, já dentro do acumulado 61 dela — subiram o acumulado da 26/27
+        # de 1 para 3 contra 1 publicado pelo haras.
+        if _norm(r[17]) == "OK" and not _dt(r[23]) and _s(r[11]):
+            rec = _norm(_s(r[11]))
+            ia_linha = _dt(r[7])
+            antes = _SAFRA_PARICAO_PENDENTE.get(rec)
+            # mesma receptora serve várias estações: vale a cobrição mais recente
+            if not antes or (ia_linha and (not antes[1] or ia_linha > antes[1])):
+                _SAFRA_PARICAO_PENDENTE[rec] = (safra_linha, ia_linha)
         if safra_linha not in (SAFRA_ATUAL, SAFRA_PROXIMA):
             continue
         ia = _dt(r[7])
@@ -2501,6 +2517,10 @@ _SOCIO_POR_RECEP: dict = {}
 # receptora -> "50% FULANO" pela coluna NOME SOCIO do roster mensal (fonte primária:
 # todo potro nascido entra no roster, mesmo antes de a parição ir para a estação)
 _SOCIO_ROSTER: dict = {}
+# receptora -> (safra, data_ia) do embrião confirmado com parição PENDENTE, em
+# qualquer safra. Montado em build_producao, lido por _paricoes_do_roster para
+# saber a que estação pertence o potro que só o roster conhece.
+_SAFRA_PARICAO_PENDENTE: dict = {}
 
 
 def _limpa_socio(v) -> str | None:
@@ -2645,6 +2665,19 @@ def _produto_do_roster(nome: str) -> str:
     return f"{sexo} — {t}" if sexo else t
 
 
+def _safra_da_paricao(receptora) -> str | None:
+    """A que estação pertence o potro que só o roster conhece: a safra do EMBRIÃO
+    correspondente na aba ESTAÇÃO, casado pela receptora.
+
+    Devolve None quando a ESTAÇÃO não tem embrião pendente naquela receptora — e
+    None aqui quer dizer "não sei", nunca "é da safra vigente". A diferença importa
+    na reavaliação do registro em disco: parição antiga cuja linha já foi lançada
+    sai do mapa, e tratá-la como desconhecida é o que a impede de ser promovida
+    para a safra corrente."""
+    achado = _SAFRA_PARICAO_PENDENTE.get(_norm(receptora)) if receptora else None
+    return achado[0] if achado else None
+
+
 def _paricoes_do_roster(rep: Report):
     """Parição que o roster conhece e a aba ESTAÇÃO não.
 
@@ -2695,15 +2728,43 @@ def _paricoes_do_roster(rep: Report):
             if not m or m.group(1) in na_estacao or nome in reg:
                 continue
             reg[nome] = {"receptora": m.group(1), "semana": rep.semana_atual,
-                         "safra": SAFRA_ATUAL}
+                         "safra": _safra_da_paricao(m.group(1)) or SAFRA_ATUAL}
+        # A safra de quem JÁ estava no registro também é reavaliada: o carimbo
+        # antigo era sempre a safra do calendário, e o registro é cumulativo — sem
+        # isto o erro de uma semana fica em disco para sempre, inflando o acumulado
+        # de toda semana seguinte.
+        for k, v in reg.items():
+            certa = _safra_da_paricao(v.get("receptora"))
+            if certa and v.get("safra") != certa:
+                print(f"  [nascimentos] parição de {k} estava na safra "
+                      f"{v.get('safra')} e o embrião é da {certa} — corrigido")
+                v["safra"] = certa
         PARICOES_EXTRA.parent.mkdir(parents=True, exist_ok=True)
         PARICOES_EXTRA.write_text(json.dumps(reg, ensure_ascii=False, indent=2),
                                   encoding="utf-8")
 
-    da_safra = {k: v for k, v in reg.items() if v.get("safra") == SAFRA_ATUAL}
-    if not da_safra:
+    # Parição desta semana é nascimento desta semana em qualquer estação — o
+    # acumulado é que é por safra. Por isso `desta` sai de `reg`, não de `da_safra`:
+    # potro da safra passada que nasce agora tem de aparecer em "Nascimentos".
+    desta = [k for k, v in reg.items() if v["semana"] == rep.semana_atual]
+
+    # O acumulado da estação só se move com EMBRIÃO CONFIRMADO NOVO (regra do Arthur,
+    # 17/09/2026). Parição não é confirmação: o embrião que pariu já entrou na conta
+    # quando foi confirmado, e a aba ESTAÇÃO não apaga a linha. Então a parição que o
+    # roster entrega só soma no caso que criou esta função — embrião que a ESTAÇÃO
+    # não conhece, em 21/08/2026. Se a receptora casa com linha confirmada lá, ele já
+    # está contado e somar é contar duas vezes.
+    ja_na_estacao = [k for k, v in reg.items() if v.get("safra") == SAFRA_ATUAL
+                     and _SAFRA_PARICAO_PENDENTE.get(_norm(v.get("receptora")))]
+    if ja_na_estacao:
+        print(f"  [acumulado] {len(ja_na_estacao)} parição(ões) do roster fora do "
+              f"acumulado: o embrião já está confirmado na aba ESTAÇÃO e contado lá:")
+        for k in ja_na_estacao:
+            print(f"    - {k}")
+    da_safra = {k: v for k, v in reg.items()
+                if v.get("safra") == SAFRA_ATUAL and k not in set(ja_na_estacao)}
+    if not da_safra and not desta:
         return
-    desta = [k for k, v in da_safra.items() if v["semana"] == rep.semana_atual]
     rep.producao["acumulado_estacao"] = (rep.producao.get("acumulado_estacao") or 0) + len(da_safra)
     rep.producao["acumulado_paricoes_so_no_roster"] = len(da_safra)
 
@@ -2730,10 +2791,10 @@ def _paricoes_do_roster(rep: Report):
         for k in sem_fatia:
             print(f"    - {k}")
     if desta:
-        # NÃO soma em nascimentos: a contagem publicada vem do roster mensal, por data
-        # de nascimento, e o potro desta lista já está lá. Somar aqui contaria duas
-        # vezes. Este bloco existe só para o ACUMULADO da safra, que precisa da parição
-        # que a aba ESTAÇÃO não tem.
+        # `desta` são as parições registradas nesta semana, de QUALQUER safra: um
+        # potro concebido na estação passada que nasce agora é nascimento desta
+        # semana, mesmo sem tocar no acumulado da safra corrente. Por isso as linhas
+        # abaixo leem `reg`, e não `da_safra`.
         def _socio_da_recep(rec):
             r = _norm(rec)
             if r in _SOCIO_ROSTER:
@@ -2743,15 +2804,15 @@ def _paricoes_do_roster(rep: Report):
             linha = por_recep.get(r) or {}
             return _limpa_socio(linha.get("socio"))
 
-        sem_socio = [k for k in desta if not _socio_da_recep(da_safra[k]["receptora"])]
+        sem_socio = [k for k in desta if not _socio_da_recep(reg[k]["receptora"])]
         if sem_socio:
             print(f"  [nascimentos] sem sócio na estação nem no arquivo do grupo "
                   f"({len(sem_socio)}) — o relatório publica esse nome, aqui fica vazio:")
             for k in sem_socio:
-                print(f"    - {k} (recep {da_safra[k]['receptora']})")
+                print(f"    - {k} (recep {reg[k]['receptora']})")
         rep.detalhe["nascimentos_so_roster"] = [
-            {"produto": _produto_do_roster(k), "receptora": da_safra[k]["receptora"],
-             "socio": _socio_da_recep(da_safra[k]["receptora"]),
+            {"produto": _produto_do_roster(k), "receptora": reg[k]["receptora"],
+             "socio": _socio_da_recep(reg[k]["receptora"]),
              "origem": "roster"} for k in desta]
 
         # O potro desta lista deveria já estar em `nascimentos_semana`, que sai da
@@ -2763,7 +2824,7 @@ def _paricoes_do_roster(rep: Report):
         ja_publicadas = {_norm(n.get("receptora"))
                          for n in (rep.detalhe.get("nascimentos_semana") or [])}
         por_nome = {l.get("nome"): l for l in (_LINHAS_BRUTAS.get("roster") or [])}
-        sem_data = [k for k in desta if _norm(da_safra[k]["receptora"]) not in ja_publicadas]
+        sem_data = [k for k in desta if _norm(reg[k]["receptora"]) not in ja_publicadas]
         if sem_data:
             print(f"  [nascimentos] {len(sem_data)} parição(ões) sem data na coluna "
                   f"NASCIMENTO do roster — contadas assim mesmo (a linha existe, a "
@@ -2775,8 +2836,8 @@ def _paricoes_do_roster(rep: Report):
                 lista.append({
                     "produto": k,
                     "mae": linha.get("mae"), "pai": linha.get("pai"),
-                    "receptora": da_safra[k]["receptora"],
-                    "socio": _socio_da_recep(da_safra[k]["receptora"]),
+                    "receptora": reg[k]["receptora"],
+                    "socio": _socio_da_recep(reg[k]["receptora"]),
                     "data": None, "local": linha.get("local"),
                     "origem": "roster (sem data)",
                 })
@@ -2790,11 +2851,12 @@ def _paricoes_do_roster(rep: Report):
         # na semana (GIM MATIZA + PODIO), nenhuma entrada. Fica só registrado
         # aqui pra quem precisar da abertura de nascimento-só-por-roster.
         rep.saidas["entradas_nascimento"] = len(desta)
-    print(f"  [nascimentos] {len(da_safra)} parição(ões) da safra conhecidas só pelo "
-          f"roster, somadas ao acumulado (a aba ESTAÇÃO não as tem):")
-    for k in sorted(da_safra):
-        marca = "  <- nesta semana" if k in desta else ""
-        print(f"    - {k} (recep {da_safra[k]['receptora']}){marca}")
+    if da_safra:
+        print(f"  [nascimentos] {len(da_safra)} parição(ões) da safra conhecidas só "
+              f"pelo roster, somadas ao acumulado (a aba ESTAÇÃO não as tem):")
+        for k in sorted(da_safra):
+            marca = "  <- nesta semana" if k in desta else ""
+            print(f"    - {k} (recep {reg[k]['receptora']}){marca}")
 
 
 def _registra_caminhos(rep: Report):
