@@ -244,6 +244,15 @@ function patr(l, escopo, ix, mes){
      animal que o mapa não cobria — sem mapa, ele deixa de existir. */
   return num(l[ix.cota]) * num(l[ix.valor]) + num(l[ix.comissao]);
 }
+/* O mesmo patrimônio na régua do FLUXO: cota × valor, sem comissão. É a base do
+   check contra as movimentações do mês, porque comissão não é movimentação. */
+function patrProp(l, escopo, ix){
+  ix = ix || (ST.meses[ST.mes] && ST.meses[ST.mes].ix) || {};
+  const a = donoDaLinha(l, ix);
+  if (escopo === 'hpg' && a !== 'hpg') return 0;
+  if (escopo === 'eduardo' && a !== 'eduardo') return 0;
+  return num(l[ix.cota]) * num(l[ix.valor]);
+}
 /* Soma das cotas do mês, na mesma base das linhas efetivas que o patrimônio
    usa — senão o check compararia populações diferentes. */
 function cotasMes(mes){
@@ -311,6 +320,8 @@ function linhasEfetivasIx(mes){
 
 const patrMes = (mes, escopo) =>
   linhasEfetivasIx(mes).reduce((s, par) => s + patr(par.l, escopo, par.ix, mes), 0);
+const patrMesProp = (mes, escopo) =>
+  linhasEfetivasIx(mes).reduce((s, par) => s + patrProp(par.l, escopo, par.ix), 0);
 
 /* ================= movimentação do mês ================= */
 /* Nome antigo dentro da ocorrência de renome. O haras escreve de duas formas —
@@ -435,8 +446,18 @@ function movimentacaoDoMes(mes){
     const q0 = a ? num(a[ixa.cota]) : 0, q1 = b ? num(b[ixb.cota]) : 0;
     const v0 = a ? num(a[ixa.valor]) : 0, v1 = b ? num(b[ixb.valor]) : 0;
     // patrimônio na MESMA régua do resumo: cota × valor + comissão
-    const p0 = a ? q0 * v0 + num(a[ixa.comissao]) : 0;
-    const p1 = b ? q1 * v1 + num(b[ixb.comissao]) : 0;
+    /* A régua da MOVIMENTAÇÃO é cota × valor, sem comissão. Comissão não tem
+       linha no Resumo Contábil — não é compra, nem venda, nem baixa — então
+       variação dela não pode virar movimentação de causa nenhuma. Ela compõe o
+       saldo (o divulgado de jul/26 é R$ 15.970.552,71, que só fecha com ela) e
+       tem check próprio contra o arquivo do haras.
+       O caso real: a FEMEA ANTONELLA ELDORADO ... X IMPERIO SAPECADO tem cota e
+       valor idênticos em jan e fev/26 e comissão vazia em janeiro, R$ 8.925 em
+       fevereiro — o haras lançou a comissão da compra de out/2025 com atraso. A
+       Controladoria já contava desde dez/25. Isso é correção de base, e como
+       movimentação virava R$ 8.925 sem causa no fechamento de fevereiro. */
+    const p0 = a ? q0 * v0 : 0;
+    const p1 = b ? q1 * v1 : 0;
     const nomeAtual = b ? norm(b[ixb.nome]) : (a ? norm(a[ixa.nome]) : '');
     const posterior = posteriores[nomeAtual] || null;
     const ren = renomes.find(r => r.chave === k);
@@ -497,7 +518,7 @@ function movimentacaoDoMes(mes){
        conjunto, e o mês costuma trazer as duas pernas na mesma linha. */
     const recep = ehLinhaReceptoras(linha[ixL.nome])
       ? pernasDasReceptoras(itensLog, p1 - p0) : null;
-    const evs = eventosDoMes(itensLog, q0, q1, v1 || v0, b ? num(b[ixb.comissao]) : 0);
+    const evs = eventosDoMes(itensLog, q0, q1, v1 || v0);
     if (recep) {
       recep.forEach((perna, i) =>
         empurra(`${k}#r${i + 1}`, perna.valor, perna.classe, [perna.item], perna.rotulo));
@@ -751,7 +772,7 @@ function cotaDaOcorrencia(oc){
 
 /* Quebra o mês de UM animal em eventos. Devolve null quando o log não explica a
    variação de cota inteira — aí o chamador mantém a movimentação única. */
-function eventosDoMes(itensLog, q0, q1, valor, comissao){
+function eventosDoMes(itensLog, q0, q1, valor){
   if (!itensLog || !itensLog.length) return null;
   const passos = [];
   for (const it of itensLog) {
@@ -769,13 +790,9 @@ function eventosDoMes(itensLog, q0, q1, valor, comissao){
   for (let i = 1; i < passos.length; i++) {
     if (Math.abs(passos[i].de - passos[i - 1].para) > tol) return null;   // corrente quebrada
   }
-  /* A comissão acompanha a cota proporcionalmente: ela é parte do patrimônio
-     (cota × valor + comissão) e não tem evento próprio no log. */
-  const porCota = q0 ? comissao / q0 : 0;
   return passos.map(p => {
     const dCota = p.para - p.de;
-    const valorFatia = dCota * valor + dCota * porCota;
-    return {...p, dCota, valorFatia};
+    return {...p, dCota, valorFatia: dCota * valor};
   });
 }
 
@@ -1778,6 +1795,8 @@ function subChecks(){
      não um número do arquivo. */
   const iniC = patrMes(mesAnterior(ST.mes), 'hpg'), fimC = patrMes(ST.mes, 'hpg');
   const movC = movs.reduce((s, m) => s + (m.delta_carla || 0), 0);
+  // o check do fluxo é na régua do fluxo: cota × valor, como a Controladoria faz
+  const iniProp = patrMesProp(mesAnterior(ST.mes), 'hpg'), fimProp = patrMesProp(ST.mes, 'hpg');
 
   const linhas = [
     ['Valor: soma do plantel Luxor = soma do plantel do haras',
@@ -1790,7 +1809,7 @@ function subChecks(){
   // sem o mês anterior carregado não há 'inicial': o check acusaria diferença
   // que é só ausência de base
   if (ant) linhas.push(
-    ['Plantel da Carla = inicial + movimentações do mês (Carla)', fimC, iniC + movC]);
+    ['Plantel da Carla (cota × valor) = inicial + movimentações do mês', fimProp, iniProp + movC]);
 
   /* Confronto com o resumo: o que as movimentações do mês somam tem de ser o que
      o Resumo Contábil publica no mês. Divergir quer dizer que dinheiro caiu numa
