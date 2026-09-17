@@ -571,11 +571,18 @@ function topo(){
   const meses = ST.disponiveis.length ? ST.disponiveis : Object.keys(ST.meses).sort();
   // sem <h1> aqui: o cabeçalho do hub já mostra o nome da aba, e repetir era
   // exatamente o tipo de poluição que o painel não precisa
+  /* Aberto/fechado fica AQUI, colado no seletor: é propriedade do mês, não da
+     Conciliação. Estava lá dentro e simplesmente não era encontrado. */
+  const fechado = mesFechado(ST.mes);
   document.getElementById('topo').innerHTML = `
     <div class="ferramentas">
       <label class="mes-sel">Mês
         <select id="selMes">${meses.map(m => `<option value="${m}"${m === ST.mes ? ' selected' : ''}>${rotMes(m)}</option>`).join('')}</select>
       </label>
+      ${!ST.mes ? '' : `<span class="tag ${fechado ? '' : 'ok'}">${fechado ? 'fechado' : 'aberto'}</span>
+      <button type="button" class="botao-acao${fechado ? '' : ' primario'}"
+        data-mes-status="${ST.mes}:${fechado ? 'abrir' : 'fechar'}">${
+        fechado ? 'Reabrir mês' : 'Fechar mês'}</button>`}
       <label class="botao-arquivo">Importar arquivo
         <input type="file" id="arq" accept=".xlsx,.xlsm" hidden>
       </label>
@@ -1190,6 +1197,16 @@ function fichaMov(m){
     <div class="ficha-meta">${[m.categoria, m.sufixo, ATRIB[m.dono]].filter(Boolean).map(esc).join(' · ')}</div>
     ${!deltas.length ? '' : `<dl class="ficha-mudou">${deltas.map(([r, v]) =>
       `<dt>${r}</dt><dd>${v}</dd>`).join('')}</dl>`}
+    <!-- a conta do animal: de onde saiu, o que mexeu, onde parou. Patrimônio é
+         cota × valor + comissão, por isso ele não é o "valor" da linha acima -->
+    <div class="ficha-conta">
+      <span><i>valor inicial</i><b>${rs(m.patr_ant)}</b></span>
+      <span class="seta-conta">→</span>
+      <span><i>movimentação</i><b class="${clsN(m.delta)}">${rs(m.delta)}</b></span>
+      <span class="seta-conta">→</span>
+      <span><i>valor final</i><b>${rs(m.patr_atual)}</b></span>
+      ${m.cota_atual ? `<span class="conta-obs">${pct(m.cota_atual)} de ${rs(m.valor_atual)}</span>` : ''}
+    </div>
     ${(m.log || []).map(l => `<p class="ficha-log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</p>`).join('')}
     ${avisos.map(a => `<p class="ficha-aviso">⚠ ${esc(a)}</p>`).join('')}
     <div class="ficha-perg">
@@ -1271,12 +1288,9 @@ function subConciliacao(){
   const manuais = manuaisDoMes(ST.mes);
   return `
     <div class="barra-mes">
-      <span class="${trancado ? 'tag' : 'tag ok'}">${rotMes(ST.mes)} ${trancado ? 'fechado' : 'aberto'}</span>
-      ${trancado
-        ? `<button type="button" class="botao-acao" data-mes-status="${ST.mes}:abrir">Reabrir mês</button>
-           <span class="nota-acao">reabrir mantém tudo que já foi classificado; serve pra ajuste.</span>`
-        : `<button type="button" class="botao-acao primario" data-mes-status="${ST.mes}:fechar">Fechar mês</button>
-           <span class="nota-acao">fechar trava o registro de ${rotMes(ST.mes)}. Dá pra reabrir depois.</span>`}
+      <span class="nota-acao">${trancado
+        ? `${rotMes(ST.mes)} está fechado. Reabrir (no topo) mantém tudo que já foi classificado.`
+        : `${rotMes(ST.mes)} está aberto. Fechar (no topo) trava o registro; dá pra reabrir depois.`}</span>
     </div>
     ${trancado ? '' : `
       <h3>Lançar movimentação à mão</h3>
@@ -1525,7 +1539,7 @@ function liga(){
                   + 'Elas ficam sem classificação e o mês para de aceitar registro.'
                 : `Fechar ${rotMes(mes)}? O mês para de aceitar registro.`)
         : `Reabrir ${rotMes(mes)}? Nada do que já foi classificado se perde.`;
-      if (confirm(txt) && await mudaStatusMes(mes, fechar)) pinta();
+      if (confirm(txt) && await mudaStatusMes(mes, fechar)) { topo(); pinta(); }
       return;
     }
     const rmm = e.target.closest('[data-rmman]');
