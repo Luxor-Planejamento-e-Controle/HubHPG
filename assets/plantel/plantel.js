@@ -1964,7 +1964,7 @@ function poeAba(wb, nome, aoa, formatos){
 function abaPlantelXls(){
   const d = ST.meses[ST.mes];
   const cols = colunasDoMes(d);
-  const cab = [...cols.map(([, r]) => r), 'Dono', 'Comissão (Luxor)', 'Patrimônio'];
+  const cab = [...cols.map(([, r]) => r), 'Dono', 'Patrimônio'];
   const fmt = {};
   /* cota é fração no arquivo (0,5) — como dinheiro sairia "0,50" e como
      percentual sai "50,00%", que é o que a planilha do haras mostra */
@@ -1972,14 +1972,17 @@ function abaPlantelXls(){
     if (!EH_NUM(d.cab[i])) return;
     fmt[j] = /COTA|PLANTEL HPG|PLANTEL EDUARDO/.test(norm(d.cab[i])) ? FMT_PCT : FMT_RS;
   });
-  fmt[cols.length + 1] = FMT_RS; fmt[cols.length + 2] = FMT_RS;
+  fmt[cols.length + 1] = FMT_RS;
+  /* A coluna COMISSÃO (R$) sai com a comissão EFETIVA, a mesma que o patrimônio
+     usa — não uma segunda coluna ao lado. Nos meses em que o haras ainda não
+     lançou, é aqui que a herança aparece, no lugar onde ela é lida. */
   const linhas = linhasEfetivasIx(ST.mes).map(par => [
     ...cols.map(([i]) => {
+      if (i === par.ix.comissao) return comissaoDaLinha(par.l, par.ix);
       const v = par.l[i];
       return v instanceof Date ? v : (v == null ? '' : v);
     }),
     ATRIB[donoDaLinha(par.l, par.ix)] || '',
-    comissaoDaLinha(par.l, par.ix),
     num(par.l[par.ix.cota]) * num(par.l[par.ix.valor]) + comissaoDaLinha(par.l, par.ix),
   ]);
   return [[cab, ...linhas], fmt];
