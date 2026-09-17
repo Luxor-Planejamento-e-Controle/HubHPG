@@ -280,7 +280,14 @@ const patrMes = (mes, escopo) =>
   linhasEfetivasIx(mes).reduce((s, par) => s + patr(par.l, escopo, par.ix, mes), 0);
 
 /* ================= movimentação do mês ================= */
-const RX_ESTAVA = /ESTAVA (?:COMO )?"?(.+?)"?(?=\s+-\s+(?:MUDOU|TINHA|FOI|PASSOU|ADICAO|ERA|E\s)|\s+PASSOU\s|$)/;
+/* Nome antigo dentro da ocorrência de renome. O haras escreve de duas formas —
+   "MUDOU O NOME - ESTAVA X" e "MUDOU DE NOME - ERA X E FICOU Y" — e a regra só
+   conhecia a primeira. As 8 ocorrências com "ERA" viravam DOIS animais: o de
+   nome velho sumindo e o de nome novo aparecendo. Em jun/26 isso fabricou uma
+   venda de −R$ 45.000 e uma compra de +R$ 45.000 da PERSIA DA PAO GRANDE, que
+   só trocou de nome. Medido contra os 156 renomes de jan a jul/2026: a regra
+   antiga resolvia 148, esta resolve os 156. */
+const RX_ESTAVA = /(?:ESTAVA|ERA)\s+(?:COMO\s+)?"?(.+?)"?(?=\s+-\s+(?:MUDOU|TINHA|FOI|PASSOU|ADICAO|ERA|E\s)|\s+(?:PASSOU|E\s+FICOU|E\s+PASSOU|FICOU)\s|$)/;
 
 function tipoLog(oc){
   const o = norm(oc);
