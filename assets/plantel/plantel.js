@@ -19,11 +19,15 @@
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const CLASSES_MOV = ['compra', 'embriao', 'venda', 'morte', 'doacao', 'reavaliacao',
                      'renome', 'sem_efeito'];
-/* Mesmo corte do banco (plantel_mes_fechado): mês fechado não recebe registro.
-   O RLS já recusava, mas calado — a tela oferecia o select e o erro só aparecia
-   depois de escolher. */
+/* Mês aberto ou fechado. A verdade mora na tabela `plantel_mes_status` e é a
+   MESMA que o banco consulta em `plantel_mes_fechado` — a tela não decide nada
+   sozinha, só evita oferecer o que o RLS vai recusar.
+
+   `FECHADO_ATE` sobrou como fallback do histórico: os meses anteriores a esta
+   tela foram fechados fora dela, e criar linha pra eles seria inventar autor e
+   data. Sem linha na tabela, vale o corte antigo. */
 const FECHADO_ATE = '2026-07';
-const mesFechado = m => !!m && m <= FECHADO_ATE;
+const mesFechado = m => !!m && (m in ST.statusMes ? ST.statusMes[m] : m <= FECHADO_ATE);
 const ATRIB = {hpg: 'Carla', eduardo: 'Eduardo', nenhum: 'nenhum'};
 
 /* As colunas são localizadas pelo RÓTULO do cabeçalho, não por índice fixo: a
@@ -90,6 +94,7 @@ const ST = {
      sufixo e a fila 'sugeridos' de confirmação — foi removido em 16/09/2026. */
   mes: null,
   disponiveis: [],  // meses que existem no bucket/tabela, sem estarem carregados
+  statusMes: {},    // 'AAAA-MM' -> true quando FECHADO (ausente = corte histórico)
   decisoes: {},     // 'mes|chave' -> {classe, nota, autor}
   aba: 'plantel',
   sub: 'movimentacoes',
@@ -483,8 +488,12 @@ const LINHAS_RESUMO = [
   ['Saldo final', null],
 ];
 
+/* YTD até o mês ESCOLHIDO, não até onde houver arquivo. O seletor de mês vale
+   pra aba inteira: com mar/26 selecionado o resumo mostrava jan a ago e uma
+   coluna ANO fechando em agosto — o acumulado não tem como ser de um período
+   que quem está olhando não pediu. */
 function resumoAno(){
-  const meses = Object.keys(ST.meses).sort();
+  const meses = Object.keys(ST.meses).filter(m => !ST.mes || m <= ST.mes).sort();
   const out = {};
   for (const m of meses) {
     const ant = mesAnterior(m);
@@ -498,6 +507,11 @@ function resumoAno(){
       const dec = ST.decisoes[`${m}|${mo.chave}`];
       const classe = dec ? dec.classe : mo.sugestao;
       causas[classe] = +((causas[classe] || 0) + mo.delta_carla).toFixed(2);
+    }
+    /* lançamento manual entra na causa dele como qualquer outro: é dinheiro que
+       aconteceu e que o diff dos arquivos não tinha como ver */
+    for (const x of manuaisDoMes(m)) {
+      causas[x.classe] = +((causas[x.classe] || 0) + x.valor).toFixed(2);
     }
     out[m] = {ini: +ini.toFixed(2), fim: +fim.toFixed(2), causas,
               registrado: (mv ? mv.movs : []).filter(mo => ST.decisoes[`${m}|${mo.chave}`]).length,
@@ -523,7 +537,10 @@ function topo(){
     </div>`;
   document.getElementById('selMes').onchange = async e => {
     ST.mes = e.target.value;
-    await garantePar(ST.mes);
+    /* o resumo é acumulado ATÉ o mês escolhido, então trocar de mês nele pede o
+       período inteiro; nas outras abas bastam o mês e o anterior */
+    if (ST.aba === 'resumo') await garanteMeses(ST.disponiveis.filter(m => m <= ST.mes));
+    else await garantePar(ST.mes);
     /* Filtro e ordenação são por coluna DAQUELE mês, então trocar de mês limpa
        os dois — mas mantendo a forma {plantel, mov}. Zerando pra {} e {col,dir}
        todo render seguinte morria em Object.entries(undefined), e a tela ficava
@@ -752,10 +769,57 @@ async function carregaDecisoes(){
   const c = sb();
   if (!c) return;
   try {
-    const { data } = await c.from('plantel_mov_classificacao').select('mes,chave,classe,nota,autor');
+    const { data } = await c.from('plantel_mov_classificacao')
+      .select('mes,chave,classe,nota,autor,nome,valor');
     for (const r of data || []) ST.decisoes[`${r.mes}|${r.chave}`] = r;
   } catch (err) { console.warn('[plantel] decisões não carregadas', err.message || err); }
+  try {
+    const { data } = await c.from('plantel_mes_status').select('mes,fechado');
+    for (const r of data || []) ST.statusMes[r.mes] = !!r.fechado;
+  } catch (err) { console.warn('[plantel] status dos meses não carregado', err.message || err); }
 }
+
+/* Fecha ou reabre o mês. Reabrir NÃO apaga nada: o mês volta a aceitar registro
+   com tudo que já foi classificado no lugar — é ajuste, não recomeço (pra
+   recomeçar existe o limpar, ao lado). */
+async function mudaStatusMes(mes, fechado){
+  const c = sb();
+  if (c) {
+    const { error } = await c.from('plantel_mes_status')
+      .upsert({mes, fechado}, {onConflict: 'mes'});
+    if (error) { alert('não deu pra mudar o status do mês: ' + error.message); return false; }
+  }
+  ST.statusMes[mes] = fechado;
+  return true;
+}
+
+/* ---------- lançamento manual ----------
+   Animal que o arquivo do haras ainda não tem (compra recém-fechada, por
+   exemplo) não aparece no diff entre dois meses, então o cálculo não o inventa.
+   Aqui a pessoa lança: nome, classe e valor. A chave começa com 'MANUAL:' —
+   não colide com chave de animal, que é NOME|LETRA. */
+const ehManual = chave => String(chave || '').startsWith('MANUAL:');
+
+async function lancaManual(mes, nome, classe, valor, nota){
+  const chave = 'MANUAL:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const k = `${mes}|${chave}`;
+  const linha = {mes, chave, classe, nome, valor, nota: nota || null,
+                 autor: eu() || '(local)'};
+  ST.decisoes[k] = linha;
+  const c = sb();
+  if (c) {
+    const { error } = await c.from('plantel_mov_classificacao')
+      .upsert({mes, chave, classe, nome, valor, nota: nota || null}, {onConflict: 'mes,chave'});
+    if (error) { delete ST.decisoes[k]; alert('não gravou: ' + error.message); return false; }
+  }
+  return true;
+}
+
+/* Lançamentos manuais do mês, no formato que o resto da tela já entende. */
+const manuaisDoMes = mes => Object.entries(ST.decisoes)
+  .filter(([k, d]) => k.startsWith(mes + '|') && ehManual(k.slice(mes.length + 1)) && d)
+  .map(([k, d]) => ({chave: k.slice(mes.length + 1), nome: d.nome || '(sem nome)',
+                     classe: d.classe, valor: num(d.valor), nota: d.nota, autor: d.autor}));
 
 async function registra(mes, mov, classe, nota){
   const k = `${mes}|${mov.chave}`, antes = ST.decisoes[k];
@@ -1185,16 +1249,38 @@ function subConciliacao(){
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
   const bloco = (titulo, itens, render) => !itens.length ? '' :
     `<h3>${titulo} <span class="cont">${itens.length}</span></h3>${itens.map(render).join('')}`;
-  if (!registradas.length && !semLog.length && !logSemEfeito.length) {
-    return `<div class="ok-vazio">Nada registrado em ${rotMes(ST.mes)} ainda —
-      a fila está na aba Movimentações.</div>`;
-  }
   const trancado = mesFechado(ST.mes);
+  const manuais = manuaisDoMes(ST.mes);
   return `
+    <div class="barra-mes">
+      <span class="${trancado ? 'tag' : 'tag ok'}">${rotMes(ST.mes)} ${trancado ? 'fechado' : 'aberto'}</span>
+      ${trancado
+        ? `<button type="button" class="botao-acao" data-mes-status="${ST.mes}:abrir">Reabrir mês</button>
+           <span class="nota-acao">reabrir mantém tudo que já foi classificado; serve pra ajuste.</span>`
+        : `<button type="button" class="botao-acao primario" data-mes-status="${ST.mes}:fechar">Fechar mês</button>
+           <span class="nota-acao">fechar trava o registro de ${rotMes(ST.mes)}. Dá pra reabrir depois.</span>`}
+    </div>
+    ${trancado ? '' : `
+      <h3>Lançar movimentação à mão</h3>
+      <div class="item form-manual">
+        <input id="mNome" placeholder="Nome do animal" class="cresce">
+        <select id="mClasse">${CLASSES_MOV.map(c => `<option value="${c}">${c}</option>`).join('')}</select>
+        <input id="mValor" placeholder="Valor (R$)" inputmode="decimal">
+        <input id="mNota" placeholder="Observação (opcional)" class="cresce">
+        <button type="button" class="botao-acao primario" id="mAdd">Lançar</button>
+      </div>`}
+    ${!manuais.length ? '' : `
+      <h3>Lançamentos manuais <span class="cont">${manuais.length}</span></h3>
+      ${manuais.map(x => `<div class="item"><b>${esc(x.nome)}</b> ·
+        <span class="reg-ok">${esc(x.classe)}</span> · <b class="${clsN(x.valor)}">${rs(x.valor)}</b>
+        ${x.nota ? `· ${esc(x.nota)}` : ''}
+        <span class="autor">${esc(x.autor || '')}</span>
+        ${trancado ? '' : `<span class="acoes"><button type="button" data-rmman="${esc(x.chave)}">remover</button></span>`}
+      </div>`).join('')}`}
     ${!registradas.length ? '' : `
       <h3>Movimentações registradas em ${rotMes(ST.mes)} <span class="cont">${registradas.length}</span>${
         trancado ? '' : `<button type="button" class="h3-acao" data-reiniciar="${ST.mes}"
-          title="apaga todas as classificações deste mês">reiniciar conciliação do mês</button>`}</h3>
+          title="apaga todas as classificações deste mês">limpar classificações</button>`}</h3>
       <div class="rolagem"><table class="t">
         <thead><tr><th class="l">Animal</th><th class="l">Classificação</th><th>Δ patrimônio</th>
           <th class="l">Quem registrou</th></tr></thead>
@@ -1262,6 +1348,14 @@ function subChecks(){
     return s + (causasDoResumo.has(dec ? dec.classe : m.sugestao) ? (m.delta_carla || 0) : 0);
   }, 0);
   linhas.push(['Causas do resumo = movimentação apurada (Carla)', movEmCausa, movC]);
+  /* Lançamento manual é, por definição, o que o diff dos arquivos NÃO viu — ele
+     entra no resumo contábil e não no apurado, então a diferença entre os dois
+     passa a ser exatamente ele. Fica como linha própria pra que essa diferença
+     tenha nome, em vez de virar um check vermelho sem explicação. */
+  const manuais = manuaisDoMes(ST.mes);
+  if (manuais.length) linhas.push(
+    [`Lançamentos manuais (${manuais.length}) — fora do apurado`,
+     manuais.reduce((s, x) => s + x.valor, 0), 0]);
   /* Confronto com o que foi divulgado. Vem junto com o mês (aba Resumo Contabil
      do mapa) porque é o número que valeu, e não se reproduz de trás pra frente.
      De mar/26 a jul/26 bate em R$ 0. Os dois meses que não batem são da fonte:
@@ -1343,10 +1437,11 @@ function liga(){
          mostrava um resumo com um mês só — o único que estava na memória —, que
          se corrigia sozinho no clique seguinte e parecia filtro quebrado. Agora
          avisa que está carregando e só desenha com o ano inteiro na mão. */
-      if (ST.aba === 'resumo' && ST.disponiveis.some(m => !ST.meses[m])) {
+      const ateAqui = ST.disponiveis.filter(m => m <= ST.mes);
+      if (ST.aba === 'resumo' && ateAqui.some(m => !ST.meses[m])) {
         document.getElementById('painel').innerHTML =
           '<div class="aviso">Carregando os meses do ano para o resumo…</div>';
-        await garanteMeses(ST.disponiveis);
+        await garanteMeses(ateAqui);
       }
       pinta();
       return;
@@ -1400,6 +1495,46 @@ function liga(){
        da coluna, mas some com o valor. O title já mostra no hover; o clique
        serve pra quem quer ler sem segurar o mouse, e afeta só aquela célula —
        a altura das outras linhas não muda. */
+    const st = e.target.closest('[data-mes-status]');
+    if (st) {
+      const [mes, acao] = st.dataset.mesStatus.split(':');
+      const fechar = acao === 'fechar';
+      const pend = fechar ? (movimentacaoDoMes(mes) || {movs: []}).movs
+        .filter(m => (m.no_escopo || m.dono) && !ST.decisoes[`${mes}|${m.chave}`]).length : 0;
+      const txt = fechar
+        ? (pend ? `Fechar ${rotMes(mes)} com ${pend} movimentação(ões) ainda na fila?\n\n`
+                  + 'Elas ficam sem classificação e o mês para de aceitar registro.'
+                : `Fechar ${rotMes(mes)}? O mês para de aceitar registro.`)
+        : `Reabrir ${rotMes(mes)}? Nada do que já foi classificado se perde.`;
+      if (confirm(txt) && await mudaStatusMes(mes, fechar)) pinta();
+      return;
+    }
+    const rmm = e.target.closest('[data-rmman]');
+    if (rmm) {
+      const chave = rmm.dataset.rmman;
+      if (confirm('Remover este lançamento manual?')) {
+        const c = sb();
+        if (c) {
+          const { error } = await c.from('plantel_mov_classificacao').delete()
+            .eq('mes', ST.mes).eq('chave', chave);
+          if (error) { alert('não removeu: ' + error.message); return; }
+        }
+        delete ST.decisoes[`${ST.mes}|${chave}`];
+        pinta();
+      }
+      return;
+    }
+    if (e.target.id === 'mAdd') {
+      const nome = (document.getElementById('mNome').value || '').trim();
+      const classe = document.getElementById('mClasse').value;
+      const bruto = (document.getElementById('mValor').value || '').replace(/\./g, '').replace(',', '.');
+      const valor = Number(bruto);
+      const nota = (document.getElementById('mNota').value || '').trim();
+      if (!nome) { alert('falta o nome do animal'); return; }
+      if (!isFinite(valor) || !valor) { alert('falta o valor (ex.: 60000 ou -60000)'); return; }
+      if (await lancaManual(ST.mes, nome, classe, valor, nota)) pinta();
+      return;
+    }
     const rei = e.target.closest('[data-reiniciar]');
     if (rei) {
       const mes = rei.dataset.reiniciar;

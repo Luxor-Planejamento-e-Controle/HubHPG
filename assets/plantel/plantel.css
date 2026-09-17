@@ -144,6 +144,17 @@ h3 .cont{display:inline-block;margin-left:6px;font-size:11px;background:var(--li
 .h3-acao:hover{border-color:var(--neg);color:var(--neg)}
 .item{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 12px;
   margin-bottom:7px;font-size:12.5px}
+.barra-mes{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.nota-acao{color:var(--ink-3);font-size:12px}
+.botao-acao{background:transparent;border:1px solid var(--line);color:var(--ink-2);border-radius:8px;
+  padding:6px 14px;font:inherit;font-size:12.5px;cursor:pointer}
+.botao-acao:hover{border-color:var(--amber);color:var(--amber)}
+.botao-acao.primario{background:var(--amber);border-color:var(--amber);color:#1a1300;font-weight:600}
+.botao-acao.primario:hover{background:#b98803;color:#1a1300}
+.form-manual{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.form-manual input,.form-manual select{background:var(--bg-2);border:1px solid var(--line);color:var(--ink);
+  border-radius:7px;height:32px;padding:0 9px;font:inherit;font-size:12.5px}
+.form-manual .cresce{flex:1 1 180px;min-width:140px}
 .item .acoes{margin-left:10px;display:inline-flex;gap:6px}
 .item .acoes button{background:transparent;border:1px solid var(--line);color:var(--ink-2);
   border-radius:7px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer}
