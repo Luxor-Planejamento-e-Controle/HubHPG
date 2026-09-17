@@ -801,6 +801,20 @@ function pernasDasReceptoras(itensLog, liquido){
   }
   if (!compras.length && !saidas.length) return null;
   if (saidas.length > 1) return null;                      // sem rateio, sem chute
+  /* Compra e saída no MESMO DIA a Controladoria lança pelo líquido, em uma
+     linha só. Em 10/03/2026 as receptoras tiveram "VENDA DE 05" e "COMPRA DE 02
+     POR R$2.000,00 CADA" na mesma data, e o resumo de março publica compras
+     zeradas — os R$ 4.000 sumiram dentro da baixa por venda. Quando as pernas
+     caem em datas diferentes ela separa: 02/04 a compra de uma receptora do
+     Jacques Ribeiro (R$ 1.800) e 20/04 a venda de 38, cada uma na sua linha. A
+     linha acumulada do mapa confirma os dois lados — COMPRAS de R$ 4.800, que é
+     3.000 de janeiro mais 1.800 de abril, sem os 4.000 de março. */
+  const dia = it => {
+    const d = it.data instanceof Date ? it.data : new Date(it.data);
+    return isNaN(d) ? '' : d.toISOString().slice(0, 10);
+  };
+  if (compras.length && saidas.length
+      && compras.every(c => dia(c.item) === dia(saidas[0].item))) return null;
   const resto = +(liquido - compras.reduce((s, c) => s + c.valor, 0)).toFixed(2);
   const pernas = compras.slice();
   if (saidas.length) {

@@ -46,7 +46,6 @@ function router(){
   const id=(location.hash.replace(/^#\/?/,'')||'');
   const r=byId(id);
   document.getElementById('pageTitle').textContent=r.title;
-  document.getElementById('pageSub').textContent=r.sub;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#/'+id));
   const c=document.getElementById('content'); c.className='content'; c.innerHTML='';
   (r.render||renderPlaceholder)(c,r); window.scrollTo(0,0);

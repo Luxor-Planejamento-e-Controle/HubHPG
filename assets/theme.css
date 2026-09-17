@@ -14,6 +14,13 @@
   --line:#1B486B; --line-strong:#2A5F87;
   --r:14px; --r-sm:9px;
   --ctl-h:36px;                 /* altura única dos controles da toolbar */
+  /* Altura do cabeçalho, em um lugar só. O iframe das abas embutidas ocupa
+     `100vh - --topbar-h`, e antes esse desconto era um `63px` literal no
+     .embed — certo para o cabeçalho de então, mas que só se mantinha certo
+     enquanto ninguém mexesse no padding do .topbar. Encolher o cabeçalho sem
+     lembrar dele daria ao iframe altura maior que a tela e rolagem por nada.
+     São 10 + 30 (a altura do chip do usuário) + 10 + 1 de borda. */
+  --topbar-h:51px;
   --shadow-card:0 1px 3px rgba(0,0,0,.4);
   --shadow-hover:0 4px 14px rgba(0,0,0,.5);
   --font-sans:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
@@ -96,11 +103,10 @@ a{color:inherit;text-decoration:none}
   .nav-close{display:grid;place-items:center}
 }
 .topbar{
-  display:flex;align-items:center;gap:16px;padding:16px 26px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:16px;padding:10px 26px;border-bottom:1px solid var(--line);
   background:rgba(4,34,59,.75);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);position:sticky;top:0;z-index:5;
 }
 .topbar h1{font-family:var(--font-serif);font-size:19px;margin:0;font-weight:600}
-.topbar .sub{color:var(--ink-3);font-size:12px}
 .topbar .spacer{flex:1}
 .chip{display:flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid var(--line);border-radius:20px;font-size:12px;color:var(--ink-2)}
 .avatar{width:28px;height:28px;border-radius:50%;background:var(--amber);color:#1a1300;display:grid;place-items:center;font-weight:700;font-size:12px}
@@ -112,7 +118,7 @@ a{color:inherit;text-decoration:none}
   transition:.13s;-webkit-appearance:none;appearance:none}
 .chip-btn:hover{background:var(--surface-2);border-color:var(--neg);color:var(--neg)}
 .chip-btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-.content{padding:24px 30px 48px;width:100%}
+.content{padding:18px 30px 48px;width:100%}
 .content.flush{padding:0}
 
 /* ---- controls ---- */
@@ -152,7 +158,8 @@ option{background:var(--surface);color:var(--ink)}
    31/08/2026 no LuxorP&CHub, mesmo bug aqui por ser a mesma estrutura. */
 @media(max-width:760px){
   .g-6,.g-5,.g-4,.g-3,.g-2{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
-  .topbar{gap:10px;padding:12px 16px}
+  .topbar{gap:10px;padding:8px 16px}
+  :root{--topbar-h:47px}
   .topbar h1{font-size:17px}
   .content{padding:16px 16px 36px}
   .hero{margin-bottom:18px}
@@ -197,7 +204,7 @@ table.data tbody tr:hover td{background:rgba(255,255,255,.04)}
 
 .chart{width:100%;height:340px}
 .chart.tall{height:420px}
-.embed{width:100%;height:calc(100vh - 63px);height:calc(100dvh - 63px);border:0;background:var(--bg);display:block}
+.embed{width:100%;height:calc(100vh - var(--topbar-h));height:calc(100dvh - var(--topbar-h));border:0;background:var(--bg);display:block}
 /* table.data em mobile: sem isto, coluna igual pra todas espremia número até
    virar "5,..." ilegível, mesmo com .tbl-wrap tendo overflow:auto (nada
    excedia a largura pra rolar, porque a tabela obedecia o container). Solta a
@@ -211,7 +218,7 @@ table.data tbody tr:hover td{background:rgba(255,255,255,.04)}
    fazia ele rolar por dentro E a página do hub rolar por fora ao mesmo tempo,
    duas barras pro mesmo conteúdo. .auto-h troca por altura que acompanha o
    conteúdo (JS em app.js mede e ajusta); só a página de fora rola. */
-.embed.auto-h{height:var(--embed-h, calc(100vh - 63px));min-height:calc(100vh - 63px)}
+.embed.auto-h{height:var(--embed-h, calc(100vh - var(--topbar-h)));min-height:calc(100vh - var(--topbar-h))}
 
 /* home */
 .hero{margin-bottom:26px}
