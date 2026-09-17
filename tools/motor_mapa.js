@@ -114,8 +114,15 @@ function registra(mes, par){
   const k = canon(l[ix.nome]);
   const a = animais[k] || (animais[k] = {
     chave: k, compras: 0, embrioes: 0, venda: 0, morte_doacao: 0, reavaliacao: 0,
-    base: 0, visto: null,
+    base: 0, visto: null, aliases: new Set(),
   });
+  /* TODO nome que a linha já teve vai junto. A Controladoria não renomeia as
+     linhas dela — o mapa de junho ainda chama "RECEPTORAS 121" o que o arquivo
+     de julho chama "RECEPTORAS 120", e "MORENA L2 X DAMASCO..." o que virou
+     "POTRA MORENA L2 X DAMASCO...". Procurando a linha do template só pelo nome
+     de hoje, ela não é achada e o exportador cria uma linha nova ao lado da
+     antiga, com o movimento do ano numa e a base na outra. */
+  a.aliases.add(M.norm(l[ix.nome]));
   // o cadastro vale o do mês MAIS RECENTE em que a linha aparece
   a.visto = mes;
   a.nome = l[ix.nome];
@@ -147,17 +154,27 @@ for (const mes of meses) {
       chave: k, compras: 0, embrioes: 0, venda: 0, morte_doacao: 0, reavaliacao: 0,
       base: 0, visto: mes, nome: mo.nome, sufixo: mo.sufixo, categoria: mo.categoria,
       status: mo.status, cota: mo.cota_atual, valor: mo.valor_atual, dono: mo.dono,
-      comissao: 0, patr: mo.patr_atual,
+      comissao: 0, patr: mo.patr_atual, aliases: new Set(),
     });
+    a.aliases.add(M.norm(mo.nome));
+    if (mo.renome) a.aliases.add(M.norm(mo.renome.de));
     a[col] += mo.delta;
   }
+}
+
+/* O encadeamento de renomes é a outra ponta: quem aponta para este animal já foi
+   o nome dele, mesmo que a linha antiga nunca tenha sido registrada aqui. */
+for (const [de, para] of Object.entries(apelido)) {
+  const a = animais[canon(para)];
+  if (a) a.aliases.add(de);
 }
 
 /* ---- linhas da aba Movimentações: só quem tem base ou movimento no ano ---- */
 const movimentacoes = Object.values(animais)
   .filter(a => a.base || a.compras || a.embrioes || a.venda || a.morte_doacao || a.reavaliacao)
   .map(a => ({
-    chave: a.chave, nome: a.nome, sufixo: a.sufixo, categoria: a.categoria,
+    chave: a.chave, nome: a.nome, aliases: [...a.aliases],
+    sufixo: a.sufixo, categoria: a.categoria,
     status: a.status, cota: a.cota, dono: a.dono,
     base: +a.base.toFixed(2), compras: +a.compras.toFixed(2),
     embrioes: +a.embrioes.toFixed(2), venda: +a.venda.toFixed(2),
@@ -177,6 +194,9 @@ const plantel = M.linhasEfetivasIx(alvo).map(par => {
     const v = par.l[i];
     o[rot] = v instanceof Date ? v.toISOString().slice(0, 10) : (v == null ? '' : v);
   });
+  // os nomes anteriores servem para achar a linha no template (ver casa_linhas)
+  const reg = animais[canon(par.l[par.ix.nome])];
+  o.__aliases = reg ? [...reg.aliases] : [];
   o.__cota = M.num(par.l[par.ix.cota]);
   o.__valor = M.num(par.l[par.ix.valor]);
   o.__comissao = M.comissaoDaLinha(par.l, par.ix);

@@ -97,6 +97,34 @@ def copia_estilo(ws, de: int, para: int, ncols: int):
             destino._style = copy(origem._style)
 
 
+def casa_linhas(itens, existentes):
+    """Casa cada animal com a linha que ele já tem na planilha, por QUALQUER nome
+    que já teve. A Controladoria não renomeia: o mapa de junho ainda chama
+    "RECEPTORAS 121" o rebanho que o arquivo de julho chama "RECEPTORAS 120", e
+    "MORENA L2 X DAMASCO..." a potra que nasceu e virou "POTRA MORENA L2 X
+    DAMASCO...". Procurando só pelo nome de hoje, cada renome do ano abria uma
+    linha nova ao lado da antiga — a base de dezembro numa, o movimento do ano na
+    outra."""
+    linha_de, usadas, novos = {}, set(), []
+    # nome de hoje primeiro: se duas identidades disputam a mesma linha, fica com
+    # ela quem se chama assim agora
+    for passo in (0, 1):
+        for a in itens:
+            if a["chave"] in linha_de:
+                continue
+            nomes = [a["nome"]] if passo == 0 else a.get("aliases", [])
+            for nome in nomes:
+                r = existentes.get(norm(nome))
+                if r and r not in usadas:
+                    linha_de[a["chave"]] = r
+                    usadas.add(r)
+                    break
+    for a in itens:
+        if a["chave"] not in linha_de:
+            novos.append(a)
+    return linha_de, novos
+
+
 def linha_totais(ws, ncols: int, desde: int):
     """Linha de TOTAIS DAS MOVIMENTAÇÕES / fim do bloco de dados."""
     for r in range(desde, min(ws.max_row, desde + 4000) + 1):
@@ -127,15 +155,17 @@ def escreve_plantel(ws, dados: dict):
         if n:
             existentes.setdefault(n, r)
 
-    novos = [l for l in dados["plantel"] if norm(l["__nome"]) not in existentes]
+    itens = [dict(l, chave=l["__nome"], nome=l["__nome"],
+                  aliases=l.get("__aliases", [])) for l in dados["plantel"]]
+    linha_de, novos = casa_linhas(itens, existentes)
     if novos:
         ws.insert_rows(ult + 1, amount=len(novos))
-        for i, l in enumerate(novos):
+        for i, a in enumerate(novos):
             copia_estilo(ws, ult, ult + 1 + i, ncols)
-            existentes[norm(l["__nome"])] = ult + 1 + i
+            linha_de[a["chave"]] = ult + 1 + i
 
     for l in dados["plantel"]:
-        r = existentes[norm(l["__nome"])]
+        r = linha_de[l["__nome"]]
         for rot, c in cols.items():
             if rot in FORMULA:
                 continue
@@ -151,9 +181,9 @@ def escreve_plantel(ws, dados: dict):
 
     # linha que sobrou do mês anterior e não está mais no plantel: zera cota e
     # valor, que é como o haras marca quem saiu — apagar perderia o histórico
-    vivos = {norm(l["__nome"]) for l in dados["plantel"]}
+    vivas = set(linha_de.values())
     for n, r in existentes.items():
-        if n not in vivos:
+        if r not in vivas:
             ws.cell(row=r, column=cols["COTAS (%)"]).value = 0
             ws.cell(row=r, column=cols["VALOR (R$)"]).value = 0
 
@@ -211,18 +241,22 @@ def escreve_movimentacoes(ws, dados: dict, rot_mes: str, desloca_plantel: int):
         if n:
             existentes.setdefault(n, r)
 
-    novos = [a for a in dados["movimentacoes"] if norm(a["nome"]) not in existentes]
+    linha_de, novos = casa_linhas(dados["movimentacoes"], existentes)
     if novos:
         ws.insert_rows(lin_tot, amount=len(novos))
         for i, a in enumerate(novos):
             r = lin_tot + i
             copia_estilo(ws, lin_tot - 1, r, ncols)
-            existentes[norm(a["nome"])] = r
+            linha_de[a["chave"]] = r
         lin_tot += len(novos)
 
     for a in dados["movimentacoes"]:
-        r = existentes[norm(a["nome"])]
-        ws.cell(row=r, column=col["nome"]).value = a["nome"]
+        r = linha_de[a["chave"]]
+        # o NOME da linha é o da Controladoria: ela não renomeia, e reescrever
+        # criaria diferença onde não houve movimento. Só linha nova ganha o nome
+        # que o animal tem hoje.
+        if not ws.cell(row=r, column=col["nome"]).value:
+            ws.cell(row=r, column=col["nome"]).value = a["nome"]
         ws.cell(row=r, column=col["sufixo"]).value = a["sufixo"]
         ws.cell(row=r, column=col["categoria"]).value = a["categoria"]
         ws.cell(row=r, column=col["status"]).value = a["status"]
