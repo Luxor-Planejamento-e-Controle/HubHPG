@@ -333,14 +333,18 @@ function movimentacaoDoMes(mes){
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}` === mes;
   }).map(x => ({...x, tipo: tipoLog(x.ocorrencia)}));
 
+  /* O log é agrupado pela MESMA identidade das linhas: sem isto, a ocorrência
+     de junho ficava sob "RECEPTORAS 124" (nome antigo) e a linha do mês era
+     "RECEPTORAS 121", então o motor não achava o log e não via o DEVOLUÇÃO. */
+  const chaveLog = produto => ehLinhaReceptoras(produto) ? 'PSEUDO:RECEPTORAS' : norm(produto);
   const logPorNome = {};
-  for (const x of log) (logPorNome[norm(x.produto)] = logPorNome[norm(x.produto)] || []).push(x);
+  for (const x of log) (logPorNome[chaveLog(x.produto)] = logPorNome[chaveLog(x.produto)] || []).push(x);
   /* O log do arquivo é cumulativo: traz a vida inteira do animal, não só o mês.
      A tela usa o recorte do mês, mas a regra de cancelamento precisa do
      histórico (a venda cancelada pode ser de anos atrás). */
   const histPorNome = {};
   for (const x of (d.log || [])) {
-    const k = norm(x.produto);
+    const k = chaveLog(x.produto);
     (histPorNome[k] = histPorNome[k] || []).push(
       {...x, data: x.data instanceof Date ? x.data : new Date(x.data)});
   }
@@ -422,7 +426,8 @@ function movimentacaoDoMes(mes){
     const emCE = dn => ['hpg', 'eduardo'].includes(dn);
     const deltaCarla = +(noEsc(dono, p1) - noEsc(donoAnt, p0)).toFixed(2);
     const deltaCE = +((emCE(dono) ? p1 : 0) - (emCE(donoAnt) ? p0 : 0)).toFixed(2);
-    const itensLog = logPorNome[norm(linha[ixL.nome])] || (ren ? logPorNome[norm(ren.para)] : []) || [];
+    const itensLog = logPorNome[chaveLog(linha[ixL.nome])]
+      || (ren ? logPorNome[chaveLog(ren.para)] : []) || [];
     movs.push({
       chave: k, linha, nome: linha[ixL.nome], sufixo: linha[ixL.sufixo],
       categoria: linha[ixL.categoria], status: linha[ixL.status], dono,
@@ -436,7 +441,7 @@ function movimentacaoDoMes(mes){
       log: itensLog, posterior,
       sugestao: sugere({q0, q1, v0, v1, p0, p1, ren, entrou: !a, saiu: !b, status: stB || stA,
                         categoria: norm(linha[ixL.categoria]), itensLog,
-                        historico: histPorNome[norm(linha[ixL.nome])] || [],
+                        historico: histPorNome[chaveLog(linha[ixL.nome])] || [],
                         receptoras: ehLinhaReceptoras(linha[ixL.nome])}),
       no_escopo: noEscopo(linha),
     });
@@ -519,11 +524,15 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
      não dizendo nada, o motor não chuta. O valor já vem proporcional: a linha
      agregada carrega o valor do conjunto, então o delta É a fatia das que saíram. */
   if (receptoras) {
-    if (/COMPRA/.test(oc)) return 'compra';
-    // devolução de receptora é baixa, e o haras lança na MESMA linha da baixa
-    // por venda (Arthur, 17/09/2026) — por isso 'venda', não 'doacao'
-    if (/DEVOLU|VEND/.test(oc)) return 'venda';
-    return p1 > p0 ? 'compra' : null;
+    /* O SINAL decide primeiro. Lendo a palavra antes do sinal, março virava
+       "compra de -R$ 6.387": o log da linha agregada acumula os eventos do mês
+       ("COMPRA DE 02" e devolução juntos) e a palavra COMPRA aparecia num mês
+       cujo saldo foi negativo. Entrou valor é compra — o haras informa o preço
+       pago. Saiu, o log distingue; devolução e venda caem na MESMA linha de
+       baixa por venda (Arthur, 17/09/2026). Saiu sem o log dizer o quê, não
+       chuta: vira pergunta na ficha. */
+    if (p1 > p0) return 'compra';
+    return /DEVOLU|VEND/.test(oc) ? 'venda' : null;
   }
   if (ren && !mexeu) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
