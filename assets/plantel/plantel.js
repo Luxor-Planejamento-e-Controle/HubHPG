@@ -66,17 +66,17 @@ const EH_PCT = r => /^COTAS|PLANTEL HPG|PLANTEL EDUARDO/.test(norm(r));
 const EH_MOEDA = r => /VALOR|COMISS/.test(norm(r));
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+/* SEMPRE com centavos: é dinheiro e é conferido contra a planilha da
+   Controladoria, onde o confronto fecha na vírgula. Arredondar na exibição
+   escondia diferença real — a baixa por morte/doação de maio/26 é R$ 28.773,50
+   (R$ 4.148,50 da linha das receptoras mais R$ 24.625) e aparecia como
+   R$ 28.774, batendo com o divulgado numa casa que não existe. */
 const rs = v => (v == null || v === '' || isNaN(v)) ? '—'
-  : (v < 0 ? '−' : '') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR', {maximumFractionDigits: 0});
-/* Com centavos, para o Resumo Contábil. Ali o número é conferido contra o
-   divulgado, e arredondar esconde a diferença: a baixa por morte/doação de
-   maio/26 é R$ 28.773,50 (R$ 4.148,50 da linha das receptoras mais R$ 24.625),
-   que arredondado vira R$ 28.774 e parece bater na unidade errada. */
-const rs2 = v => (v == null || v === '' || isNaN(v)) ? '—'
   : (v < 0 ? '−' : '') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',
       {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const pct = v => (v == null || v === '' || isNaN(v)) ? '—'
-  : (Number(v) * 100).toLocaleString('pt-BR', {maximumFractionDigits: 2}) + '%';
+  : (Number(v) * 100).toLocaleString('pt-BR',
+      {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
 const clsN = v => !v ? 'zero' : v > 0 ? 'pos' : 'neg';
 const rotMes = m => m ? `${MESES_PT[+m.split('-')[1] - 1]}/${m.split('-')[0].slice(2)}` : '';
 const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -1814,19 +1814,22 @@ function subChecks(){
      do mapa) porque é o número que valeu, e não se reproduz de trás pra frente. */
   const lib = d.liberado;
   if (lib) {
-    if (lib.saldo_fim != null) linhas.push(['Saldo final = Resumo Contábil divulgado', fimC, lib.saldo_fim]);
-    if (lib.saldo_ini != null) linhas.push(['Saldo inicial = Resumo Contábil divulgado', iniC, lib.saldo_ini]);
+    if (lib.saldo_fim != null) linhas.push(['Saldo final = Resumo Contábil divulgado', fimC, lib.saldo_fim, 'divulgado']);
+    if (lib.saldo_ini != null) linhas.push(['Saldo inicial = Resumo Contábil divulgado', iniC, lib.saldo_ini, 'divulgado']);
   }
   const regs = (mv ? mv.movs : []).filter(m => (m.no_escopo || m.dono) && m.delta);
   return `<div class="rolagem"><table class="t t-check">
     <thead><tr><th class="l">Check de ${rotMes(ST.mes)}</th><th>Plantel Luxor</th><th>Plantel Haras</th><th>Diferença</th><th class="l">Situação</th></tr></thead>
     <tbody>${linhas.map(([t, a, b, un]) => {
       const dif = +(a - b).toFixed(4);
-      /* tolerância de R$ 1: o Resumo Contábil divulgado carrega centavos de
-         arredondamento próprio (15.970.552,61 contra 15.970.552,71). Em COTA a
-         régua é outra — 0,0001 de cota é 0,01% e já é diferença de verdade. */
-      const ok = un === 'cota' ? Math.abs(dif) < 0.0001 : Math.abs(dif) < 1;
-      const f = un === 'cota' ? pct : rs;
+      /* Confere na VÍRGULA: os dois lados saem da mesma base e um centavo de
+         diferença é diferença. A exceção é o confronto com o Resumo Contábil
+         divulgado, que carrega arredondamento próprio da planilha
+         (15.970.552,61 contra 15.970.552,71) — ali a régua segue sendo R$ 1,
+         senão o check acusa erro que é da fonte. Em COTA, 0,0001 já é 0,01%. */
+      const tol = un === 'cota' ? 0.0001 : un === 'divulgado' ? 1 : 0.005;
+      const ok = Math.abs(dif) < tol;
+      const f = un === 'cota' ? pct : rs;   // 'divulgado' também é dinheiro
       return `<tr><td class="l">${t}</td><td>${f(a)}</td><td>${f(b)}</td>
         <td class="${ok ? 'pos' : 'neg'}">${f(dif)}</td>
         <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
@@ -1851,11 +1854,11 @@ function painelResumo(){
   return `<div class="rolagem"><table class="t">
     <thead><tr><th class="l">Título</th>${meses.map(m => `<th>${rotMes(m)}</th>`).join('')}<th>Ano</th></tr></thead>
     <tbody>${LINHAS_RESUMO.map(([rot, causas]) => {
-      if (rot === 'Saldo inicial') return `<tr class="tot"><td>${rot}</td>${meses.map(m => `<td>${rs2(r[m].ini)}</td>`).join('')}<td>${rs2(r[meses[0]].ini)}</td></tr>`;
-      if (rot === 'Saldo final') return `<tr class="tot"><td>${rot}</td>${meses.map(m => `<td>${rs2(r[m].fim)}</td>`).join('')}<td>${rs2(r[meses[meses.length - 1]].fim)}</td></tr>`;
+      if (rot === 'Saldo inicial') return `<tr class="tot"><td>${rot}</td>${meses.map(m => `<td>${rs(r[m].ini)}</td>`).join('')}<td>${rs(r[meses[0]].ini)}</td></tr>`;
+      if (rot === 'Saldo final') return `<tr class="tot"><td>${rot}</td>${meses.map(m => `<td>${rs(r[m].fim)}</td>`).join('')}<td>${rs(r[meses[meses.length - 1]].fim)}</td></tr>`;
       const vals = meses.map(m => val(m, causas));
       const soma = vals.reduce((a, b) => a + b, 0);
-      return `<tr><td>${rot}</td>${vals.map(v => `<td class="${clsN(v)}">${v ? rs2(v) : '—'}</td>`).join('')}<td class="${clsN(soma)}">${rs2(soma)}</td></tr>`;
+      return `<tr><td>${rot}</td>${vals.map(v => `<td class="${clsN(v)}">${v ? rs(v) : '—'}</td>`).join('')}<td class="${clsN(soma)}">${rs(soma)}</td></tr>`;
     }).join('')}
     <tr><td>Movimentações classificadas</td>${meses.map(m => `<td>${
       r[m].classificado}/${r[m].total}${r[m].fechado ? ' ·&nbsp;fechado' : ''}</td>`).join('')}<td></td></tr>
