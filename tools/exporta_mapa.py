@@ -41,6 +41,8 @@ MAPA_DIR = Path(
 )
 MES_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago",
           "Set", "Out", "Nov", "Dez"]
+# a linha agregada das receptoras: o número é a contagem do rebanho, não nome
+RX_RECEPTORAS = re.compile(r"^RECEPTORAS(\s+\d+)?$")
 
 
 def norm(s) -> str:
@@ -275,10 +277,15 @@ def escreve_movimentacoes(ws, dados: dict, rot_mes: str, desloca_plantel: int):
 
     for a in dados["movimentacoes"]:
         r = linha_de[a["chave"]]
-        # o nome escrito é o que o haras usa HOJE: a linha é a mesma (foi achada
-        # por alias ou por valor), e deixar o nome velho é o que faz o mapa
-        # acumular identidades mortas
-        ws.cell(row=r, column=col["nome"]).value = a["nome"]
+        # O nome da linha é o da Controladoria, e fica. Quando o embrião "LINDEZA
+        # DA PAO GRANDE X FIGO DO YURI - 26/03/2025 RECEP 495" nasce e vira
+        # "PAQUITA DA PAO GRANDE", ela não renomeia a linha — e reescrever
+        # criaria diferença em cima de um animal que não se moveu. A exceção são
+        # as receptoras, cujo nome É a contagem do rebanho ("RECEPTORAS 120") e
+        # que ela atualiza todo mês.
+        atual = ws.cell(row=r, column=col["nome"]).value
+        if not atual or RX_RECEPTORAS.match(norm(atual)):
+            ws.cell(row=r, column=col["nome"]).value = a["nome"]
         ws.cell(row=r, column=col["sufixo"]).value = a["sufixo"]
         ws.cell(row=r, column=col["categoria"]).value = a["categoria"]
         ws.cell(row=r, column=col["status"]).value = a["status"]
