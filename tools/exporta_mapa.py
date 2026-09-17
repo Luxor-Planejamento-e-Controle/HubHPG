@@ -97,17 +97,23 @@ def copia_estilo(ws, de: int, para: int, ncols: int):
             destino._style = copy(origem._style)
 
 
-def casa_linhas(itens, existentes):
-    """Casa cada animal com a linha que ele já tem na planilha, por QUALQUER nome
-    que já teve. A Controladoria não renomeia: o mapa de junho ainda chama
-    "RECEPTORAS 121" o rebanho que o arquivo de julho chama "RECEPTORAS 120", e
-    "MORENA L2 X DAMASCO..." a potra que nasceu e virou "POTRA MORENA L2 X
-    DAMASCO...". Procurando só pelo nome de hoje, cada renome do ano abria uma
-    linha nova ao lado da antiga — a base de dezembro numa, o movimento do ano na
-    outra."""
+def casa_linhas(itens, existentes, base_da_linha=None):
+    """Casa cada animal com a linha que ele já tem na planilha.
+
+    1. pelo nome de hoje;
+    2. por QUALQUER nome que o animal já teve no ano. A Controladoria não
+       renomeia junto com o haras: o mapa de junho ainda chama "RECEPTORAS 121"
+       o rebanho que julho chama "RECEPTORAS 120", e "MORENA L2 X DAMASCO..." a
+       potra que virou "POTRA MORENA L2 X DAMASCO...";
+    3. pelo VALOR EM DEZ/2025, quando o renome é anterior a 2026 e portanto
+       invisível para o motor — "PALADINO LUEKIM DA PAO GRANDE (CARLA)" no mapa é
+       "PALADINO FIGUEIRA DA PAO GRANDE (CARLA)" no arquivo do haras, e nenhum
+       log de 2026 conta isso. Aqui exige-se base idêntica E o mesmo começo de
+       nome, porque base igual sozinha casaria irmãos de mesmo valor.
+
+    Sem esses três passos, cada renome deixa DUAS linhas no mapa: a antiga com os
+    valores velhos do template e uma nova com o movimento do ano."""
     linha_de, usadas, novos = {}, set(), []
-    # nome de hoje primeiro: se duas identidades disputam a mesma linha, fica com
-    # ela quem se chama assim agora
     for passo in (0, 1):
         for a in itens:
             if a["chave"] in linha_de:
@@ -116,6 +122,19 @@ def casa_linhas(itens, existentes):
             for nome in nomes:
                 r = existentes.get(norm(nome))
                 if r and r not in usadas:
+                    linha_de[a["chave"]] = r
+                    usadas.add(r)
+                    break
+    if base_da_linha:
+        livres = [(n, r) for n, r in existentes.items() if r not in usadas]
+        for a in itens:
+            if a["chave"] in linha_de or not a.get("base"):
+                continue
+            ini = norm(a["nome"])[:6]
+            for n, r in livres:
+                if r in usadas or not n.startswith(ini):
+                    continue
+                if abs(base_da_linha.get(r, 0) - a["base"]) < 0.01:
                     linha_de[a["chave"]] = r
                     usadas.add(r)
                     break
@@ -241,7 +260,11 @@ def escreve_movimentacoes(ws, dados: dict, rot_mes: str, desloca_plantel: int):
         if n:
             existentes.setdefault(n, r)
 
-    linha_de, novos = casa_linhas(dados["movimentacoes"], existentes)
+    base_da_linha = {}
+    for r in range(lin_cab + 1, lin_tot):
+        v = ws.cell(row=r, column=col["base"]).value
+        base_da_linha[r] = float(v) if isinstance(v, (int, float)) else 0.0
+    linha_de, novos = casa_linhas(dados["movimentacoes"], existentes, base_da_linha)
     if novos:
         ws.insert_rows(lin_tot, amount=len(novos))
         for i, a in enumerate(novos):
@@ -252,11 +275,10 @@ def escreve_movimentacoes(ws, dados: dict, rot_mes: str, desloca_plantel: int):
 
     for a in dados["movimentacoes"]:
         r = linha_de[a["chave"]]
-        # o NOME da linha é o da Controladoria: ela não renomeia, e reescrever
-        # criaria diferença onde não houve movimento. Só linha nova ganha o nome
-        # que o animal tem hoje.
-        if not ws.cell(row=r, column=col["nome"]).value:
-            ws.cell(row=r, column=col["nome"]).value = a["nome"]
+        # o nome escrito é o que o haras usa HOJE: a linha é a mesma (foi achada
+        # por alias ou por valor), e deixar o nome velho é o que faz o mapa
+        # acumular identidades mortas
+        ws.cell(row=r, column=col["nome"]).value = a["nome"]
         ws.cell(row=r, column=col["sufixo"]).value = a["sufixo"]
         ws.cell(row=r, column=col["categoria"]).value = a["categoria"]
         ws.cell(row=r, column=col["status"]).value = a["status"]
