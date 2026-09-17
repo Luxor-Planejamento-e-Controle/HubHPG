@@ -537,6 +537,13 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
   if (ren && !mexeu) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
   if (saiu || (q0 && !q1)) {
+    /* Venda no mês ganha do óbito posterior. O JUSTICA DA PAO GRANDE X OLIMPO DO
+       MH foi vendido 50% em 13/03 e abortou em 31/03: o motor via o status final
+       (OBITO) e lançava tudo em morte, enquanto a Controladoria lança em venda —
+       o dinheiro saiu pela venda, o óbito veio depois e sobre o que restou.
+       Mesmo par aparece em março (R$ 22.250) e julho (R$ 22.500). O CANCEL fica
+       de fora: "VENDA CANCELADA" menciona venda e é o contrário dela. */
+    if (/VENDID|VENDA/.test(oc) && !/CANCEL/.test(oc)) return 'venda';
     if (/MORREU|OBITO|ABORTOU/.test(oc) || /OBITO/.test(st)) return 'morte';
     if (/DOAD|DOACAO/.test(oc)) return 'doacao';
     return 'venda';
