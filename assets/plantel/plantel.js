@@ -233,6 +233,47 @@ function donoDaLinha(l, ix){
   return (suf === 'DA PAO GRANDE' || suf === 'OUTRO') ? 'hpg' : 'eduardo';
 }
 
+/* ---------- comissão conhecida do animal ----------
+
+   Comissão é dado da COMPRA, não evento do mês: quando aparece, ela sempre
+   existiu. O haras às vezes lança com atraso, e aí o nosso saldo fica abaixo do
+   da Controladoria até o dia em que ele digita.
+
+   Medido: a FEMEA ANTONELLA ELDORADO DAS POCOES DO YURI X IMPERIO SAPECADO foi
+   comprada em out/2025 ("COMPRADO 50% A R$105.000,00 DE YURI SEMANSKY") e tem
+   comissão em branco nos arquivos de dez/25 e jan/26 e R$ 8.925 no de fev/26. O
+   mapa da Controladoria traz VALOR EM DEZ/2025 = 113.925, que é 0,5 × 210.000
+   MAIS os 8.925 — ou seja, ela já contava desde dezembro. Sem herdar, o saldo de
+   dez/25 e o de jan/26 nasciam R$ 8.925 abaixo do divulgado e a comissão
+   aparecia em fevereiro como se fosse dinheiro novo.
+
+   A herança só vale para animal que AINDA está no plantel: cota zerada é animal
+   que saiu, e a comissão dele sai junto — herdar ali ressuscitaria valor de
+   quem já foi baixado. E o mês que traz comissão própria manda nela, para que
+   uma comissão realmente alterada não seja sobrescrita pelo passado. */
+let _comisCache = null, _comisChave = '';
+function comissoesConhecidas(){
+  const chave = Object.keys(ST.meses).sort().join(',');
+  if (_comisCache && _comisChave === chave) return _comisCache;
+  const o = {};
+  for (const m of Object.keys(ST.meses).sort()) {
+    const d = ST.meses[m];
+    for (const l of (d.linhas || [])) {
+      const c = num(l[d.ix.comissao]);
+      if (c) o[chaveCom(l, d.ix)] = c;
+    }
+  }
+  _comisCache = o; _comisChave = chave;
+  return o;
+}
+function comissaoDaLinha(l, ix){
+  const c = num(l[ix.comissao]);
+  if (c) return c;
+  if (!num(l[ix.cota])) return 0;          // saiu do plantel: comissão sai junto
+  const k = chaveCom(l, ix);
+  return num(comissoesConhecidas()[k]);
+}
+
 function patr(l, escopo, ix, mes){
   ix = ix || (ST.meses[ST.mes] && ST.meses[ST.mes].ix) || {};
   const a = donoDaLinha(l, ix);
@@ -242,7 +283,7 @@ function patr(l, escopo, ix, mes){
      linha do arquivo é de um dos dois, então a soma dos dois é o arquivo
      inteiro. Antes existia um terceiro estado ('nenhum'), que era artefato de
      animal que o mapa não cobria — sem mapa, ele deixa de existir. */
-  return num(l[ix.cota]) * num(l[ix.valor]) + num(l[ix.comissao]);
+  return num(l[ix.cota]) * num(l[ix.valor]) + comissaoDaLinha(l, ix);
 }
 /* O mesmo patrimônio na régua do FLUXO: cota × valor, sem comissão. É a base do
    check contra as movimentações do mês, porque comissão não é movimentação. */
