@@ -566,7 +566,16 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
      não se deduz de sobra. Sem regra que explique, o motor não sugere: a ficha
      pergunta sem palpite e a movimentação fica FORA do resumo até alguém
      classificar, em vez de entrar calada numa causa errada. */
-  if (mexeu || v1 !== v0) return null;
+  /* Reavaliação tem assinatura própria: a COTA fica igual e o VALOR UNITÁRIO
+     muda — o animal é o mesmo, a participação é a mesma, só o preço mudou.
+     Medido em jan/26: LIBERDADE DA PAO GRANDE X IMPERIO SAPECADO, cota 0,5 nos
+     dois meses e valor de 30.000 para 24.000, são os R$ 18.000 que o Resumo
+     Contábil publica como "(+/−) Reavaliações". Isto é diferente do que havia
+     aqui antes, que era "qualquer sobra vira reavaliação" — aquilo inventava
+     causa; isto reconhece uma. As receptoras não passam por aqui: têm regra
+     própria acima, senão o valor do agregado mudando viraria reavaliação. */
+  if (q1 === q0 && v1 !== v0) return 'reavaliacao';
+  if (mexeu) return null;
   return 'sem_efeito';
 }
 
