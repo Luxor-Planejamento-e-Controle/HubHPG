@@ -42,7 +42,8 @@ global.XLSX = XLSX;
 const fonte = fs.readFileSync(path.join(RAIZ, 'assets/plantel/plantel.js'), 'utf8');
 const M = new Function(fonte + `
   ;return {ST, lerArquivo, movimentacaoDoMes, mesAnterior, linhasEfetivasIx, patr,
-           comissaoDaLinha, donoDaLinha, chaveCom, resumoAno, num, norm, LINHAS_RESUMO};`)();
+           comissaoDaLinha, donoDaLinha, chaveCom, ehLinhaReceptoras, resumoAno, num, norm,
+           LINHAS_RESUMO};`)();
 
 function arquivoDoMes(mes){
   const [ano, mm] = mes.split('-');
@@ -96,6 +97,11 @@ for (const mes of meses) {
   }
 }
 function canon(nome){
+  /* As receptoras são UMA linha agregada cujo nome é a contagem do rebanho
+     ("RECEPTORAS 175" vira "RECEPTORAS 124"), então o nome muda todo mês sem que
+     o animal mude — o motor já lhes dá identidade própria e aqui vale a mesma,
+     senão a base de dezembro fica numa linha e as vendas do ano em outra. */
+  if (M.ehLinhaReceptoras(nome)) return 'RECEPTORAS';
   let n = M.norm(nome), voltas = 0;
   while (apelido[n] && apelido[n] !== n && voltas++ < 30) n = apelido[n];
   return n;
