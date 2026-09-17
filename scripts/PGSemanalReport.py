@@ -29,6 +29,7 @@ import json
 import re
 import sys
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -2753,6 +2754,34 @@ def _paricoes_do_roster(rep: Report):
              "socio": _socio_da_recep(da_safra[k]["receptora"]),
              "origem": "roster"} for k in desta]
 
+        # O potro desta lista deveria já estar em `nascimentos_semana`, que sai da
+        # coluna NASCIMENTO do roster. Quando ela vem VAZIA, não está: em 17/09/2026
+        # as duas parições (recep 453 e 440) entraram no roster sem data, somaram no
+        # acumulado da safra e o card "Nascimentos na semana" publicou 0. Parição
+        # contada de um lado e invisível do outro é o pior dos dois mundos — entra
+        # aqui, com a origem marcada, em vez de sumir calada.
+        ja_publicadas = {_norm(n.get("receptora"))
+                         for n in (rep.detalhe.get("nascimentos_semana") or [])}
+        por_nome = {l.get("nome"): l for l in (_LINHAS_BRUTAS.get("roster") or [])}
+        sem_data = [k for k in desta if _norm(da_safra[k]["receptora"]) not in ja_publicadas]
+        if sem_data:
+            print(f"  [nascimentos] {len(sem_data)} parição(ões) sem data na coluna "
+                  f"NASCIMENTO do roster — contadas assim mesmo (a linha existe, a "
+                  f"data não); pedir a data ao haras:")
+            lista = rep.detalhe.setdefault("nascimentos_semana", [])
+            for k in sem_data:
+                linha = por_nome.get(k) or {}
+                print(f"    - {k}")
+                lista.append({
+                    "produto": k,
+                    "mae": linha.get("mae"), "pai": linha.get("pai"),
+                    "receptora": da_safra[k]["receptora"],
+                    "socio": _socio_da_recep(da_safra[k]["receptora"]),
+                    "data": None, "local": linha.get("local"),
+                    "origem": "roster (sem data)",
+                })
+            rep.producao["nascimentos"] = len(lista)
+
         # Nascimento NÃO é entrada — entrada e saída no Δ do headcount são
         # FÍSICAS: animal que chega de fora ou que sai da fazenda de verdade.
         # Potro nascido aqui não "entra" de lugar nenhum, já está na conta.
@@ -2868,6 +2897,39 @@ def _conferir_delta(rep: Report):
               f"fontes não registrou alguma movimentação")
 
 
+def _chave_estavel(k: str) -> str:
+    """A chave do confirmado (doadora|garanhão|receptora|data_ia) SEM a receptora.
+
+    A receptora é o campo que o haras preenche depois: em 17/09/2026 o JAVA DA PAO
+    GRANDE x XODÓ PORTEIRA AZUL, confirmado em 03/09 e já contado naquela semana,
+    passou de '...|None|2026-08-10' para '...|7|2026-08-10' só porque digitaram o
+    número da receptora — e reapareceu como confirmação nova duas semanas depois da
+    real, levando 'Confirmados semana' a 1 numa semana sem confirmação nenhuma.
+    Mesma doença do nome do cotista em PARICOES_EXTRA: identidade que muda quando a
+    planilha é completada não serve de chave.
+
+    Comparar sem a receptora NÃO perde o embrião gêmeo (mesma doadora × garanhão ×
+    IA em duas receptoras): a comparação é por CONTAGEM, não por presença — ver
+    _novos_confirmados."""
+    partes = k.split("|")
+    return "|".join(partes[:2] + partes[3:]) if len(partes) == 4 else k
+
+
+def _novos_confirmados(cur: dict, prev_keys) -> list:
+    """Confirmados de hoje que o snapshot anterior não tinha, por contagem de chave
+    estável. Só o EXCESSO sobre a semana passada é confirmação nova — preencher um
+    campo da linha antiga não cria excesso, lançar um embrião de verdade cria."""
+    antes = Counter(_chave_estavel(k) for k in prev_keys)
+    novos = []
+    for k, e in cur.items():
+        ke = _chave_estavel(k)
+        if antes.get(ke):
+            antes[ke] -= 1
+        else:
+            novos.append(e)
+    return novos
+
+
 def _compute_confirmados_diff(rep: Report):
     """Confirmados na semana = embriões que viraram +/-=OK vs o snapshot anterior
     (novos no conjunto de confirmados). Forward: precisa de 2 semanas capturadas."""
@@ -2878,7 +2940,7 @@ def _compute_confirmados_diff(rep: Report):
             prev_keys = hist[wid]["confirmed_keys"]
     cur = {e["key"]: e for e in rep.confirmed}
     if prev_keys is not None:
-        candidatos = [e for k, e in cur.items() if k not in set(prev_keys)]
+        candidatos = _novos_confirmados(cur, prev_keys)
         # Uma cobrição confirmada não pode ter IA no futuro — confirmação é IA+60d.
         # Achado em 28/08/2026: FACEIRA MAPEJO x IMPERIO SAPECADO só existe na cópia
         # do master na pasta da safra NOVA (a antiga nunca teve a linha), com IA
@@ -2923,16 +2985,18 @@ def _compute_confirmados_diff(rep: Report):
         if wid < month_start and hist[wid].get("confirmed_keys") is not None:
             prev_month_keys = hist[wid]["confirmed_keys"]
     if prev_month_keys is not None:
-        pm = set(prev_month_keys)
         # Mesmo filtro de IA-no-futuro do "Confirmados semana" logo acima — esquecido
         # aqui até 28/08/2026: a FACEIRA MAPEJO (IA 26/09/2026, erro de digitação)
         # ficava fora de "Confirmados semana" mas ainda inflava "Acumulado no mês"
         # em +1, porque este bloco fazia o próprio diff sem reaproveitar `novos`.
+        # Mesma chave estável do diff semanal: receptora preenchida depois não é
+        # confirmação nova aqui também.
         hoje = date.today()
-        def _ia_no_futuro(k):
-            ia_iso = cur[k].get("data_ia")
+        def _ia_no_futuro(e):
+            ia_iso = e.get("data_ia")
             return bool(ia_iso and date.fromisoformat(ia_iso) > hoje)
-        rep.producao["acumulado_mes"] = sum(1 for k in cur if k not in pm and not _ia_no_futuro(k))
+        rep.producao["acumulado_mes"] = sum(
+            1 for e in _novos_confirmados(cur, prev_month_keys) if not _ia_no_futuro(e))
     else:
         dxp = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("producao", {})
         rep.producao["acumulado_mes"] = dxp.get("acumulado_mes") or 0   # "--" = 0
