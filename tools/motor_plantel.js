@@ -82,7 +82,9 @@ function causasDoMes(mes, detalhe){
   const porClasse = {};
   for (const m of mv.movs) {
     if (!m.delta_carla) continue;
-    (porClasse[m.sugestao] = porClasse[m.sugestao] || []).push(m);
+    // sem sugestao agora e um estado legitimo: aparece como (sem sugestao)
+    const c = m.sugestao || '(sem sugestao)';
+    (porClasse[c] = porClasse[c] || []).push(m);
   }
   console.log(`\n=== ${mes} — causas apuradas (escopo Carla) ===`);
   for (const [cls, itens] of Object.entries(porClasse).sort()) {
@@ -99,12 +101,37 @@ function causasDoMes(mes, detalhe){
   }
 }
 
-const args = process.argv.slice(2);
-if (args[0] === '--resumo') {
-  const meses = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'];
-  for (const m of meses) causasDoMes(m, false);
-} else if (args[0]) {
-  causasDoMes(args[0], args.includes('--animais'));
-} else {
-  console.log('uso: node tools/motor_plantel.js <AAAA-MM> [--animais] | --resumo');
+/* quanto as linhas RECEPTORAS (agregado, nao animal) pesam em cada causa.
+   RECEPTORAS nao e um animal: e uma linha unica cujo NOME carrega a contagem
+   ("RECEPTORAS 161"). Quando o numero muda, o motor le troca de nome mais
+   mudanca de valor e classifica como compra ou venda de centenas de milhares. */
+function receptorasPorMes(meses){
+  console.log('\nmes       causa           total RECEPTORAS   linhas');
+  const tot = {};
+  for (const mes of meses) {
+    carrega(mes); carrega(M.mesAnterior(mes));
+    M.ST.mes = mes;
+    const mv = M.movimentacaoDoMes(mes);
+    const por = {};
+    for (const m of mv.movs) {
+      if (!m.delta_carla) continue;
+      if (!/^RECEPTORAS/.test((m.nome || '').toUpperCase())) continue;
+      (por[m.sugestao] = por[m.sugestao] || []).push(m);
+    }
+    if (!Object.keys(por).length) { console.log(`${mes}  (nenhuma)`); continue; }
+    for (const [c, itens] of Object.entries(por)) {
+      const v = itens.reduce((s, m) => s + m.delta_carla, 0);
+      tot[c] = (tot[c] || 0) + v;
+      console.log(`${mes}  ${c.padEnd(13)} ${rs(v).padStart(17)}   ${itens.length}`);
+    }
+  }
+  console.log('\ntotal no periodo:');
+  for (const [c, v] of Object.entries(tot)) console.log(`  ${c.padEnd(13)} ${rs(v).padStart(17)}`);
 }
+
+const MESES = ['2026-01','2026-02','2026-03','2026-04','2026-05','2026-06','2026-07'];
+const args = process.argv.slice(2);
+if (args[0] === '--receptoras') receptorasPorMes(MESES);
+else if (args[0] === '--resumo') for (const m of MESES) causasDoMes(m, false);
+else if (args[0] && /^\d{4}-\d{2}$/.test(args[0])) causasDoMes(args[0], args.includes('--animais'));
+else console.log('uso: node tools/motor_plantel.js <AAAA-MM> [--animais] | --resumo | --receptoras');

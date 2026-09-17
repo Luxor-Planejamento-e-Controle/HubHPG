@@ -77,7 +77,18 @@ const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g
 const num = v => { const n = Number(v); return isFinite(n) ? n : 0; };
 /* identidade do animal: nome + letra (a coorte). Nome sozinho junta dois potros
    chamados "MACHO ..."; a letra separa. */
-const chaveCom = (l, ix) => norm(l[ix.nome]) + '|' + norm(l[ix.letra]);
+/* RECEPTORAS não é animal: é UMA linha agregada, e o número no nome é a
+   CONTAGEM ("RECEPTORAS 166" em fev/26 vale 344.847,63; "RECEPTORAS 163" em
+   mar/26 vale 338.460,65). Tratando o nome como identidade, a troca de número
+   virava um animal saindo e outro entrando — em março, uma venda de R$ 344.848
+   e uma compra de R$ 338.461, quando o que houve foram 3 receptoras a menos,
+   R$ 6.387. A ponte por nome não salva: o log diz "ESTAVA RECEPTORAS 161",
+   número que não bate com a linha do mês anterior. Chave fixa resolve. */
+const RX_RECEPTORAS = /^RECEPTORAS(\s+\d+)?$/;
+const ehLinhaReceptoras = nome => RX_RECEPTORAS.test(norm(nome));
+const chaveCom = (l, ix) => ehLinhaReceptoras(l[ix.nome])
+  ? 'PSEUDO:RECEPTORAS'
+  : norm(l[ix.nome]) + '|' + norm(l[ix.letra]);
 const chave = l => chaveCom(l, ST.meses[ST.mes] ? ST.meses[ST.mes].ix : {nome: 3, letra: 1});
 const dataBR = v => {
   if (v == null || v === '') return '';
@@ -425,7 +436,8 @@ function movimentacaoDoMes(mes){
       log: itensLog, posterior,
       sugestao: sugere({q0, q1, v0, v1, p0, p1, ren, entrou: !a, saiu: !b, status: stB || stA,
                         categoria: norm(linha[ixL.categoria]), itensLog,
-                        historico: histPorNome[norm(linha[ixL.nome])] || []}),
+                        historico: histPorNome[norm(linha[ixL.nome])] || [],
+                        receptoras: ehLinhaReceptoras(linha[ixL.nome])}),
       no_escopo: noEscopo(linha),
     });
   }
@@ -489,7 +501,8 @@ function cancelamento(oc){
    cota × valor + comissão — olhar só cota e valor deixava mudança de comissão
    como 'sem_efeito'. Juntas, as duas falhas jogavam R$ 241 mil de janeiro/26
    em causas que o resumo não tem linha pra mostrar. */
-function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, itensLog, historico}){
+function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, itensLog,
+                 historico, receptoras}){
   const st = status || '', cat = categoria || '';
   const oc = norm((itensLog || []).map(x => x.ocorrencia).join(' '));
   const mexeu = Math.abs((p1 || 0) - (p0 || 0)) >= 0.01;
@@ -499,6 +512,10 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
      de dez/25 conta como da Carla e o de jan/26 não), e isso se resolve no
      mapa, não virando linha no resumo. Cai em 'sem_efeito' e aparece na coluna
      'O que foi feito' como troca de dono. */
+  /* Receptora que entra é compra (o haras informa o valor pago); receptora que
+     sai é venda, baixada pelo proporcional — a linha agregada já carrega o valor
+     do conjunto, então o delta É a proporção das que saíram. */
+  if (receptoras) return p1 > p0 ? 'compra' : 'venda';
   if (ren && !mexeu) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
   if (saiu || (q0 && !q1)) {
@@ -523,7 +540,15 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
   if (canc && canc.tipo === 'compra' && canc.sentido === 'sai') return 'compra';
   if (q1 > q0) return 'compra';
   if (q1 < q0) return /MORREU|OBITO/.test(oc) ? 'morte' : /DOAD/.test(oc) ? 'doacao' : 'venda';
-  if (mexeu || v1 !== v0) return 'reavaliacao';
+  /* Aqui acabavam as regras e o resto virava 'reavaliacao'. Isso não é sugestão,
+     é invenção: o Resumo Contábil divulgado tem ZERO reavaliação em fev, mai,
+     jun e jul/2026, e nesses meses o motor fabricava exatamente o valor do que
+     era outra coisa (jun: os R$ 6.223 que a contabilidade lançou como baixa).
+     Reavaliação, quando acontece, é evento próprio e sai na aba REAV. PLANTEL —
+     não se deduz de sobra. Sem regra que explique, o motor não sugere: a ficha
+     pergunta sem palpite e a movimentação fica FORA do resumo até alguém
+     classificar, em vez de entrar calada numa causa errada. */
+  if (mexeu || v1 !== v0) return null;
   return 'sem_efeito';
 }
 
@@ -559,6 +584,8 @@ function resumoAno(){
       if (!mo.delta_carla) continue;
       const dec = ST.decisoes[`${m}|${mo.chave}`];
       const classe = dec ? dec.classe : mo.sugestao;
+      // sem decisão e sem sugestão: não entra em causa nenhuma até ser classificada
+      if (!classe) continue;
       causas[classe] = +((causas[classe] || 0) + mo.delta_carla).toFixed(2);
     }
     /* lançamento manual entra na causa dele como qualquer outro: é dinheiro que
@@ -1195,6 +1222,7 @@ function fichaMov(m){
   if (m.posterior) avisos.push(`${m.posterior.length} ocorrência(s) POSTERIOR(es) ao mês `
     + '— mantido o valor do mês anterior');
 
+  // sem sugestão, todas as classes viram opção de primeira linha
   const outras = CLASSES_MOV.filter(c => c !== m.sugestao);
   return `<div class="ficha">
     <div class="ficha-topo">
@@ -1217,9 +1245,11 @@ function fichaMov(m){
     ${(m.log || []).map(l => `<p class="ficha-log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</p>`).join('')}
     ${avisos.map(a => `<p class="ficha-aviso">⚠ ${esc(a)}</p>`).join('')}
     <div class="ficha-perg">
-      <span class="ficha-perg-rot">Foi isto?</span>
-      <button type="button" class="cls-bt sugerida" data-conf="${esc(m.chave)}:${esc(m.sugestao)}">
-        ✓ ${esc(m.sugestao)}</button>
+      ${m.sugestao
+        ? `<span class="ficha-perg-rot">Foi isto?</span>
+           <button type="button" class="cls-bt sugerida" data-conf="${esc(m.chave)}:${esc(m.sugestao)}">
+             ✓ ${esc(m.sugestao)}</button>`
+        : `<span class="ficha-perg-rot sem-palpite">Sem sugestão — o que foi?</span>`}
       ${outras.map(c => `<button type="button" class="cls-bt" data-conf="${esc(m.chave)}:${c}">${c}</button>`).join('')}
     </div>
   </div>`;
