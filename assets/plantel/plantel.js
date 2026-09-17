@@ -221,6 +221,14 @@ function patr(l, escopo, ix, mes){
      animal que o mapa não cobria — sem mapa, ele deixa de existir. */
   return num(l[ix.cota]) * num(l[ix.valor]) + num(l[ix.comissao]);
 }
+/* Soma das cotas do mês, na mesma base das linhas efetivas que o patrimônio
+   usa — senão o check compararia populações diferentes. */
+function cotasMes(mes){
+  const d = ST.meses[mes];
+  if (!d) return 0;
+  return linhasEfetivas(mes).reduce((s, l) => s + num(l[d.ix.cota]), 0);
+}
+
 /* Linhas do mês já descontando o que foi editado DEPOIS do fim do mês. O arquivo
    do haras é editado durante o mês seguinte, então a mesma planilha contém o
    fechamento e o começo do mês novo; para o animal tocado depois do dia 31 vale
@@ -1227,10 +1235,21 @@ function subChecks(){
     .reduce((s, m) => s + (m.delta_carla || 0), 0);
 
   const lib = d.liberado;
+  /* Cotas: o MESMO check do patrimônio, na outra unidade. O saldo em R$ pode
+     fechar com a cota errada (valor sobe e cota cai na mesma proporção), então
+     conferir só dinheiro deixa passar troca de participação. A soma das cotas do
+     arquivo do haras é o lado direito; o esquerdo é o que estamos fechando —
+     mês anterior mais o que as movimentações do mês mexeram. */
+  const cotIni = cotasMes(mesAnterior(ST.mes)), cotFim = cotasMes(ST.mes);
+  const cotMov = (mv ? mv.movs : []).reduce((s, m) => s + (num(m.cota_atual) - num(m.cota_ant)), 0);
   const linhas = [
     ['Valor inicial + movimentações = valor final (Carla)', iniC + movC, fimC],
     ['Valor inicial + movimentações = valor final (Carla + Eduardo)', iniCE + movCE, fimCE],
   ];
+  // sem o mês anterior carregado não há 'inicial': o check acusaria diferença
+  // que é só ausência de base
+  if (ST.meses[mesAnterior(ST.mes)]) linhas.push(
+    ['Cotas: inicial + movimentações = plantel do haras', cotIni + cotMov, cotFim, 'cota']);
   // mês fechado nunca passou pelo registro manual: cobrar isso ali é acusar erro
   // onde não há. O par só entra como check no mês aberto.
   if (!mesFechado(ST.mes)) linhas.push(
@@ -1260,13 +1279,16 @@ function subChecks(){
   const regs = (mv ? mv.movs : []).filter(m => m.no_escopo || m.dono);
   return `<div class="rolagem"><table class="t">
     <thead><tr><th class="l">Check de ${rotMes(ST.mes)}</th><th>Apurado</th><th>Esperado</th><th>Diferença</th><th class="l">Situação</th></tr></thead>
-    <tbody>${linhas.map(([t, a, b]) => {
-      const dif = +(a - b).toFixed(2);
-      // tolerância de R$ 1: o Resumo Contábil divulgado carrega centavos de
-      // arredondamento próprio (15.970.552,61 contra 15.970.552,71)
-      const ok = Math.abs(dif) < 1;
-      return `<tr><td class="l">${t}</td><td>${rs(a)}</td><td>${rs(b)}</td>
-        <td class="${ok ? 'pos' : 'neg'}">${rs(dif)}</td>
+    <tbody>${linhas.map(([t, a, b, un]) => {
+      const dif = +(a - b).toFixed(4);
+      /* tolerância de R$ 1: o Resumo Contábil divulgado carrega centavos de
+         arredondamento próprio (15.970.552,61 contra 15.970.552,71). Em COTA a
+         régua é outra — 0,0001 de cota é 0,01% e já é diferença de verdade. */
+      const ok = un === 'cota' ? Math.abs(dif) < 0.0001 : Math.abs(dif) < 1;
+      const f = un === 'cota' ? (v => num(v).toLocaleString('pt-BR', {minimumFractionDigits: 2,
+                                  maximumFractionDigits: 4}) + ' cotas') : rs;
+      return `<tr><td class="l">${t}</td><td>${f(a)}</td><td>${f(b)}</td>
+        <td class="${ok ? 'pos' : 'neg'}">${f(dif)}</td>
         <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
     }).join('')}
     <tr><td class="l">Movimentações registradas</td><td>${regs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length}</td>

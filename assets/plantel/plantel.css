@@ -6,7 +6,19 @@
   --font:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
 }
 *{box-sizing:border-box}
+html{height:100%}
+body{height:100%;display:flex;flex-direction:column}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px}
+/* A barra de rolagem do hub (assets/theme.css) não chega aqui: este é um
+   documento próprio dentro do iframe, e cada documento estiliza a sua. Sem
+   isto a aba aparecia com a barra cinza padrão do sistema, gorda e clara no
+   meio de um painel escuro. Mesmos valores do hub, pra ser a mesma barra. */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--line-2)}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-corner{background:transparent}
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 
 .topo{padding:14px 18px 0;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
 .topo h1{margin:0;font-size:16px;font-weight:600}
@@ -27,7 +39,8 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font)
 .submenu button{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ink-3);
   padding:5px 2px;font:inherit;font-size:13px;cursor:pointer}
 .submenu button.on{color:var(--amber);border-bottom-color:var(--amber);font-weight:600}
-#painel{padding:16px 18px 40px}
+#painel{padding:16px 18px 18px;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;
+  overflow:auto}
 
 .resumo-linha{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-bottom:12px;
   font-size:12.5px;color:var(--ink-2)}
@@ -116,7 +129,12 @@ table.t td.oque .log{display:block;white-space:normal;word-break:break-word}
 .log{color:var(--ink-3)}
 .autor{display:block;font-size:10.5px;color:var(--ink-3)}
 .pos{color:var(--pos)} .neg{color:var(--neg)} .zero{color:var(--ink-3)}
-.rolagem{max-height:calc(100vh - 200px);overflow:auto}
+/* Era `max-height:calc(100vh - 200px)`: os 200px eram um chute do que o topo,
+   as abas e a linha de resumo ocupam, e sobrava faixa morta embaixo em toda
+   tela. Agora a página é uma coluna flex e a tabela fica com o que realmente
+   sobrar — `min-height:0` é obrigatório, senão o filho flex recusa encolher e
+   volta a estourar. */
+.rolagem{flex:1 1 auto;min-height:0;overflow:auto}
 
 h3{font-size:13px;margin:20px 0 8px;font-weight:600}
 h3 .cont{display:inline-block;margin-left:6px;font-size:11px;background:var(--line);color:var(--ink);
