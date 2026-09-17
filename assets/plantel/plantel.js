@@ -1048,6 +1048,7 @@ function topo(){
       <label class="botao-arquivo">Importar arquivo
         <input type="file" id="arq" accept=".xlsx,.xlsm" hidden>
       </label>
+      ${!ST.mes ? '' : '<button type="button" class="botao-acao" id="btExporta">Exportar Excel</button>'}
       <span id="statusImp"></span>
     </div>`;
   document.getElementById('selMes').onchange = async e => {
@@ -1066,6 +1067,8 @@ function topo(){
     pinta();
   };
   document.getElementById('arq').onchange = importa;
+  const bt = document.getElementById('btExporta');
+  if (bt) bt.onclick = exportaExcel;
 }
 
 /* O mês NÃO é decidido pelo nome do arquivo: a cópia de trabalho do haras se
@@ -1825,7 +1828,8 @@ function subChecks(){
      dizer exatamente uma coisa: existe ocorrência datada fora do mês segurando
      alguma linha na versão anterior. */
   const somaEfetiva = campo =>
-    linhasEfetivasIx(ST.mes).reduce((s, par) => s + num(par.l[par.ix[campo]]), 0);
+    linhasEfetivasIx(ST.mes).reduce((s, par) => s + (campo === 'comissao'
+      ? comissaoDaLinha(par.l, par.ix) : num(par.l[par.ix[campo]])), 0);
   const somaArquivo = campo =>
     (d.linhas || []).reduce((s, l) => s + num(l[d.ix[campo]]), 0);
 
@@ -1923,6 +1927,124 @@ function painelResumo(){
     <tr><td>Movimentações classificadas</td>${meses.map(m => `<td>${
       r[m].classificado}/${r[m].total}${r[m].fechado ? ' ·&nbsp;fechado' : ''}</td>`).join('')}<td></td></tr>
     </tbody></table></div>`;
+}
+
+
+/* ================= exportar para Excel =================
+
+   O arquivo é o FECHAMENTO do mês, não um retrato da tela: sai o mês inteiro,
+   sem os filtros de coluna que estejam ligados. Quem exporta quer conferir ou
+   entregar, e planilha com filtro escondido por baixo é a origem de metade dos
+   erros de conferência.
+
+   São três abas, nas mesmas contas que a tela mostra: o plantel do mês (já nas
+   linhas efetivas, com a comissão herdada e o patrimônio por linha), as
+   movimentações nas colunas do mapa da Controladoria e o Resumo Contábil do
+   ano. */
+const FMT_RS = '#,##0.00';
+const FMT_PCT = '0.00%';
+
+/* aoa_to_sheet não formata nada: sem isto o Excel mostra 15970552.71 cru. */
+function formataCols(ws, aoa, formatos){
+  for (const [col, z] of Object.entries(formatos)) {
+    for (let r = 1; r < aoa.length; r++) {
+      const cel = ws[XLSX.utils.encode_cell({r, c: +col})];
+      if (cel && cel.t === 'n') cel.z = z;
+    }
+  }
+  ws['!cols'] = aoa[0].map((h, i) => ({wch: Math.min(46, Math.max(10,
+    aoa.reduce((w, l) => Math.max(w, String(l[i] == null ? '' : l[i]).length), 0) + 2))}));
+}
+function poeAba(wb, nome, aoa, formatos){
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  formataCols(ws, aoa, formatos || {});
+  XLSX.utils.book_append_sheet(wb, ws, nome);
+}
+
+function abaPlantelXls(){
+  const d = ST.meses[ST.mes];
+  const cols = colunasDoMes(d);
+  const cab = [...cols.map(([, r]) => r), 'Dono', 'Comissão (Luxor)', 'Patrimônio'];
+  const fmt = {};
+  /* cota é fração no arquivo (0,5) — como dinheiro sairia "0,50" e como
+     percentual sai "50,00%", que é o que a planilha do haras mostra */
+  cols.forEach(([i], j) => {
+    if (!EH_NUM(d.cab[i])) return;
+    fmt[j] = /COTA|PLANTEL HPG|PLANTEL EDUARDO/.test(norm(d.cab[i])) ? FMT_PCT : FMT_RS;
+  });
+  fmt[cols.length + 1] = FMT_RS; fmt[cols.length + 2] = FMT_RS;
+  const linhas = linhasEfetivasIx(ST.mes).map(par => [
+    ...cols.map(([i]) => {
+      const v = par.l[i];
+      return v instanceof Date ? v : (v == null ? '' : v);
+    }),
+    ATRIB[donoDaLinha(par.l, par.ix)] || '',
+    comissaoDaLinha(par.l, par.ix),
+    num(par.l[par.ix.cota]) * num(par.l[par.ix.valor]) + comissaoDaLinha(par.l, par.ix),
+  ]);
+  return [[cab, ...linhas], fmt];
+}
+
+function abaMovsXls(){
+  const mv = movimentacaoDoMes(ST.mes);
+  const cab = [...COLS_MOV.map(([r]) => r), 'Classe', 'Δ Carla', 'Origem', 'Ocorrência'];
+  const fmt = {};
+  COLS_MOV.forEach(([rot, , ehNum], i) => { if (ehNum) fmt[i] = rot === 'Cota' ? FMT_PCT : FMT_RS; });
+  fmt[COLS_MOV.length + 1] = FMT_RS;                 // Δ Carla
+  const linhas = (mv ? mv.movs : []).map(m => [
+    ...COLS_MOV.map(([, pega]) => pega(m)),
+    classeDe(m) || '(sem classe)', m.delta_carla, 'apurado',
+    (m.log || []).map(l => l.ocorrencia).join(' / '),
+  ]);
+  /* Lançamento manual não sai do diff dos arquivos, então não está em `movs` —
+     sem ele a aba não soma o mesmo que o Resumo Contábil. */
+  const iFinal = COLS_MOV.findIndex(([r]) => r === 'Valor final');
+  for (const x of manuaisDoMes(ST.mes)) {
+    const l = new Array(COLS_MOV.length).fill('');
+    l[0] = x.nome;
+    if (iFinal >= 0) l[iFinal] = x.valor;
+    linhas.push([...l, x.classe, x.valor, 'manual', x.nota || '']);
+  }
+  return [[cab, ...linhas], fmt];
+}
+
+function abaResumoXls(){
+  const r = resumoAno();
+  const meses = Object.keys(r).sort();
+  const cab = ['Título', ...meses.map(rotMes), 'Ano'];
+  const val = (m, causas) => causas ? causas.reduce((s, c) => s + (r[m].causas[c] || 0), 0) : 0;
+  const linhas = LINHAS_RESUMO.map(([rot, causas]) => {
+    if (rot === 'Saldo inicial') return [rot, ...meses.map(m => r[m].ini), r[meses[0]].ini];
+    if (rot === 'Saldo final') return [rot, ...meses.map(m => r[m].fim), r[meses[meses.length - 1]].fim];
+    const vs = meses.map(m => val(m, causas));
+    return [rot, ...vs, vs.reduce((a, b) => a + b, 0)];
+  });
+  linhas.push(['Movimentações classificadas',
+    ...meses.map(m => `${r[m].classificado}/${r[m].total}`), '']);
+  const aoa = [cab, ...linhas];
+  const fmt = {};
+  for (let c = 1; c < cab.length; c++) fmt[c] = FMT_RS;
+  return [aoa, fmt];
+}
+
+function exportaExcel(){
+  if (!ST.meses[ST.mes]) { alert('Importe o arquivo do mês antes de exportar.'); return; }
+  const wb = XLSX.utils.book_new();
+  for (const [nome, monta] of [['Plantel', abaPlantelXls], ['Movimentações', abaMovsXls],
+                               ['Resumo contábil', abaResumoXls]]) {
+    const [aoa, fmt] = monta();
+    poeAba(wb, nome, aoa, fmt);
+  }
+  const buf = XLSX.write(wb, {bookType: 'xlsx', type: 'array'});
+  const url = URL.createObjectURL(new Blob([buf],
+    {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Plantel HPG - ${rotMes(ST.mes).replace('/', '-')}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 const semArquivo = () => `<div class="aviso">Nenhum arquivo importado. Use <b>Importar arquivo</b> e escolha o
