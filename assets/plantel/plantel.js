@@ -68,6 +68,13 @@ const EH_MOEDA = r => /VALOR|COMISS/.test(norm(r));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const rs = v => (v == null || v === '' || isNaN(v)) ? '—'
   : (v < 0 ? '−' : '') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR', {maximumFractionDigits: 0});
+/* Com centavos, para o Resumo Contábil. Ali o número é conferido contra o
+   divulgado, e arredondar esconde a diferença: a baixa por morte/doação de
+   maio/26 é R$ 28.773,50 (R$ 4.148,50 da linha das receptoras mais R$ 24.625),
+   que arredondado vira R$ 28.774 e parece bater na unidade errada. */
+const rs2 = v => (v == null || v === '' || isNaN(v)) ? '—'
+  : (v < 0 ? '−' : '') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',
+      {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const pct = v => (v == null || v === '' || isNaN(v)) ? '—'
   : (Number(v) * 100).toLocaleString('pt-BR', {maximumFractionDigits: 2}) + '%';
 const clsN = v => !v ? 'zero' : v > 0 ? 'pos' : 'neg';
@@ -453,7 +460,10 @@ function movimentacaoDoMes(mes){
     const itensLog = logPorNome[chaveLog(linha[ixL.nome])]
       || (ren ? logPorNome[chaveLog(ren.para)] : []) || [];
     const comum = {
-      chave: k, linha, nome: linha[ixL.nome], sufixo: linha[ixL.sufixo],
+      /* `chave` é sobrescrita nos eventos (`k#1`, `k#1r`, `k#resto`), e quem
+         precisa saber que as duas são do MESMO animal fica sem saber. Cota é um
+         desses casos: ela vale por linha, não por evento. */
+      chave: k, chave_linha: k, linha, nome: linha[ixL.nome], sufixo: linha[ixL.sufixo],
       categoria: linha[ixL.categoria], status: linha[ixL.status], dono,
       cota_ant: q0, cota_atual: q1, valor_ant: v0, valor_atual: v1,
       patr_ant: p0, patr_atual: p1,
@@ -946,9 +956,16 @@ function resumoAno(){
     for (const x of manuaisDoMes(m)) {
       causas[x.classe] = +((causas[x.classe] || 0) + x.valor).toFixed(2);
     }
+    /* O denominador é o que MOVE saldo: linha sem delta (troca de dono, mudança
+       de local) não tem causa para receber e não pode contar como pendência.
+       E o numerador é o que tem CAUSA — registrada na mão ou sugerida pelo
+       motor —, porque é exatamente esse conjunto que formou os números das
+       linhas acima. Contando só as decisões manuais, a linha dizia 0/39 embaixo
+       de uma tabela inteira preenchida. */
+    const doMes = (mv ? mv.movs : []).filter(mo => mo.delta_carla);
     out[m] = {ini: +ini.toFixed(2), fim: +fim.toFixed(2), causas,
-              registrado: (mv ? mv.movs : []).filter(mo => ST.decisoes[`${m}|${mo.chave}`]).length,
-              total: (mv ? mv.movs : []).length};
+              classificado: doMes.filter(mo => ST.decisoes[`${m}|${mo.chave}`] || mo.sugestao).length,
+              total: doMes.length, fechado: mesFechado(m)};
   }
   return out;
 }
@@ -1742,69 +1759,67 @@ function subChecks(){
   const d = ST.meses[ST.mes], ant = ST.meses[mesAnterior(ST.mes)];
   if (!d) return semArquivo();
   const mv = movimentacaoDoMes(ST.mes);
-  const iniC = patrMes(mesAnterior(ST.mes), 'hpg'), fimC = patrMes(ST.mes, 'hpg');
-  const movC = (mv ? mv.movs : []).reduce((s, m) => s + (m.delta_carla || 0), 0);
-  const iniCE = patrMes(mesAnterior(ST.mes), 'carla_eduardo'), fimCE = patrMes(ST.mes, 'carla_eduardo');
-  const movCE = (mv ? mv.movs : []).reduce((s, m) => s + (m.delta_ce || 0), 0);
-  // o resumo contábil só conta o que foi REGISTRADO; a movimentação apurada conta
-  // tudo que mudou. Divergir aqui é sinal de mês incompleto, não de erro de conta.
-  const movRegistrado = (mv ? mv.movs : [])
-    .filter(m => ST.decisoes[`${ST.mes}|${m.chave}`])
-    .reduce((s, m) => s + (m.delta_carla || 0), 0);
+  const movs = mv ? mv.movs : [];
 
-  const lib = d.liberado;
-  /* Cotas: o MESMO check do patrimônio, na outra unidade. O saldo em R$ pode
-     fechar com a cota errada (valor sobe e cota cai na mesma proporção), então
-     conferir só dinheiro deixa passar troca de participação. A soma das cotas do
-     arquivo do haras é o lado direito; o esquerdo é o que estamos fechando —
-     mês anterior mais o que as movimentações do mês mexeram. */
-  const cotIni = cotasMes(mesAnterior(ST.mes)), cotFim = cotasMes(ST.mes);
-  const cotMov = (mv ? mv.movs : []).reduce((s, m) => s + (num(m.cota_atual) - num(m.cota_ant)), 0);
+  /* Plantel Luxor é o que ESTAMOS calculando: as linhas efetivas do mês, já sem
+     o que o haras editou depois do dia 31. Plantel Haras é o arquivo como veio.
+     Os três primeiros checks comparam os dois lado a lado, e divergir neles quer
+     dizer exatamente uma coisa: existe ocorrência datada fora do mês segurando
+     alguma linha na versão anterior. */
+  const somaEfetiva = campo =>
+    linhasEfetivasIx(ST.mes).reduce((s, par) => s + num(par.l[par.ix[campo]]), 0);
+  const somaArquivo = campo =>
+    (d.linhas || []).reduce((s, l) => s + num(l[d.ix[campo]]), 0);
+
+  /* O 4º check é só do Plantel Luxor, e é o fechamento em si: o patrimônio da
+     Carla no plantel (cota × valor + comissão, sufixos DA PAO GRANDE e OUTRO)
+     tem de ser o mesmo que o mês anterior mais as movimentações do mês. Os dois
+     lados são nossos — por isso a coluna do haras aqui repete o fechamento, e
+     não um número do arquivo. */
+  const iniC = patrMes(mesAnterior(ST.mes), 'hpg'), fimC = patrMes(ST.mes, 'hpg');
+  const movC = movs.reduce((s, m) => s + (m.delta_carla || 0), 0);
+
   const linhas = [
-    ['Valor inicial + movimentações = valor final (Carla)', iniC + movC, fimC],
-    ['Valor inicial + movimentações = valor final (Carla + Eduardo)', iniCE + movCE, fimCE],
+    ['Valor: soma do plantel Luxor = soma do plantel do haras',
+     somaEfetiva('valor'), somaArquivo('valor')],
+    ['Comissões: soma do plantel Luxor = soma do plantel do haras',
+     somaEfetiva('comissao'), somaArquivo('comissao')],
+    ['Cotas (%): soma do plantel Luxor = soma do plantel do haras',
+     somaEfetiva('cota'), somaArquivo('cota'), 'cota'],
   ];
   // sem o mês anterior carregado não há 'inicial': o check acusaria diferença
   // que é só ausência de base
-  if (ST.meses[mesAnterior(ST.mes)]) linhas.push(
-    ['Cotas (%): inicial + movimentações = plantel do haras', cotIni + cotMov, cotFim, 'cota']);
-  // mês fechado nunca passou pelo registro manual: cobrar isso ali é acusar erro
-  // onde não há. O par só entra como check no mês aberto.
-  if (!mesFechado(ST.mes)) linhas.push(
-    ['Movimentação registrada = movimentação apurada (Carla)', movRegistrado, movC]);
-  /* Dinheiro que cai numa causa sem linha no resumo (renome, sem efeito) não
-     aparece em lugar nenhum: o saldo final muda e nenhuma linha explica. */
+  if (ant) linhas.push(
+    ['Plantel da Carla = inicial + movimentações do mês (Carla)', fimC, iniC + movC]);
+
+  /* Confronto com o resumo: o que as movimentações do mês somam tem de ser o que
+     o Resumo Contábil publica no mês. Divergir quer dizer que dinheiro caiu numa
+     causa sem linha no resumo (renome, sem efeito) ou ficou sem classificar — o
+     saldo muda e nenhuma linha explica por quê. */
   const causasDoResumo = new Set(LINHAS_RESUMO.flatMap(([, cs]) => cs || []));
-  const movEmCausa = (mv ? mv.movs : []).reduce((s, m) => {
+  const movEmCausa = movs.reduce((s, m) => {
     const dec = ST.decisoes[`${ST.mes}|${m.chave}`];
     return s + (causasDoResumo.has(dec ? dec.classe : m.sugestao) ? (m.delta_carla || 0) : 0);
   }, 0);
-  linhas.push(['Causas do resumo = movimentação apurada (Carla)', movEmCausa, movC]);
-  /* Lançamento manual é, por definição, o que o diff dos arquivos NÃO viu — ele
-     entra no resumo contábil e não no apurado, então a diferença entre os dois
-     passa a ser exatamente ele. Fica como linha própria pra que essa diferença
-     tenha nome, em vez de virar um check vermelho sem explicação. */
   const manuais = manuaisDoMes(ST.mes);
+  const somaManuais = manuais.reduce((s, x) => s + x.valor, 0);
+  linhas.push(['Confronto com o Resumo Contábil (Carla)', movEmCausa + somaManuais, movC + somaManuais]);
+  /* Lançamento manual é, por definição, o que o diff dos arquivos NÃO viu — ele
+     entra no resumo contábil e não no apurado. Fica como linha própria pra que
+     essa diferença tenha nome, em vez de virar um check vermelho sem explicação. */
   if (manuais.length) linhas.push(
-    [`Lançamentos manuais (${manuais.length}) — fora do apurado`,
-     manuais.reduce((s, x) => s + x.valor, 0), 0]);
+    [`Lançamentos manuais (${manuais.length}) — fora do apurado`, somaManuais, 0]);
+
   /* Confronto com o que foi divulgado. Vem junto com o mês (aba Resumo Contabil
-     do mapa) porque é o número que valeu, e não se reproduz de trás pra frente.
-     De mar/26 a jul/26 bate em R$ 0. Os dois meses que não batem são da fonte:
-       jan/26  -257.425 = -8.925 (base dez/25) -244.000 (atribuição: 9 animais
-               que o mapa de dez/25 conta como da Carla e o de jan/26 não —
-               diferença entre os dois mapas, não movimentação do mês)
-               -9.000 (reavaliação) -3.000 (compra) +7.500 (embrião);
-       fev/26   -1.500 = OASIS DA PAO GRANDE, cuja ocorrência está datada
-               09/nov/2026 no arquivo de fevereiro e 09/fev/2026 no de março —
-               pela data do arquivo de fevereiro ela é posterior ao mês. */
+     do mapa) porque é o número que valeu, e não se reproduz de trás pra frente. */
+  const lib = d.liberado;
   if (lib) {
     if (lib.saldo_fim != null) linhas.push(['Saldo final = Resumo Contábil divulgado', fimC, lib.saldo_fim]);
     if (lib.saldo_ini != null) linhas.push(['Saldo inicial = Resumo Contábil divulgado', iniC, lib.saldo_ini]);
   }
-  const regs = (mv ? mv.movs : []).filter(m => m.no_escopo || m.dono);
-  return `<div class="rolagem"><table class="t">
-    <thead><tr><th class="l">Check de ${rotMes(ST.mes)}</th><th>Apurado</th><th>Esperado</th><th>Diferença</th><th class="l">Situação</th></tr></thead>
+  const regs = (mv ? mv.movs : []).filter(m => (m.no_escopo || m.dono) && m.delta);
+  return `<div class="rolagem"><table class="t t-check">
+    <thead><tr><th class="l">Check de ${rotMes(ST.mes)}</th><th>Plantel Luxor</th><th>Plantel Haras</th><th>Diferença</th><th class="l">Situação</th></tr></thead>
     <tbody>${linhas.map(([t, a, b, un]) => {
       const dif = +(a - b).toFixed(4);
       /* tolerância de R$ 1: o Resumo Contábil divulgado carrega centavos de
@@ -1816,11 +1831,12 @@ function subChecks(){
         <td class="${ok ? 'pos' : 'neg'}">${f(dif)}</td>
         <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
     }).join('')}
-    <tr><td class="l">Movimentações registradas</td><td>${regs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length}</td>
+    <tr><td class="l">Movimentações classificadas</td>
+      <td>${regs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`] || m.sugestao).length}</td>
       <td>${regs.length}</td><td></td>
       <td class="l">${mesFechado(ST.mes) ? '<span class="tag">mês fechado</span>'
-        : regs.every(m => ST.decisoes[`${ST.mes}|${m.chave}`]) && regs.length
-        ? '<span class="tag ok">mês completo</span>' : '<span class="tag ruim">falta registrar</span>'}</td></tr>
+        : regs.every(m => ST.decisoes[`${ST.mes}|${m.chave}`] || m.sugestao) && regs.length
+        ? '<span class="tag ok">mês completo</span>' : '<span class="tag ruim">falta classificar</span>'}</td></tr>
     </tbody></table></div>`;
 }
 
@@ -1835,13 +1851,14 @@ function painelResumo(){
   return `<div class="rolagem"><table class="t">
     <thead><tr><th class="l">Título</th>${meses.map(m => `<th>${rotMes(m)}</th>`).join('')}<th>Ano</th></tr></thead>
     <tbody>${LINHAS_RESUMO.map(([rot, causas]) => {
-      if (rot === 'Saldo inicial') return `<tr class="tot"><td>${rot}</td>${meses.map(m => `<td>${rs(r[m].ini)}</td>`).join('')}<td>${rs(r[meses[0]].ini)}</td></tr>`;
-      if (rot === 'Saldo final') return `<tr class="tot"><td>${rot}</td>${meses.map(m => `<td>${rs(r[m].fim)}</td>`).join('')}<td>${rs(r[meses[meses.length - 1]].fim)}</td></tr>`;
+      if (rot === 'Saldo inicial') return `<tr class="tot"><td>${rot}</td>${meses.map(m => `<td>${rs2(r[m].ini)}</td>`).join('')}<td>${rs2(r[meses[0]].ini)}</td></tr>`;
+      if (rot === 'Saldo final') return `<tr class="tot"><td>${rot}</td>${meses.map(m => `<td>${rs2(r[m].fim)}</td>`).join('')}<td>${rs2(r[meses[meses.length - 1]].fim)}</td></tr>`;
       const vals = meses.map(m => val(m, causas));
       const soma = vals.reduce((a, b) => a + b, 0);
-      return `<tr><td>${rot}</td>${vals.map(v => `<td class="${clsN(v)}">${v ? rs(v) : '—'}</td>`).join('')}<td class="${clsN(soma)}">${rs(soma)}</td></tr>`;
+      return `<tr><td>${rot}</td>${vals.map(v => `<td class="${clsN(v)}">${v ? rs2(v) : '—'}</td>`).join('')}<td class="${clsN(soma)}">${rs2(soma)}</td></tr>`;
     }).join('')}
-    <tr><td>Movimentações registradas</td>${meses.map(m => `<td>${r[m].registrado}/${r[m].total}</td>`).join('')}<td></td></tr>
+    <tr><td>Movimentações classificadas</td>${meses.map(m => `<td>${
+      r[m].classificado}/${r[m].total}${r[m].fechado ? ' ·&nbsp;fechado' : ''}</td>`).join('')}<td></td></tr>
     </tbody></table></div>`;
 }
 

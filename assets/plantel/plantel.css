@@ -105,6 +105,11 @@ table.t td.cort{cursor:text}
 table.t td.aberta{white-space:normal;max-width:none;overflow:visible;
   word-break:break-word;background:rgba(202,151,3,.08)}
 table.t th.l,table.t td.l{text-align:left}
+/* A tabela de checks tem poucas linhas e rótulo longo — o corte em 260px que
+   serve à tabela do plantel transformava "Cotas (%): inicial + movimentações =
+   plantel do haras" em "Cotas (%): inicial + movimentações = plant...". Aqui a
+   coluna de texto quebra linha e mostra tudo. */
+table.t-check td.l,table.t-check th.l{max-width:none;white-space:normal}
 table.t tr:hover td{background:rgba(10,48,80,.45)}
 table.t tr.tot td{font-weight:700;border-top:1px solid var(--line-2);border-bottom:none}
 table.t tr.tot td:first-child{color:var(--amber)}
