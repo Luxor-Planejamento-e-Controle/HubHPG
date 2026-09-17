@@ -125,13 +125,19 @@ for (let n = 1; n <= Number(ate.slice(5)); n++) {
   const mes = `${ate.slice(0, 4)}-${String(n).padStart(2, '0')}`;
   carrega(mes); carrega(M.mesAnterior(mes));
   M.ST.mes = mes;
+  /* A aba Movimentações inclui Carla E Eduardo — o que fica de fora do Eduardo
+     é o Resumo Contábil. O mapa lista as duas metades em linhas próprias
+     (LATINO (CARLA) e LATINO (EDUARDO), cada uma com seu valor), então a
+     comparação aqui é contra `delta`, o valor cheio da linha, e não contra
+     `delta_carla`. Usando delta_carla, todo animal do Eduardo aparecia como
+     "o motor não viu movimento". */
   for (const mo of M.movimentacaoDoMes(mes).movs) {
-    if (!mo.delta_carla) continue;
+    if (!mo.delta) continue;
     const c = (mo.sugestao === 'morte' || mo.sugestao === 'doacao') ? 'morte_doacao'
             : (mo.sugestao || '(sem sugestao)');
     const k = chaveNome(mo.nome);
     nossos[k] = nossos[k] || {classes: {}, ctx: []};
-    nossos[k].classes[c] = (nossos[k].classes[c] || 0) + mo.delta_carla;
+    nossos[k].classes[c] = (nossos[k].classes[c] || 0) + mo.delta;
     nossos[k].ctx.push({mes, mo});
   }
 }
@@ -155,7 +161,7 @@ for (const [k, a, b, ctx] of difs.slice(0, todos ? 999 : 12)) {
   console.log(`     mapa : ${fmtCls(a)}`);
   console.log(`     motor: ${fmtCls(b)}`);
   for (const {mes, mo} of ctx) {
-    console.log(`     ${mes}: ${mo.sugestao || '(sem sugestao)'} ${rs(mo.delta_carla)}`
+    console.log(`     ${mes}: ${mo.sugestao || '(sem sugestao)'} ${rs(mo.delta)}`
       + ` | status ${mo.mudou_status ? mo.mudou_status.join('->') : (mo.status || '')}`
       + ` | cota ${mo.cota_ant}->${mo.cota_atual} | valor ${mo.valor_ant}->${mo.valor_atual}`
       + `${mo.entrou ? ' | ENTROU' : ''}${mo.saiu ? ' | SAIU' : ''}`);

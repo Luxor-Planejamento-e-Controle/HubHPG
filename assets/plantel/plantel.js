@@ -428,23 +428,75 @@ function movimentacaoDoMes(mes){
     const deltaCE = +((emCE(dono) ? p1 : 0) - (emCE(donoAnt) ? p0 : 0)).toFixed(2);
     const itensLog = logPorNome[chaveLog(linha[ixL.nome])]
       || (ren ? logPorNome[chaveLog(ren.para)] : []) || [];
-    movs.push({
+    const comum = {
       chave: k, linha, nome: linha[ixL.nome], sufixo: linha[ixL.sufixo],
       categoria: linha[ixL.categoria], status: linha[ixL.status], dono,
       cota_ant: q0, cota_atual: q1, valor_ant: v0, valor_atual: v1,
-      patr_ant: p0, patr_atual: p1, delta: +(p1 - p0).toFixed(2),
+      patr_ant: p0, patr_atual: p1,
       entrou: !a, saiu: !b, renome: ren || null,
-      dono_ant: donoAnt, delta_carla: deltaCarla, delta_ce: deltaCE,
+      dono_ant: donoAnt,
       mudou_dono: donoAnt !== dono ? [donoAnt, dono] : null,
       mudou_status: mudouStatus ? [a[ixa.status], b[ixb.status]] : null,
       mudou_local: mudouLocal ? [a[ixa.local], b[ixb.local]] : null,
-      log: itensLog, posterior,
-      sugestao: sugere({q0, q1, v0, v1, p0, p1, ren, entrou: !a, saiu: !b, status: stB || stA,
-                        categoria: norm(linha[ixL.categoria]), itensLog,
-                        historico: histPorNome[chaveLog(linha[ixL.nome])] || [],
-                        receptoras: ehLinhaReceptoras(linha[ixL.nome])}),
-      no_escopo: noEscopo(linha),
+      posterior, no_escopo: noEscopo(linha),
+    };
+    /* proporção do delta que cabe a cada escopo, para repartir evento a evento
+       sem recalcular dono */
+    const fatiaCarla = (p1 - p0) ? deltaCarla / (p1 - p0) : (dono === 'hpg' ? 1 : 0);
+    const fatiaCE = (p1 - p0) ? deltaCE / (p1 - p0) : (emCE(dono) ? 1 : 0);
+    const empurra = (chave, delta, sugestao, log, rotulo) => movs.push({
+      ...comum, chave, delta: +delta.toFixed(2),
+      delta_carla: +(delta * fatiaCarla).toFixed(2),
+      delta_ce: +(delta * fatiaCE).toFixed(2),
+      sugestao, log, evento: rotulo || null,
     });
+
+    /* Um movimento por EVENTO do log, quando o log explica a variação inteira.
+       Sem isso o mês virava um número líquido só: o PLATAO de abril, que teve
+       compra de 25% por R$ 40K e venda de 5%, aparecia como uma compra de
+       R$ 10.000 — e a Controladoria lança os dois eventos e a reavaliação da
+       diferença entre preço e valor de cota. A soma dos eventos é sempre o
+       delta do mês; a decomposição reparte, não cria. */
+    const evs = eventosDoMes(itensLog, q0, q1, v1 || v0, b ? num(b[ixb.comissao]) : 0);
+    if (evs && evs.length) {
+      let somado = 0;
+      evs.forEach((e, i) => {
+        const oc = norm(e.oc);
+        const compra = e.dCota > 0;
+        const cls = compra ? 'compra'
+          : /DOAD|DOACAO|DEVOLU/.test(oc) ? 'doacao'
+          : /MORREU|OBITO|ABORTOU/.test(oc) ? 'morte'
+          : 'venda';
+        const umLog = [{data: e.data, ocorrencia: e.texto}];
+        if (compra && e.preco) {
+          /* compra entra pelo PREÇO PAGO; a diferença contra o valor da fatia é
+             reavaliação — 40.000 pagos por 12.500 de cota são compra 40.000 e
+             reavaliação −27.500, que somam os mesmos +12.500 do patrimônio */
+          empurra(`${k}#${i + 1}`, e.preco, 'compra', umLog, 'compra pelo preço pago');
+          somado += e.preco;
+          const ajuste = e.valorFatia - e.preco;
+          if (Math.abs(ajuste) >= 1) {
+            empurra(`${k}#${i + 1}r`, ajuste, 'reavaliacao', umLog,
+                    'diferença entre o preço pago e o valor de cota');
+            somado += ajuste;
+          }
+        } else {
+          empurra(`${k}#${i + 1}`, e.valorFatia, cls, umLog, null);
+          somado += e.valorFatia;
+        }
+      });
+      // o que os eventos não explicam (valor unitário que mudou no mesmo mês)
+      const resto = (p1 - p0) - somado;
+      if (Math.abs(resto) >= 1) empurra(`${k}#resto`, resto, 'reavaliacao', itensLog,
+                                        'variação de valor não explicada pelos eventos');
+    } else {
+      empurra(k, p1 - p0,
+        sugere({q0, q1, v0, v1, p0, p1, ren, entrou: !a, saiu: !b, status: stB || stA,
+                categoria: norm(linha[ixL.categoria]), itensLog,
+                historico: histPorNome[chaveLog(linha[ixL.nome])] || [],
+                receptoras: ehLinhaReceptoras(linha[ixL.nome])}),
+        itensLog, null);
+    }
   }
   movs.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
   return {movs, log, renomes};
@@ -498,6 +550,84 @@ function cancelamento(oc){
   if (RX_CANCEL_COMPRA.test(s)) return {tipo: 'compra', sentido: 'sai'};
   if (RX_CANCEL_VENDA.test(s)) return {tipo: 'venda', sentido: 'volta'};
   return {tipo: null, sentido: null};
+}
+
+/* ---------- decomposição do mês em EVENTOS ----------
+
+   O motor fazia UMA movimentação por animal por mês, com o delta líquido, e
+   classificava esse líquido uma vez só. A Controladoria lança evento por
+   evento, e é por isso que o PLATAO DA PAO GRANDE de abril não fechava:
+
+     log: COMPRADO 25% DE ALEXANDRE DE MORAIS POR R$40K - COTA 46,25 -> 71,25%
+          VENDIDO 5% PARA ANTONIO AZEVEDO - COTA 71,25 -> 66,25%
+     mapa : compra 40.000 · venda -2.500 · reavaliação -27.500
+     motor: compra 10.000            <- só o líquido dos dois
+
+   Duas regras saem daí, e as duas estão escritas no próprio log:
+
+   1. cada ocorrência que move a cota é um evento, com o valor da sua fatia
+      (Δcota × valor unitário);
+   2. compra com PREÇO declarado entra pelo preço, e a diferença entre o preço
+      e o valor da fatia vira reavaliação — 40.000 pagos por 12.500 de cota são
+      compra 40.000 e reavaliação −27.500, que somam os mesmos +12.500 do
+      patrimônio. A decomposição nunca muda o total do mês; só reparte.
+
+   Quando o log não explica a variação inteira, nada disso se aplica: a
+   movimentação continua inteira, como antes. Explicar pela metade seria pior
+   que não explicar. */
+
+const RX_COTA_DE_PARA = /(?:MUDOU\s+)?(?:A\s+)?(?:%|COTA|PORCENTAGEM)\s*(?:DE|ERA)\s*([\d,.]+)\s*%?\s*(?:PARA|P\/|PASSOU\s+PARA|->)\s*([\d,.]+)\s*%/;
+const RX_PRECO = /POR\s*R?\$?\s*([\d.,]+)\s*(K|MIL)?\b/;
+const RX_PCT_EVENTO = /\b(VENDID[AO]|VENDA|COMPRAD[AO]|COMPRA|DOAD[AO]|DOACAO)\b[^.]{0,40}?([\d,.]+)\s*%/;
+
+const _num = t => Number(String(t).replace(/\./g, '').replace(',', '.'));
+
+/* Preço declarado na ocorrência: "POR R$40K", "POR R$ 40.000", "POR 40 MIL". */
+function precoDeclarado(oc){
+  const m = RX_PRECO.exec(oc);
+  if (!m) return null;
+  const v = _num(m[1]);
+  if (!isFinite(v) || !v) return null;
+  return m[2] ? v * 1000 : v;
+}
+
+/* Transição de cota da ocorrência, em fração (0,4625 -> 0,7125). */
+function cotaDaOcorrencia(oc){
+  const m = RX_COTA_DE_PARA.exec(oc);
+  if (!m) return null;
+  const de = _num(m[1]) / 100, para = _num(m[2]) / 100;
+  if (!isFinite(de) || !isFinite(para)) return null;
+  return {de, para};
+}
+
+/* Quebra o mês de UM animal em eventos. Devolve null quando o log não explica a
+   variação de cota inteira — aí o chamador mantém a movimentação única. */
+function eventosDoMes(itensLog, q0, q1, valor, comissao){
+  if (!itensLog || !itensLog.length) return null;
+  const passos = [];
+  for (const it of itensLog) {
+    const oc = norm(it.ocorrencia);
+    const c = cotaDaOcorrencia(oc);
+    if (!c) continue;
+    passos.push({oc, de: c.de, para: c.para, preco: precoDeclarado(oc), data: it.data,
+                 texto: it.ocorrencia});
+  }
+  if (!passos.length) return null;
+  // a corrente tem de começar na cota do mês anterior e terminar na do mês
+  const tol = 0.0005;
+  if (Math.abs(passos[0].de - q0) > tol) return null;
+  if (Math.abs(passos[passos.length - 1].para - q1) > tol) return null;
+  for (let i = 1; i < passos.length; i++) {
+    if (Math.abs(passos[i].de - passos[i - 1].para) > tol) return null;   // corrente quebrada
+  }
+  /* A comissão acompanha a cota proporcionalmente: ela é parte do patrimônio
+     (cota × valor + comissão) e não tem evento próprio no log. */
+  const porCota = q0 ? comissao / q0 : 0;
+  return passos.map(p => {
+    const dCota = p.para - p.de;
+    const valorFatia = dCota * valor + dCota * porCota;
+    return {...p, dCota, valorFatia};
+  });
 }
 
 /* sugestão pelo padrão — só sugestão; o registro é o input de quem fecha.
