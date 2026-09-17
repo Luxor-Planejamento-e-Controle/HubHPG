@@ -249,15 +249,30 @@ function cotasMes(mes){
    do haras é editado durante o mês seguinte, então a mesma planilha contém o
    fechamento e o começo do mês novo; para o animal tocado depois do dia 31 vale
    a linha do mês anterior. Estoque e movimentação usam esta mesma base, senão o
-   check "inicial + movimentações = final" não fecha. */
+   check "inicial + movimentações = final" não fecha.
+
+   A janela é só o MÊS SEGUINTE, porque é esse o período em que o haras ainda
+   mexe no arquivo. Data mais longe que isso é erro de digitação e não pode
+   segurar a linha: o OASIS DA PAO GRANDE tem, no arquivo de fevereiro, a
+   ocorrência "VENDA DE 5% PARA RAPHAEL BERTOLINI CANCELADA - MUDOU A % DE 37,5
+   PARA 42,5%" datada de 09/11/2026 — nove meses à frente. Com a janela aberta,
+   a linha de fevereiro ficava congelada em janeiro e os R$ 1.500 caíam em
+   março; a Controladoria lança em fevereiro, que é onde o valor mudou. */
+function limitePosterior(mes){
+  const ano = +mes.slice(0, 4), m = +mes.slice(5, 7);
+  return {
+    fim: new Date(ano, m, 0, 23, 59, 59),              // último dia do mês
+    janela: new Date(ano, m + 1, 0, 23, 59, 59),       // último dia do mês seguinte
+  };
+}
 function posterioresDoMes(mes){
   const d = ST.meses[mes];
   if (!d) return {};
-  const fim = new Date(+mes.slice(0, 4), +mes.slice(5, 7), 0, 23, 59, 59);
+  const {fim, janela} = limitePosterior(mes);
   const o = {};
   for (const x of d.log || []) {
     const dt = x.data instanceof Date ? x.data : new Date(x.data);
-    if (dt > fim) (o[norm(x.produto)] = o[norm(x.produto)] || []).push({...x, data: dt});
+    if (dt > fim && dt <= janela) (o[norm(x.produto)] = o[norm(x.produto)] || []).push({...x, data: dt});
   }
   return o;
 }
@@ -300,10 +315,24 @@ const patrMes = (mes, escopo) =>
    antiga resolvia 148, esta resolve os 156. */
 const RX_ESTAVA = /(?:ESTAVA|ERA)\s+(?:COMO\s+)?"?(.+?)"?(?=\s+-\s+(?:MUDOU|TINHA|FOI|PASSOU|ADICAO|ERA|E\s)|\s+(?:PASSOU|E\s+FICOU|E\s+PASSOU|FICOU)\s|$)/;
 
+/* O nascimento às vezes vem sem o "ESTAVA": "NASCEU - <nome antigo> - MUDOU A
+   CATEGORIA PARA POTRA". Sem ler essa forma, a FEMEA FADA DA PAO GRANDE X
+   PALHACO PORTEIRA AZUL 27/04/2025 RECEP 14 virava dois animais em março/26 —
+   o velho sumindo (baixa de R$ 40.000 sugerida como venda) e o novo aparecendo
+   zerado — e o "MORREU" do dia 28 nunca chegava à linha. A Controladoria lança
+   os R$ 40.000 em baixa por morte. */
+const RX_NASCEU_ERA = /^NASCEU\s*-\s*(.+?)\s*-\s*MUDOU\s+A\s+CATEGORIA/;
+const nomeAntigoDoLog = o => {
+  const m = RX_ESTAVA.exec(o);
+  if (m) return m[1];
+  const n = RX_NASCEU_ERA.exec(o);
+  return n ? n[1] : null;
+};
+
 function tipoLog(oc){
   const o = norm(oc);
   if (/MUDOU DE NOME|MUDOU O NOME|ALTEROU O NOME|TROCOU O NOME|ADICAO DE SUFIXO/.test(o)) return 'nome';
-  if (/NASCEU/.test(o) && /ESTAVA/.test(o)) return 'nome';
+  if (/NASCEU/.test(o) && /(ESTAVA|MUDOU A CATEGORIA)/.test(o)) return 'nome';
   if (/MUDOU O LOCAL|MUDOU DE LOCAL|FOI PARA O CENTRO DE TREINAMENTO/.test(o)) return 'local';
   return 'financeira';
 }
@@ -318,12 +347,7 @@ function movimentacaoDoMes(mes){
      agosto nasce com R$ 241 mil de baixa que aconteceu em setembro. Animal
      tocado por ocorrência POSTERIOR ao mês fica com o valor do mês anterior e
      aparece na conciliação — não some calado. */
-  const fimMes = new Date(+mes.slice(0, 4), +mes.slice(5, 7), 0, 23, 59, 59);
-  const posteriores = {};
-  for (const x of d.log || []) {
-    const dt = x.data instanceof Date ? x.data : new Date(x.data);
-    if (dt > fimMes) (posteriores[norm(x.produto)] = posteriores[norm(x.produto)] || []).push({...x, data: dt});
-  }
+  const posteriores = posterioresDoMes(mes);
   // com o dono vindo do arquivo, TODA linha é de um dos dois — não existe mais
   // animal fora de escopo, que era artefato de mapa incompleto
   const noEscopo = () => true;
@@ -366,9 +390,9 @@ function movimentacaoDoMes(mes){
   const ponte = {}, renomes = [];
   for (const x of log) {
     if (x.tipo !== 'nome') continue;
-    const m = RX_ESTAVA.exec(norm(x.ocorrencia));
-    if (!m) continue;
-    const antigo = norm(m[1]);
+    const bruto = nomeAntigoDoLog(norm(x.ocorrencia));
+    if (!bruto) continue;
+    const antigo = norm(bruto);
     const kOld = achaNome(antigo, idxAnt), kNew = achaNome(norm(x.produto), idxAtual);
     if (!kOld || !kNew || kOld === kNew) continue;
     if (idxAtual[antigo] || (ant && idxAnt[norm(x.produto)])) continue;  // convivem: não é renome
@@ -457,18 +481,38 @@ function movimentacaoDoMes(mes){
        R$ 10.000 — e a Controladoria lança os dois eventos e a reavaliação da
        diferença entre preço e valor de cota. A soma dos eventos é sempre o
        delta do mês; a decomposição reparte, não cria. */
+    const hist = histPorNome[chaveLog(linha[ixL.nome])] || [];
+    /* A linha agregada das receptoras tem regra própria e vem antes da
+       decomposição por cota: ela não tem cota que mexa, o que muda é o VALOR do
+       conjunto, e o mês costuma trazer as duas pernas na mesma linha. */
+    const recep = ehLinhaReceptoras(linha[ixL.nome])
+      ? pernasDasReceptoras(itensLog, p1 - p0) : null;
     const evs = eventosDoMes(itensLog, q0, q1, v1 || v0, b ? num(b[ixb.comissao]) : 0);
-    if (evs && evs.length) {
+    if (recep) {
+      recep.forEach((perna, i) =>
+        empurra(`${k}#r${i + 1}`, perna.valor, perna.classe, [perna.item], perna.rotulo));
+    } else if (evs && evs.length) {
       let somado = 0;
       evs.forEach((e, i) => {
         const oc = norm(e.oc);
+        /* Cancelamento primeiro, depois a PALAVRA, e só então o sinal.
+
+           O cancelamento tem de vir antes porque a cota voltando parece compra
+           em qualquer leitura de sinal, e nem sempre é: a PEDRITA de julho é
+           estorno da venda de março (mesmo ano) e o mapa não lança compra
+           nenhuma no mês.
+
+           A palavra vem antes do sinal porque doação tem as duas direções: a
+           mesma PEDRITA RECEBEU 25% de doação (+R$ 7.500) e o mapa lança isso
+           em "Baixas por Morte/Doação" com sinal positivo. */
         const compra = e.dCota > 0;
-        const cls = compra ? 'compra'
-          : /DOAD|DOACAO|DEVOLU/.test(oc) ? 'doacao'
-          : /MORREU|OBITO|ABORTOU/.test(oc) ? 'morte'
-          : 'venda';
+        const canc = cancelamento(oc);
+        const cls = (canc && canc.sentido === 'volta'
+                      && classeDoCancelamento([{data: e.data, ocorrencia: e.oc}], hist))
+          || classePelaPalavra(oc)
+          || (compra ? 'compra' : 'venda');
         const umLog = [{data: e.data, ocorrencia: e.texto}];
-        if (compra && e.preco) {
+        if (cls === 'compra' && e.preco) {
           /* compra entra pelo PREÇO PAGO; a diferença contra o valor da fatia é
              reavaliação — 40.000 pagos por 12.500 de cota são compra 40.000 e
              reavaliação −27.500, que somam os mesmos +12.500 do patrimônio */
@@ -552,6 +596,101 @@ function cancelamento(oc){
   return {tipo: null, sentido: null};
 }
 
+/* A venda que o cancelamento desfaz é a DAQUELA CONTRAPARTE, não simplesmente a
+   última. O animal pode ter vendas empilhadas de anos diferentes, e aí a regra
+   do ano decide errado se pegar a venda mais recente:
+
+     OLGA DA PAO GRANDE (CARLA)
+       2025-02-27  VENDIDO 25% NO LEILAO - PASSOU DE 50% PARA 25%
+       2026-03-13  VENDIDO 25% PARA DEIWSON LEITE NO XVI LEILAO PAO GRANDE
+       2026-05-08  CANCELAMENTO DE 25% DE JULIANO MARQUES - VOLTOU A COTA...
+     PEDRITA DA PAO GRANDE (CARLA)
+       2026-03-13  VENDIDO 50% PARA GILLES RODRIGUES NO XVI LEILAO PAO GRANDE
+       2026-07-..  VENDA PARA GILLES RODRIGUES CANCELADA - MUDOU A COTA...
+
+   As duas são cancelamentos de 2026 com venda de 2026 na frente, mas o mapa
+   lança a OLGA em compras (R$ 20.000) e a PEDRITA em nada — porque a venda que
+   a OLGA desfaz é a de 2025 (o JULIANO nunca aparece como comprador no log,
+   sinal de venda antiga, de quando o haras não anotava o nome) e a da PEDRITA é
+   a de março do mesmo ano, que se estorna contra ela. */
+const RX_CONTRAPARTE = [
+  /(?:VENDA|VENDID[AO]|COMPRA)\s*(?:DE\s*[\d,.]+\s*%\s*)?PARA\s+([A-Z][A-Z\s]{2,40}?)\s+CANCELAD/,
+  /CANCELAMENTO\s+(?:DE\s*[\d,.]+\s*%\s*)?DE\s+([A-Z][A-Z\s]{2,40}?)(?:\s+-|$)/,
+  /CANCELAD\w*\s+([A-Z][A-Z\s]{2,40}?)(?:\s+-|$)/,
+];
+function contraparteCancelamento(oc){
+  for (const rx of RX_CONTRAPARTE) { const m = rx.exec(oc); if (m) return m[1].trim(); }
+  return null;
+}
+
+function anoDaVendaCancelada(historico, oc, quando){
+  const nome = contraparteCancelamento(norm(oc || ''));
+  if (!nome) return anoDaVendaOriginal(historico, quando);
+  // nome inteiro primeiro, depois só o primeiro nome (o log abrevia)
+  for (const alvo of [nome, nome.split(/\s+/)[0]]) {
+    let achado = null;
+    for (const x of (historico || [])) {
+      const s = norm(x.ocorrencia);
+      if (!RX_VENDA_LOG.test(s) || /CANCEL/.test(s) || !s.includes(alvo)) continue;
+      const d = x.data instanceof Date ? x.data : new Date(x.data);
+      if (!achado || d > achado) achado = d;
+    }
+    if (achado) return achado.getFullYear();
+  }
+  return null;   // contraparte nomeada e sem venda dela no log: a venda é antiga
+}
+
+/* Cancelamento que devolve cota: estorno se a venda foi no mesmo exercício,
+   recompra se foi em outro. Sem saber o ano da venda, vale recompra — é o caso
+   da venda antiga, anterior ao log nomear comprador. */
+function classeDoCancelamento(itensLog, historico){
+  const item = (itensLog || []).find(x => /CANCEL/.test(norm(x.ocorrencia)));
+  if (!item) return null;
+  const quando = item.data instanceof Date ? item.data : new Date(item.data);
+  const anoCanc = quando && !isNaN(quando) ? quando.getFullYear() : null;
+  const anoVenda = anoDaVendaCancelada(historico, item.ocorrencia, quando);
+  return (anoCanc && anoVenda === anoCanc) ? 'venda' : 'compra';
+}
+
+/* ---------- a classe que a PALAVRA do log dá ----------
+
+   Serve tanto para a movimentação inteira quanto para um evento solto, e a
+   ordem é a ordem em que a Controladoria decide. Cada linha foi medida contra o
+   Resumo Contábil de jan a jul/2026:
+
+   1. REPOSIÇÃO PARA <alguém> é doação, não venda. A POTRA MORENA L2 X DAMASCO
+      (fev, R$ 75.000, "REPOSICAO PARA RENATO ALCATRUZ, MAURICIO PIERROT E
+      BERNARDO BORIO") está com status VENDIDO no arquivo do haras e mesmo assim
+      o mapa lança em baixa por morte/doação; o mesmo vale para a LOTERIA X
+      FAVACHO ALCATEIA de março (R$ 18.250, "REPOSICAO DE EMBRIAO PARA NELSON
+      JOANES GOMES"). Nada saiu vendido: repôs-se um animal a quem tinha direito.
+   2. Embrião que sai na DIVISÃO DOS EMBRIÕES da estação, ou como embrião de
+      reposição, volta contra a própria linha de embriões — não vira venda. Em
+      jul/26 a BEGONIA Q-MARCHA X OLIMPO (R$ 30.000) foi para o Bruno Guedes
+      nessa divisão e o resumo publica embriões de R$ 82.500, exatamente os
+      R$ 112.500 que entraram menos ela.
+   3. Ceder pedaço de cota a sócio ("INCLUSAO DE 1,25% PARA O SOCIO") é doação:
+      o PLATAO DA PAO GRANDE aparece no mapa com −R$ 625 em morte/doação, não em
+      venda. Não confundir com "INCLUSAO DO SOCIO", que é rearranjo de sociedade
+      e o mapa lança como venda (PRINCESA MANNA, −R$ 3.840).
+   4. Venda ganha do óbito quando as duas coisas acontecem no mesmo mês. O
+      JUSTICA DA PAO GRANDE X OLIMPO DO MH (vendido 50% em 13/03, abortou em
+      31/03) está no mapa como baixa por VENDA de R$ 36.000. */
+const RX_REPOSICAO_PARA = /REPOSICAO\s+(?:DE\s+[A-Z]+\s+)?PARA\s+[A-Z]/;
+const RX_EMBRIAO_SAI = /DIVISAO\s+DOS\s+EMBRIOES|EMBRIAO\s+DE\s+REPOSICAO/;
+const RX_COTA_AO_SOCIO = /INCLUSAO\s+DE\s+[\d,.]+\s*%\s*PARA\s+O\s+SOCIO/;
+
+function classePelaPalavra(oc){
+  const o = norm(oc);
+  if (RX_REPOSICAO_PARA.test(o)) return 'doacao';
+  if (RX_EMBRIAO_SAI.test(o)) return 'embriao';
+  if (RX_COTA_AO_SOCIO.test(o)) return 'doacao';
+  if (/VENDID|VENDA|VENDEU/.test(o)) return 'venda';
+  if (/MORREU|MORTE|OBITO|ABORTOU/.test(o)) return 'morte';
+  if (/DOAD|DOACAO|DEVOLU/.test(o)) return 'doacao';
+  return null;
+}
+
 /* ---------- decomposição do mês em EVENTOS ----------
 
    O motor fazia UMA movimentação por animal por mês, com o delta líquido, e
@@ -630,6 +769,49 @@ function eventosDoMes(itensLog, q0, q1, valor, comissao){
   });
 }
 
+/* ---------- as duas pernas do mês das receptoras ----------
+
+   A linha das receptoras é agregada: uma só linha carrega o rebanho inteiro, e
+   o que se move é o VALOR do conjunto. Um mês com compra E saída chegava aqui
+   como um número líquido só, e ia inteiro para uma classe — em abr/26 os
+   R$ 77.105 líquidos escondiam a venda de 38 receptoras (−R$ 78.905) e a compra
+   de uma do Jacques Ribeiro (+R$ 1.800), que é como o mapa lança.
+
+   A compra entra pelo PREÇO DECLARADO no log ("POR R$1800,00", "POR R$3K",
+   "POR R$2.000,00 CADA" com a quantidade), e o que sobra do líquido é a outra
+   perna — venda, morte ou devolução, conforme a palavra. Com mais de uma perna
+   de saída não dá para repartir sem inventar rateio, e aí a linha volta a ser
+   uma movimentação só, que a conciliação resolve na mão. */
+const RX_QTD_RECEP = /COMPRA(?:MOS|DAS|DOS)?\s+(?:DE\s+)?(\d+)\s*RECEP/;
+
+function pernasDasReceptoras(itensLog, liquido){
+  if (!itensLog || !itensLog.length) return null;
+  const compras = [], saidas = [];
+  for (const it of itensLog) {
+    const oc = norm(it.ocorrencia);
+    const m = RX_QTD_RECEP.exec(oc);
+    const preco = m ? precoDeclarado(oc) : null;
+    if (m && preco) {
+      const qtd = /\bCADA\b/.test(oc) ? Number(m[1]) || 1 : 1;
+      compras.push({item: it, valor: preco * qtd, classe: 'compra',
+                    rotulo: 'compra de receptoras pelo preço declarado'});
+    } else if (classePelaPalavra(oc)) {
+      saidas.push({item: it, classe: classePelaPalavra(oc)});
+    }
+  }
+  if (!compras.length && !saidas.length) return null;
+  if (saidas.length > 1) return null;                      // sem rateio, sem chute
+  const resto = +(liquido - compras.reduce((s, c) => s + c.valor, 0)).toFixed(2);
+  const pernas = compras.slice();
+  if (saidas.length) {
+    pernas.push({...saidas[0], valor: resto,
+                 rotulo: 'baixa proporcional do valor do conjunto'});
+  } else if (Math.abs(resto) >= 1) {
+    return null;    // compra declarada não explica o mês inteiro: não reparte
+  }
+  return pernas.filter(p => Math.abs(p.valor) >= 0.01);
+}
+
 /* sugestão pelo padrão — só sugestão; o registro é o input de quem fecha.
    Dinheiro manda na ordem: renome é tipo 1-Nome e não move saldo, então só
    ganha a sugestão quando o patrimônio ficou igual. E patrimônio é
@@ -667,16 +849,12 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
   if (ren && !mexeu) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
   if (saiu || (q0 && !q1)) {
-    /* O óbito continua ganhando da venda quando os dois aparecem no mês, e isso
-       foi MEDIDO: a aba Movimentações do mapa lança o JUSTICA DA PAO GRANDE X
-       OLIMPO DO MH (vendido 50% em 13/03, abortou em 31/03) como venda, mas o
-       Resumo Contábil de março quer aquele valor em morte — e é o Resumo que
-       vale, porque é ele que tem mês. Inverter a ordem levou a divergência de
-       março de R$ 22.250 para R$ 58.250. As duas abas do mapa discordam nesse
-       animal; a classificação final é de quem fecha, pela ficha. */
-    if (/MORREU|OBITO|ABORTOU/.test(oc) || /OBITO/.test(st)) return 'morte';
-    if (/DOAD|DOACAO/.test(oc)) return 'doacao';
-    return 'venda';
+    /* A ordem é a de classePelaPalavra, que já põe reposição e divisão de
+       embriões na frente e faz a venda ganhar do óbito. Março/26 só fecha com as
+       três juntas: sozinha, a inversão venda-sobre-óbito levava a divergência de
+       R$ 22.250 para R$ 58.250, porque faltavam a FEMEA FADA X PALHACO (morte,
+       R$ 40.000) e a LOTERIA X FAVACHO (reposição, R$ 18.250). */
+    return classePelaPalavra(oc) || (/OBITO/.test(st) ? 'morte' : 'venda');
   }
   /* Cancelamento é ESTORNO: entra na MESMA causa do evento desfeito, com o sinal
      invertido. Venda cancelada devolve cota, então é 'venda' com valor positivo —
@@ -686,15 +864,12 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
   const canc = cancelamento(oc);
   if (canc && canc.sentido === 'volta') {
     /* a cota volta: estorno da venda se ela foi neste ano, compra se foi em ano
-       anterior (ver anoDaVendaOriginal) */
-    const item = (itensLog || []).find(x => /CANCEL/.test(norm(x.ocorrencia)));
-    const anoCanc = item && (item.data instanceof Date ? item.data : new Date(item.data)).getFullYear();
-    const anoVenda = anoDaVendaOriginal(historico, item && item.data);
-    return (anoVenda && anoCanc && anoVenda !== anoCanc) ? 'compra' : 'venda';
+       anterior (ver anoDaVendaCancelada) */
+    return classeDoCancelamento(itensLog, historico) || 'venda';
   }
   if (canc && canc.tipo === 'compra' && canc.sentido === 'sai') return 'compra';
   if (q1 > q0) return 'compra';
-  if (q1 < q0) return /MORREU|OBITO/.test(oc) ? 'morte' : /DOAD/.test(oc) ? 'doacao' : 'venda';
+  if (q1 < q0) return classePelaPalavra(oc) || 'venda';
   /* Aqui acabavam as regras e o resto virava 'reavaliacao'. Isso não é sugestão,
      é invenção: o Resumo Contábil divulgado tem ZERO reavaliação em fev, mai,
      jun e jul/2026, e nesses meses o motor fabricava exatamente o valor do que
