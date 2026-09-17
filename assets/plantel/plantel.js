@@ -512,10 +512,19 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
      de dez/25 conta como da Carla e o de jan/26 não), e isso se resolve no
      mapa, não virando linha no resumo. Cai em 'sem_efeito' e aparece na coluna
      'O que foi feito' como troca de dono. */
-  /* Receptora que entra é compra (o haras informa o valor pago); receptora que
-     sai é venda, baixada pelo proporcional — a linha agregada já carrega o valor
-     do conjunto, então o delta É a proporção das que saíram. */
-  if (receptoras) return p1 > p0 ? 'compra' : 'venda';
+  /* Receptora que ENTRA é compra (o haras informa o valor pago). Receptora que
+     SAI pode ser venda ou baixa, e a direção do valor não distingue as duas — em
+     jun/26 saíram 3 e a contabilidade lançou os R$ 6.223 em "Baixa mortes e
+     doações", porque o log diz DEVOLUÇÃO, não venda. Então quem decide é o log;
+     não dizendo nada, o motor não chuta. O valor já vem proporcional: a linha
+     agregada carrega o valor do conjunto, então o delta É a fatia das que saíram. */
+  if (receptoras) {
+    if (/COMPRA/.test(oc)) return 'compra';
+    // devolução de receptora é baixa, e o haras lança na MESMA linha da baixa
+    // por venda (Arthur, 17/09/2026) — por isso 'venda', não 'doacao'
+    if (/DEVOLU|VEND/.test(oc)) return 'venda';
+    return p1 > p0 ? 'compra' : null;
+  }
   if (ren && !mexeu) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
   if (saiu || (q0 && !q1)) {
