@@ -317,6 +317,15 @@ function movimentacaoDoMes(mes){
 
   const logPorNome = {};
   for (const x of log) (logPorNome[norm(x.produto)] = logPorNome[norm(x.produto)] || []).push(x);
+  /* O log do arquivo é cumulativo: traz a vida inteira do animal, não só o mês.
+     A tela usa o recorte do mês, mas a regra de cancelamento precisa do
+     histórico (a venda cancelada pode ser de anos atrás). */
+  const histPorNome = {};
+  for (const x of (d.log || [])) {
+    const k = norm(x.produto);
+    (histPorNome[k] = histPorNome[k] || []).push(
+      {...x, data: x.data instanceof Date ? x.data : new Date(x.data)});
+  }
 
   // pontes de identidade: nome antigo -> chave nova (só quando a antiga sumiu)
   const idxAnt = {}, idxAtual = {};
@@ -408,7 +417,8 @@ function movimentacaoDoMes(mes){
       mudou_local: mudouLocal ? [a[ixa.local], b[ixb.local]] : null,
       log: itensLog, posterior,
       sugestao: sugere({q0, q1, v0, v1, p0, p1, ren, entrou: !a, saiu: !b, status: stB || stA,
-                        categoria: norm(linha[ixL.categoria]), itensLog}),
+                        categoria: norm(linha[ixL.categoria]), itensLog,
+                        historico: histPorNome[norm(linha[ixL.nome])] || []}),
       no_escopo: noEscopo(linha),
     });
   }
@@ -427,6 +437,35 @@ const RX_CANCEL_COMPRA = /COMPRA\s+CANCELAD/;
 const RX_CANCEL_VENDA = /VENDA[^.]{0,80}?CANCELAD|CANCELAD\w*\s+A\s+VENDA|CANCELAMENTO\s+DE/;
 const RX_CANCEL_REVENDA = /CANCELAD\w*[^.]{0,40}?VENDID/;
 
+/* Cancelamento de venda: o que ele é depende de QUANDO a venda foi.
+
+   Regra do Arthur (17/09/2026): venda cancelada no MESMO ano é estorno da
+   venda — as duas pernas se anulam dentro do exercício. Em ano DIFERENTE é
+   recompra: o exercício anterior já fechou com a cota reduzida, então a cota
+   voltando agora é entrada nova neste ano.
+
+   Dá pra decidir porque o log do haras é CUMULATIVO — carrega a vida inteira do
+   animal, não só o mês. NIOBIO DA PAO GRANDE, no arquivo de fevereiro:
+     2025-10-17  VENDIDO 25% PARA VITOR BEZERRA ... COTA DE 75 PARA 25%
+     2026-02-11  VENDA DE 25% PARA VITOR BEZERRA CANCELADA - DE 50 PARA 75%
+   Anos diferentes, logo compra. Era uma das compras de fev/26 que o resumo
+   original tinha e o nosso não via. */
+const RX_VENDA_LOG = /VEND[AI]/;
+
+function anoDaVendaOriginal(historico, quando){
+  if (!historico || !historico.length || !quando) return null;
+  const t = quando instanceof Date ? quando.getTime() : new Date(quando).getTime();
+  let achado = null;
+  for (const x of historico) {
+    const d = x.data instanceof Date ? x.data : new Date(x.data);
+    if (!(d.getTime() < t)) continue;                       // só o que veio antes
+    const s = norm(x.ocorrencia);
+    if (!RX_VENDA_LOG.test(s) || /CANCEL/.test(s)) continue;  // venda, e não outro cancelamento
+    if (!achado || d > achado) achado = d;                  // a mais recente antes do cancelamento
+  }
+  return achado ? achado.getFullYear() : null;
+}
+
 function cancelamento(oc){
   const s = norm(oc);
   if (!/CANCEL/.test(s)) return null;
@@ -443,7 +482,7 @@ function cancelamento(oc){
    cota × valor + comissão — olhar só cota e valor deixava mudança de comissão
    como 'sem_efeito'. Juntas, as duas falhas jogavam R$ 241 mil de janeiro/26
    em causas que o resumo não tem linha pra mostrar. */
-function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, itensLog}){
+function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, itensLog, historico}){
   const st = status || '', cat = categoria || '';
   const oc = norm((itensLog || []).map(x => x.ocorrencia).join(' '));
   const mexeu = Math.abs((p1 || 0) - (p0 || 0)) >= 0.01;
@@ -466,7 +505,14 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
      'compra' criava uma compra que nunca existiu, e inflava tanto compras quanto
      vendas do mês. */
   const canc = cancelamento(oc);
-  if (canc && canc.sentido === 'volta') return 'venda';
+  if (canc && canc.sentido === 'volta') {
+    /* a cota volta: estorno da venda se ela foi neste ano, compra se foi em ano
+       anterior (ver anoDaVendaOriginal) */
+    const item = (itensLog || []).find(x => /CANCEL/.test(norm(x.ocorrencia)));
+    const anoCanc = item && (item.data instanceof Date ? item.data : new Date(item.data)).getFullYear();
+    const anoVenda = anoDaVendaOriginal(historico, item && item.data);
+    return (anoVenda && anoCanc && anoVenda !== anoCanc) ? 'compra' : 'venda';
+  }
   if (canc && canc.tipo === 'compra' && canc.sentido === 'sai') return 'compra';
   if (q1 > q0) return 'compra';
   if (q1 < q0) return /MORREU|OBITO/.test(oc) ? 'morte' : /DOAD/.test(oc) ? 'doacao' : 'venda';
@@ -1106,19 +1152,66 @@ function txtMov(m, i){
 }
 const ordMov = (m, i) => COLS_MOV[i][2] ? num(COLS_MOV[i][1](m)) : String(COLS_MOV[i][1](m) || '');
 
+/* ---------- a fila, em fichas ----------
+
+   Era uma tabela de 16 colunas. Três problemas que a ficha resolve de uma vez:
+   a descrição do que aconteceu — a única informação da linha que não se deduz de
+   nenhuma outra coluna — ficava no fim da tabela, longe do botão de registro;
+   o `<select>` de "foi outra coisa" destoava no meio de botões; e nada cabia na
+   tela sem rolagem horizontal.
+
+   Cada pendência vira um cartão que faz UMA pergunta: foi isto? A sugestão vem
+   como o botão aceso; as outras classes ficam ao lado, do mesmo tamanho, porque
+   escolher outra é tão legítimo quanto confirmar. */
+function fichaMov(m){
+  const deltas = [];
+  if (m.mudou_status) deltas.push(['status', `${esc(m.mudou_status[0])} → ${esc(m.mudou_status[1])}`]);
+  if (m.cota_ant !== m.cota_atual) deltas.push(['cota', `${pct(m.cota_ant)} → ${pct(m.cota_atual)}`]);
+  if (m.valor_ant !== m.valor_atual) deltas.push(['valor', `${rs(m.valor_ant)} → ${rs(m.valor_atual)}`]);
+  if (m.mudou_local) deltas.push(['local', `${esc(m.mudou_local[0])} → ${esc(m.mudou_local[1])}`]);
+  if (m.mudou_dono) deltas.push(['dono', `${ATRIB[m.mudou_dono[0]] || '—'} → ${ATRIB[m.mudou_dono[1]] || '—'}`]);
+  if (m.renome) deltas.push(['nome', `${esc(m.renome.de)} → ${esc(m.renome.para)}`]);
+  if (m.entrou) deltas.push(['entrada', 'entrou no plantel']);
+  if (m.saiu) deltas.push(['saída', 'saiu do controle']);
+
+  const canc = (m.log || []).map(x => cancelamento(x.ocorrencia)).find(c => c && c.tipo);
+  const avisos = [];
+  if (canc) avisos.push(canc.revenda ? 'venda cancelada e revendido'
+    : `${canc.tipo} cancelada (cota ${canc.sentido === 'volta' ? 'volta' : 'sai'})`);
+  if (m.posterior) avisos.push(`${m.posterior.length} ocorrência(s) POSTERIOR(es) ao mês `
+    + '— mantido o valor do mês anterior');
+
+  const outras = CLASSES_MOV.filter(c => c !== m.sugestao);
+  return `<div class="ficha">
+    <div class="ficha-topo">
+      <div class="ficha-nome" title="${esc(m.nome)}">${esc(m.nome)}</div>
+      <div class="ficha-delta ${clsN(m.delta)}">${rs(m.delta)}</div>
+    </div>
+    <div class="ficha-meta">${[m.categoria, m.sufixo, ATRIB[m.dono]].filter(Boolean).map(esc).join(' · ')}</div>
+    ${!deltas.length ? '' : `<dl class="ficha-mudou">${deltas.map(([r, v]) =>
+      `<dt>${r}</dt><dd>${v}</dd>`).join('')}</dl>`}
+    ${(m.log || []).map(l => `<p class="ficha-log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</p>`).join('')}
+    ${avisos.map(a => `<p class="ficha-aviso">⚠ ${esc(a)}</p>`).join('')}
+    <div class="ficha-perg">
+      <span class="ficha-perg-rot">Foi isto?</span>
+      <button type="button" class="cls-bt sugerida" data-conf="${esc(m.chave)}:${esc(m.sugestao)}">
+        ✓ ${esc(m.sugestao)}</button>
+      ${outras.map(c => `<button type="button" class="cls-bt" data-conf="${esc(m.chave)}:${c}">${c}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
 function subMovimentacoes(){
   const mv = movimentacaoDoMes(ST.mes);
   if (!mv) return semArquivo();
   if (!ST.meses[mesAnterior(ST.mes)]) {
     return `<div class="aviso">Importe também ${rotMes(mesAnterior(ST.mes))} para comparar os dois meses.</div>`;
   }
-  /* Movimentações é a FILA do que falta decidir: confirmada, a linha sai daqui
-     e passa a viver na Conciliação, que é onde o mês inteiro fica visível. Sem
-     isso as duas abas mostravam a mesma lista e não dava pra saber, de relance,
-     quanto ainda falta. Mês fechado não tem fila — mostra tudo, só leitura. */
+  /* Movimentações é a FILA do que falta decidir: confirmada, a ficha sai daqui
+     e passa a viver na Conciliação. Mês fechado não tem fila — lista tudo. */
   const todas = mv.movs.filter(m => m.no_escopo || m.dono);
-  const base = mesFechado(ST.mes) ? todas
-    : todas.filter(m => !ST.decisoes[`${ST.mes}|${m.chave}`]);
+  const fechado = mesFechado(ST.mes);
+  const base = fechado ? todas : todas.filter(m => !ST.decisoes[`${ST.mes}|${m.chave}`]);
   ST.ctx.mov = {base, txtDe: txtMov, ordDe: ordMov,
                 rotulos: Object.fromEntries(COLS_MOV.map(([rot], i) => [i, rot]))};
   let movs = aplicaFiltros(base, 'mov', txtMov);
@@ -1128,107 +1221,32 @@ function subMovimentacoes(){
       ? (num(pega(a)) - num(pega(b))) * dir
       : String(pega(a) || '').localeCompare(String(pega(b) || ''), 'pt-BR') * dir);
   }
-  const soma = k => movs.reduce((s, m) => {
-    const dec = ST.decisoes[`${ST.mes}|${m.chave}`];
-    return s + ((dec ? dec.classe : m.sugestao) === k ? m.delta : 0);
-  }, 0);
-  /* Mês fechado não tem o que registrar: ele foi resolvido antes de existir esta
-     tela. Mostrar "registrados: 0 de 43" e uma coluna de seleção desativada
-     inventava pendência que não existe — e um parágrafo explicando por que o
-     botão não funciona é pior que não ter botão. Então some a coluna e a conta
-     fecha em N de N. */
-  const fechado = mesFechado(ST.mes);
   const nReg = fechado ? todas.length : todas.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`]).length;
   if (!fechado && !base.length) {
     return `<div class="ok-vazio">Nada na fila: as ${todas.length} movimentações de
       ${rotMes(ST.mes)} já foram confirmadas. Elas estão na aba Conciliação.</div>`;
   }
+  // as colunas de texto viram o filtro da fila; as de dinheiro não fazem sentido aqui
+  const FILTRAVEIS = [0, 1, 2, 3, 4];
   return `
     <div class="resumo-linha">
       <span>${movs.length}${movs.length === base.length ? '' : ' de ' + base.length}${
-        fechado ? ` animais com movimentação em ${rotMes(ST.mes)}`
-                : ` na fila de ${rotMes(ST.mes)}`}</span>
+        fechado ? ` movimentações em ${rotMes(ST.mes)}` : ` na fila de ${rotMes(ST.mes)}`}</span>
       <span>registrados: <b>${nReg}</b> de ${todas.length}${
         fechado ? ' <span class="tag">mês fechado</span>' : ''}</span>
-      <span>Δ patrimônio: <b class="${clsN(movs.reduce((s, m) => s + m.delta, 0))}">${rs(movs.reduce((s, m) => s + m.delta, 0))}</b></span>
+      <span>Δ patrimônio: <b class="${clsN(movs.reduce((s, m) => s + m.delta, 0))}">${
+        rs(movs.reduce((s, m) => s + m.delta, 0))}</b></span>
+    </div>
+    <div class="barra-filtro">
+      <span class="barra-rot">filtrar</span>
+      ${FILTRAVEIS.map(i => `<button type="button" class="fbtn-rot${
+        (ST.filtros.mov[i] || []).length ? ' on' : ''}" data-fb="mov:${i}">${COLS_MOV[i][0]} ▾</button>`).join('')}
+      <span class="barra-rot">ordenar</span>
+      <button type="button" class="fbtn-rot${ST.ordem.mov.col == null ? ' on' : ''}" data-ord="mov:">maior Δ</button>
+      <button type="button" class="fbtn-rot${ST.ordem.mov.col === 0 ? ' on' : ''}" data-ord="mov:0">nome</button>
     </div>
     ${chipsFiltro('mov')}
-    <div class="rolagem"><table class="t">
-      <thead>
-        <tr>${COLS_MOV.map(([rot, , ehNum], i) => {
-            const th = cabFiltro('mov', i, rot, ehNum, ST.ordem.mov);
-            // o select de registro fica logo depois do nome: é a coluna de ação,
-            // e no fim da tabela ela caía fora da tela
-            return i === 0 && !fechado ? th + '<th class="l">Registro</th>' : th;
-          }).join('')}<th class="l">O que foi feito</th></tr>
-      </thead>
-      <tbody>${movs.map(m => linhaMov(m)).join('')}
-        <tr class="tot">${COLS_MOV.map(([rot, pega, ehNum], i) => {
-          if (i === 0) return `<td>total</td>` + (fechado ? '' : '<td></td>');
-          if (!ehNum || rot === 'Cota') return '<td></td>';
-          const s = movs.reduce((a, m) => a + num(pega(m)), 0);
-          return `<td class="${['Valor', 'Valor inicial', 'Valor final'].includes(rot) ? '' : clsN(s)}">${rs(s)}</td>`;
-        }).join('')}<td></td></tr>
-      </tbody></table></div>`;
-}
-
-function linhaMov(m){
-  const dec = ST.decisoes[`${ST.mes}|${m.chave}`];
-  const classe = dec ? dec.classe : null;
-  const trancado = mesFechado(ST.mes);
-  /* A sugestão vinha como um '(sugerido)' dentro do select — quem fecha o mês
-     tinha de abrir a lista pra descobrir qual era, e então escolher. Como o
-     cálculo acerta a grande maioria, o trabalho real é CONFIRMAR, e é isso que
-     a tela oferece agora: um clique aceita a sugestão, e o select fica ao lado
-     pra quando a sugestão estiver errada. */
-  // em mês fechado a coluna inteira não é desenhada (ver subMovimentacoes)
-  const opcoes = c => CLASSES_MOV.map(x =>
-    `<option value="${x}"${c === x ? ' selected' : ''}>${x}</option>`).join('');
-  const celReg = trancado ? '' : `<td class="l reg-cel">${dec
-    ? `<div class="reg-feito"><span class="reg-ok">✓ ${esc(classe)}</span>
-         <select data-reg="${esc(m.chave)}" title="trocar a classificação">
-           <option value="">trocar…</option>${opcoes(classe)}</select></div>
-       ${dec.autor ? `<span class="autor">${esc(dec.autor)}</span>` : ''}`
-    : `<div class="reg-perg">
-         <button type="button" class="reg-conf" data-conf="${esc(m.chave)}:${esc(m.sugestao)}"
-           title="confirmar que foi isto">Foi <b>${esc(m.sugestao)}</b>? &nbsp;Confirmar</button>
-         <select data-reg="${esc(m.chave)}" title="foi outra coisa">
-           <option value="">foi outra coisa…</option>${opcoes(null)}</select>
-       </div>`}
-    </td>`;
-
-  const oque = [];
-  const canc = (m.log || []).map(x => cancelamento(x.ocorrencia)).find(c => c && c.tipo);
-  if (canc) oque.push(canc.revenda
-    ? '<b>venda cancelada e revendido</b>'
-    : `<b>${canc.tipo} cancelada</b> (cota ${canc.sentido === 'volta' ? 'volta' : 'sai'})`);
-  if (m.renome) oque.push(`renome: <b>${esc(m.renome.de)}</b> → <b>${esc(m.renome.para)}</b>`);
-  if (m.entrou) oque.push('entrou no plantel');
-  if (m.saiu) oque.push('saiu do controle');
-  if (m.mudou_dono) oque.push(`dono: <b>${ATRIB[m.mudou_dono[0]] || '—'}</b> → <b>${ATRIB[m.mudou_dono[1]] || '—'}</b>`);
-  if (m.mudou_status) oque.push(`status: ${esc(m.mudou_status[0])} → ${esc(m.mudou_status[1])}`);
-  if (m.mudou_local) oque.push(`local: ${esc(m.mudou_local[0])} → ${esc(m.mudou_local[1])}`);
-  if (m.cota_ant !== m.cota_atual) oque.push(`cota: ${pct(m.cota_ant)} → ${pct(m.cota_atual)}`);
-  if (m.valor_ant !== m.valor_atual) oque.push(`valor: ${rs(m.valor_ant)} → ${rs(m.valor_atual)}`);
-  for (const l of m.log) oque.push(
-    `<span class="log" title="${esc(l.ocorrencia)}">${dataBR(l.data)} · ${esc(l.ocorrencia)}</span>`);
-  if (m.posterior) oque.push(`<span class="log" title="${esc(m.posterior.map(x => x.ocorrencia).join(' | '))}">`
-    + `⚠ ${m.posterior.length} ocorrência(s) posterior(es) ao mês — mantido o valor do mês anterior</span>`);
-
-  const cels = COLS_MOV.map(([rot, pega, ehNum], i) => {
-    const v = pega(m), t = esc(txtMov(m, i));
-    let txt;
-    if (!ehNum) txt = t === '—' ? '<span class="zero">—</span>' : t;
-    else if (COLS_DELTA.includes(rot)) txt = v ? `<span class="${clsN(v)}">${t}</span>` : '—';
-    else txt = t;
-    // title em TODA célula de texto, não só no nome: valor cortado sem jeito de
-    // ver inteiro é informação escondida
-    const td = `<td class="${ehNum ? '' : 'l'} cort${i === 0 ? ' nome' : ''}"`
-      + ` title="${esc(ehNum ? txtMov(m, i) : String(v == null ? '' : v))}">${txt}</td>`;
-    return i === 0 ? td + celReg : td;
-  }).join('');
-
-  return `<tr class="${dec ? 'reg' : ''}">${cels}<td class="l oque">${oque.join('<br>') || '—'}</td></tr>`;
+    <div class="rolagem fichas">${movs.map(m => fichaMov(m)).join('')}</div>`;
 }
 
 function subConciliacao(){
@@ -1335,7 +1353,7 @@ function subChecks(){
   // sem o mês anterior carregado não há 'inicial': o check acusaria diferença
   // que é só ausência de base
   if (ST.meses[mesAnterior(ST.mes)]) linhas.push(
-    ['Cotas: inicial + movimentações = plantel do haras', cotIni + cotMov, cotFim, 'cota']);
+    ['Cotas (%): inicial + movimentações = plantel do haras', cotIni + cotMov, cotFim, 'cota']);
   // mês fechado nunca passou pelo registro manual: cobrar isso ali é acusar erro
   // onde não há. O par só entra como check no mês aberto.
   if (!mesFechado(ST.mes)) linhas.push(
@@ -1379,8 +1397,7 @@ function subChecks(){
          arredondamento próprio (15.970.552,61 contra 15.970.552,71). Em COTA a
          régua é outra — 0,0001 de cota é 0,01% e já é diferença de verdade. */
       const ok = un === 'cota' ? Math.abs(dif) < 0.0001 : Math.abs(dif) < 1;
-      const f = un === 'cota' ? (v => num(v).toLocaleString('pt-BR', {minimumFractionDigits: 2,
-                                  maximumFractionDigits: 4}) + ' cotas') : rs;
+      const f = un === 'cota' ? pct : rs;
       return `<tr><td class="l">${t}</td><td>${f(a)}</td><td>${f(b)}</td>
         <td class="${ok ? 'pos' : 'neg'}">${f(dif)}</td>
         <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
@@ -1470,6 +1487,8 @@ function liga(){
     const ord = e.target.closest('[data-ord]');
     if (ord) {
       const [qual, ci] = ord.dataset.ord.split(':');
+      // índice vazio = ordem natural da apuração (maior Δ primeiro)
+      if (ci === '') { ST.ordem[qual] = {col: null, dir: 1}; pinta(); return; }
       const i = +ci, atual = ST.ordem[qual];
       ST.ordem[qual] = {col: i, dir: atual.col === i ? -atual.dir : 1};
       pinta(); return;
@@ -1547,7 +1566,9 @@ function liga(){
     }
     const conf = e.target.closest('[data-conf]');
     if (conf) {
-      const [chave, classe] = conf.dataset.conf.split(':');
+      // corta no ULTIMO ':' — nome de animal com dois-pontos partiria a chave
+      const bruto = conf.dataset.conf, corte = bruto.lastIndexOf(':');
+      const chave = bruto.slice(0, corte), classe = bruto.slice(corte + 1);
       const mv = movimentacaoDoMes(ST.mes);
       const mov = mv && mv.movs.find(m => m.chave === chave);
       if (mov) { await registra(ST.mes, mov, classe, ''); pinta(); }
