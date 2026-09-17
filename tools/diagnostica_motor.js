@@ -1,16 +1,22 @@
 /* Para cada animal em que o motor discorda do mapa, mostra TUDO que o motor
-   tinha em mãos: status, cota, valor e o log do mês — ao lado da classe que a
-   Controladoria deu.
+   tinha em mãos — status, cota, valor e o log — ao lado da classe que a
+   Controladoria deu. Serve para derivar regra a partir de evidência.
 
-   O mapa é acumulado no ano, então a classificação DAQUELE mês sai da diferença
-   entre o mapa do mês e o do mês anterior. É isso que permite comparar mês a
-   mês em vez de só no acumulado.
+   ATENÇÃO ao que o mapa é e ao que ele não é:
 
-   Serve para derivar regra a partir de evidência: em vez de perguntar "o que
-   aconteceu com esse animal", a resposta já está no mapa; o que falta é achar o
-   que no arquivo do haras prediz aquela resposta.
+   A aba `Movimentações` é uma planilha VIVA, não um fechamento mensal. O mapa
+   de janeiro já traz PATRONO, MADONA e RAIZ com baixa por venda — vendas
+   datadas de FEVEREIRO no log do haras — e os arquivos de Jan, Fev e Mar têm
+   valores idênticos para esses animais. Cada arquivo mensal é um retrato da
+   mesma planilha; diferenciar um contra o outro para achar "o mês" dá zero.
 
-   Uso: node tools/diagnostica_motor.js [2026-02] [--todos]
+   A atribuição POR MÊS mora só na aba `Resumo Contabil` (colunas Jan..Ago), e é
+   o que tools/confere_resumo.js compara. Aqui a comparação é do ACUMULADO do
+   período: que classe cada animal recebeu no total, contra a que o motor deu
+   somando os meses. É assim que se acha regra errada sem depender de o mapa
+   saber dizer quando.
+
+   Uso: node tools/diagnostica_motor.js [2026-07] [--todos]
 */
 'use strict';
 const fs = require('fs');
@@ -65,11 +71,8 @@ function carrega(mes){
   M.ST.meses[mes] = M.lerArquivo(fs.readFileSync(p), path.basename(p));
 }
 
-/* ---- mapas ---- */
 const MAPA_DIR = 'G:/Drives compartilhados/Luxor Controladoria/Relatórios Gerenciais/'
   + 'RELATORIOS - OPERAÇÃO HARAS E FAZENDA PG/Posição Equinos/PLANTEL - Movimentações/2026';
-const ABR = {'01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr', '05': 'Mai', '06': 'Jun',
-             '07': 'Jul', '08': 'Ago'};
 const COLUNA_CLASSE = {
   'COMPRAS': 'compra',
   'EMBRIOES CONFIRMADOS ACIMA DE 60 DIAS': 'embriao',
@@ -77,12 +80,13 @@ const COLUNA_CLASSE = {
   'BAIXAS POR MORTE/DOACAO': 'morte_doacao',
   'REAVALIACAO': 'reavaliacao',
 };
-const cacheMapa = {};
-function leMapa(mes){
-  if (cacheMapa[mes]) return cacheMapa[mes];
+
+function mapaAcumulado(){
+  // o mapa mais novo é o retrato mais completo da planilha viva
   const arq = fs.readdirSync(MAPA_DIR)
-    .find(f => f.includes(`(${ABR[mes.slice(5)]} ${mes.slice(0, 4)})`) && !f.startsWith('~$'));
-  if (!arq) return (cacheMapa[mes] = {});
+    .filter(f => f.startsWith('Plantel Haras Pao Grande') && !f.startsWith('~$'))
+    .sort((a, b) => fs.statSync(path.join(MAPA_DIR, b)).mtimeMs
+                  - fs.statSync(path.join(MAPA_DIR, a)).mtimeMs)[0];
   const wb = XLSX.read(fs.readFileSync(path.join(MAPA_DIR, arq)), {cellDates: true});
   const nome = wb.SheetNames.find(n => norm(n).startsWith('MOVIMENTA'));
   const linhas = XLSX.utils.sheet_to_json(wb.Sheets[nome], {header: 1, defval: null, raw: true});
@@ -104,67 +108,58 @@ function leMapa(mes){
       if (isFinite(v) && v) out[k][cls] = (out[k][cls] || 0) + v;
     }
   }
-  return (cacheMapa[mes] = out);
-}
-
-/* classificação DAQUELE mês = acumulado do mês menos o do mês anterior */
-function mapaDoMes(mes){
-  const hoje = leMapa(mes);
-  const ant = mes === '2026-01' ? {} : leMapa(M.mesAnterior(mes));
-  const out = {};
-  for (const k of new Set([...Object.keys(hoje), ...Object.keys(ant)])) {
-    const a = ant[k] || {}, b = hoje[k] || {};
-    for (const c of Object.values(COLUNA_CLASSE)) {
-      const d = (b[c] || 0) - (a[c] || 0);
-      if (Math.abs(d) >= 1) (out[k] = out[k] || {})[c] = d;
-    }
-  }
-  return out;
+  return {arq, animais: out};
 }
 
 const rs = v => (v < 0 ? '-' : '') + 'R$ ' + Math.abs(Math.round(v)).toLocaleString('pt-BR');
-const fmtCls = o => Object.entries(o).map(([c, v]) => `${c} ${rs(v)}`).join(' · ') || '—';
+const fmtCls = o => Object.entries(o).filter(([, v]) => Math.abs(v) >= 1)
+  .map(([c, v]) => `${c} ${rs(v)}`).join(' · ') || '—';
 
-const MESES = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'];
-const alvoMes = process.argv.find(a => /^\d{4}-\d{2}$/.test(a));
+const ate = process.argv.find(a => /^\d{4}-\d{2}$/.test(a)) || '2026-07';
 const todos = process.argv.includes('--todos');
 
-for (const mes of (alvoMes ? [alvoMes] : MESES)) {
+/* nosso acumulado de jan até `ate`, por animal, guardando o contexto do mês em
+   que cada pedaço aconteceu */
+const nossos = {};
+for (let n = 1; n <= Number(ate.slice(5)); n++) {
+  const mes = `${ate.slice(0, 4)}-${String(n).padStart(2, '0')}`;
   carrega(mes); carrega(M.mesAnterior(mes));
   M.ST.mes = mes;
-  const nossos = {};
   for (const mo of M.movimentacaoDoMes(mes).movs) {
     if (!mo.delta_carla) continue;
     const c = (mo.sugestao === 'morte' || mo.sugestao === 'doacao') ? 'morte_doacao'
             : (mo.sugestao || '(sem sugestao)');
     const k = chaveNome(mo.nome);
-    nossos[k] = nossos[k] || {classes: {}, mo};
+    nossos[k] = nossos[k] || {classes: {}, ctx: []};
     nossos[k].classes[c] = (nossos[k].classes[c] || 0) + mo.delta_carla;
+    nossos[k].ctx.push({mes, mo});
   }
-  const doMapa = mapaDoMes(mes);
-  const chaves = [...new Set([...Object.keys(doMapa), ...Object.keys(nossos)])];
-  const difs = [];
-  for (const k of chaves) {
-    const a = doMapa[k] || {}, b = (nossos[k] || {}).classes || {};
-    const classes = new Set([...Object.keys(a), ...Object.keys(b)]);
-    let igual = true;
-    for (const c of classes) if (Math.abs((a[c] || 0) - (b[c] || 0)) >= 1) igual = false;
-    if (!igual) difs.push([k, a, b, (nossos[k] || {}).mo]);
+}
+
+const mapa = mapaAcumulado();
+console.log('mapa:', mapa.arq);
+const chaves = [...new Set([...Object.keys(mapa.animais), ...Object.keys(nossos)])];
+const difs = [];
+for (const k of chaves) {
+  const a = mapa.animais[k] || {}, b = (nossos[k] || {}).classes || {};
+  const classes = new Set([...Object.keys(a), ...Object.keys(b)]);
+  let igual = true;
+  for (const c of classes) if (Math.abs((a[c] || 0) - (b[c] || 0)) >= 1) igual = false;
+  if (!igual) difs.push([k, a, b, (nossos[k] || {}).ctx || []]);
+}
+console.log(`\njan..${ate} — ${chaves.length - difs.length} animais batendo · ${difs.length} divergentes\n`);
+difs.sort((x, y) => Math.max(...Object.values(y[1]).map(Math.abs), 0)
+                  - Math.max(...Object.values(x[1]).map(Math.abs), 0));
+for (const [k, a, b, ctx] of difs.slice(0, todos ? 999 : 12)) {
+  console.log(`\n  ${k}`);
+  console.log(`     mapa : ${fmtCls(a)}`);
+  console.log(`     motor: ${fmtCls(b)}`);
+  for (const {mes, mo} of ctx) {
+    console.log(`     ${mes}: ${mo.sugestao || '(sem sugestao)'} ${rs(mo.delta_carla)}`
+      + ` | status ${mo.mudou_status ? mo.mudou_status.join('->') : (mo.status || '')}`
+      + ` | cota ${mo.cota_ant}->${mo.cota_atual} | valor ${mo.valor_ant}->${mo.valor_atual}`
+      + `${mo.entrou ? ' | ENTROU' : ''}${mo.saiu ? ' | SAIU' : ''}`);
+    for (const l of (mo.log || [])) console.log(`          log: ${String(l.ocorrencia).slice(0, 112)}`);
   }
-  console.log(`\n${'='.repeat(78)}\n${mes} — ${chaves.length - difs.length} batendo · ${difs.length} divergentes`);
-  difs.sort((x, y) => Math.max(...Object.values(y[1]).map(Math.abs), 0)
-                    - Math.max(...Object.values(x[1]).map(Math.abs), 0));
-  for (const [k, a, b, mo] of difs.slice(0, todos ? 999 : 8)) {
-    console.log(`\n  ${k}`);
-    console.log(`     mapa : ${fmtCls(a)}`);
-    console.log(`     motor: ${fmtCls(b)}`);
-    if (mo) {
-      console.log(`     dados: status ${mo.mudou_status ? mo.mudou_status.join(' -> ') : (mo.status || '')}`
-        + ` | cota ${mo.cota_ant} -> ${mo.cota_atual} | valor ${mo.valor_ant} -> ${mo.valor_atual}`
-        + `${mo.entrou ? ' | ENTROU' : ''}${mo.saiu ? ' | SAIU' : ''}`);
-      for (const l of (mo.log || [])) console.log(`     log  : ${String(l.ocorrencia).slice(0, 118)}`);
-    } else {
-      console.log('     dados: (o motor não viu movimento neste animal)');
-    }
-  }
+  if (!ctx.length) console.log('     (o motor não viu movimento nenhum neste animal)');
 }
