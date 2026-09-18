@@ -2577,12 +2577,21 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         linha = descartadas.get(nome)
         if not linha or linha.get("motivo") != "status fora do plantel":
             continue      # sumiço sem causa na planilha continua virando aviso
+        # Quem já estava FORA da propriedade não saiu nesta semana: a saída física
+        # aconteceu antes e o que mudou agora foi só o status. A MELISSA DA PAO GRANDE
+        # estava no sócio desde antes de as saídas passarem a ser registradas assim, e
+        # virou 'VENDIDO E ENTREGUE' em 18/09/2026 — o relatório do haras faz a mesma
+        # distinção: Δ '-01' (ela sai da CONTAGEM) e 'Saídas na semana: 02', sem ela.
+        na_propriedade = _norm(antes.get(nome)) in LOCAIS_NA_PROPRIEDADE
         novas.append({
             "animal": _s(linha.get("nome")),
             "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
             "de": _s(antes.get(nome)), "para": _s(linha.get("local")), "fonte": "roster",
+            # sai da contagem nos dois casos — é o Δ que muda
             "afeta_headcount": True,
-            "obs": OBS_SEM_LANCAMENTO,
+            "saida_da_semana": na_propriedade,
+            "obs": OBS_SEM_LANCAMENTO if na_propriedade else
+                   "baixa de status; a saída física é anterior a esta semana",
         })
     if novas:
         print(f"  [saídas] {len(novas)} saída(s) vistas só pelo roster — a aba "
@@ -2641,7 +2650,9 @@ def _compute_movimento(rep: Report):
         # mostra. Elas entram marcadas com a origem, e a falta do lançamento vira
         # aviso em vez de sumir.
         sai = sai + _saidas_por_mudanca_de_local(rep, sai)
-        rep.saidas["saidas_semana"] = len(sai)
+        # `saida_da_semana=False` é baixa de status de quem já tinha saído: conta no Δ
+        # (deixa a contagem) e fica fora da lista de saídas da semana.
+        rep.saidas["saidas_semana"] = sum(1 for x in sai if x.get("saida_da_semana", True))
         rep.saidas["entradas_semana"] = len(ent)
         rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
         # O Δ do headcount só pode ser conferido contra quem entra/sai da CONTAGEM:
