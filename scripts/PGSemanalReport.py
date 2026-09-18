@@ -792,6 +792,11 @@ def build_producao(rep: Report, ini: date, fim: date):
     embrioes_proxima = [e for e in embrioes if e["safra"] == SAFRA_PROXIMA]
     embrioes = [e for e in embrioes if e["safra"] == SAFRA_ATUAL]
 
+    _EMBRIAO_POR_RECEP.clear()
+    for e in embrioes:
+        if e.get("receptora"):
+            _EMBRIAO_POR_RECEP[_chave_recep(e["receptora"])] = e
+
     def _in_week(iso):
         return bool(iso and ini <= date.fromisoformat(iso) <= fim)
 
@@ -2603,6 +2608,12 @@ def _compute_movimento(rep: Report):
     _conferir_delta(rep)
 
 
+# receptora -> a LINHA do embrião na aba ESTAÇÃO, confirmada ou não. A prenhez que
+# aparece só na planilha de receptoras tem linha aqui (faltou o diagnóstico, não a
+# linha), e é daqui que saem doadora × garanhão, cota, sócio e IA para ela ser
+# publicada no MESMO formato das outras — ver _confirmados_por_receptora.
+_EMBRIAO_POR_RECEP: dict = {}
+
 # receptora -> "50% FULANO", montado em build_producao a partir da ESTACAO DE MONTA
 _SOCIO_POR_RECEP: dict = {}
 # receptora -> "50% FULANO" pela coluna NOME SOCIO do roster mensal (fonte primária:
@@ -3152,13 +3163,8 @@ def _confirmados_por_receptora(rep: Report) -> list:
             if st_antes is None or _chave_recep(animal) in reg:
                 continue
             if _norm(info.get("status")).startswith("PRENHA") and not st_antes.startswith("PRENHA"):
-                reg[_chave_recep(animal)] = {
-                    "receptora": animal, "embriao": info.get("embriao"),
-                    "local": info.get("local"), "semana": rep.semana_atual,
-                    "safra": SAFRA_ATUAL, "origem": "receptoras",
-                    "obs": "prenhez na planilha de receptoras, sem diagnóstico "
-                           "lançado na estação de monta",
-                }
+                reg[_chave_recep(animal)] = {"semana": rep.semana_atual,
+                                             "safra": SAFRA_ATUAL}
         CONFIRMADOS_EXTRA.parent.mkdir(parents=True, exist_ok=True)
         CONFIRMADOS_EXTRA.write_text(json.dumps(reg, ensure_ascii=False, indent=2),
                                      encoding="utf-8")
@@ -3167,19 +3173,37 @@ def _confirmados_por_receptora(rep: Report) -> list:
     # só é "nova" na semana em que aparece, e o acumulado da safra não pode cair na
     # semana seguinte por ela ter deixado de ser novidade.
     na_estacao = {_chave_recep(e.get("receptora")) for e in rep.confirmed}
-    fora = {k: v for k, v in reg.items()
-            if v.get("safra") == SAFRA_ATUAL and k not in na_estacao}
-    desta = [v for k, v in fora.items() if v["semana"] == rep.semana_atual]
+    out, sem_linha = [], []
+    for k, v in sorted(reg.items()):
+        if v.get("safra") != SAFRA_ATUAL or k in na_estacao:
+            continue
+        linha = _EMBRIAO_POR_RECEP.get(k)
+        if not linha:
+            # Sem linha na ESTAÇÃO não há doadora nem garanhão para publicar. Vai com
+            # a receptora e um aviso, em vez de entrar mudo no card.
+            sem_linha.append(k)
+            out.append({"doadora": None, "garanhao": None, "receptora": k,
+                        "semana": v["semana"]})
+            continue
+        # MESMOS campos das outras confirmações — doadora × garanhão × receptora é o
+        # que o haras publica e o que a tabela do dashboard já sabe renderizar. A
+        # marca de origem fica no log e no registro em disco, não vira coluna nova.
+        out.append(dict(linha, confirmado=True, semana=v["semana"]))
+    desta = [c for c in out if c["semana"] == rep.semana_atual]
     if desta:
         print(f"  [confirmados] {len(desta)} confirmação(ões) vistas só pela planilha "
               f"de receptoras — a estação de monta não tem o 60D lançado:")
         for n in desta:
-            print(f"    - receptora {n['receptora']} ({n['local']})")
+            print(f"    - {n.get('doadora') or '?'} x {n.get('garanhao') or '?'} "
+                  f"(recep {n.get('receptora')})")
+    if sem_linha:
+        print(f"  [confirmados] {len(sem_linha)} receptora(s) prenhas sem linha na aba "
+              f"ESTAÇÃO — sai sem doadora/garanhão: " + ", ".join(sem_linha))
     ja_na_estacao = [k for k in reg if k in na_estacao and reg[k].get("safra") == SAFRA_ATUAL]
     if ja_na_estacao:
         print(f"  [confirmados] {len(ja_na_estacao)} já lançada(s) na estação de monta, "
               f"contadas por lá: " + ", ".join(sorted(ja_na_estacao)))
-    return sorted(fora.values(), key=lambda v: (v["semana"], v["receptora"]))
+    return sorted(out, key=lambda v: (v["semana"], str(v.get("receptora"))))
 
 
 def _compute_confirmados_diff(rep: Report):
