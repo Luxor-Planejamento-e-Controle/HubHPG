@@ -679,20 +679,37 @@ def _mortes_do_plantel(ini: date, fim: date) -> list:
 
 
 def _acumulado_planejamento(wb) -> int:
-    """Total da estação de monta = soma de 'TOTAL EMBRIÕES' (REAL, idx8) da aba
-    PLANEJAMENTO, linhas de doadora (col0 numérica). NÃO é mais o acumulado
-    publicado — é referência de conferência: a estação só registra o que passou
-    pela FPG, então fica abaixo do oficial."""
+    """Total da estação de monta = soma de 'TOTAL EMBRIÕES' REAL da aba PLANEJAMENTO,
+    linhas de doadora (col0 numérica). É referência de conferência do acumulado.
+
+    A coluna é achada pelo par de cabeçalhos — linha 2 diz PLAN/REAL e linha 3 diz o
+    nome — e não por índice fixo. Estava travada em idx8, que na planilha da safra
+    26/27 é o PLAN de 'VENDIDOS A ENTREGAR': somava 10 (2+1+0,5+1,5+2+0,5+0,5+2, as
+    metas de venda) e o fechamento passava semanas acusando 'acumulado 1 vs 10 na
+    estação de monta' como se a fonte divergisse. O REAL de TOTAL EMBRIÕES é 1 —
+    igual ao nosso acumulado e ao que o haras publica."""
     if "PLANEJAMENTO" not in wb.sheetnames:
         return 0
     ws = wb["PLANEJAMENTO"]
+    linhas = list(ws.iter_rows(values_only=True))
+    col = None
+    if len(linhas) >= 3:
+        planreal, nomes = linhas[1], linhas[2]
+        for i, nome in enumerate(nomes):
+            if _norm(nome).startswith("TOTAL EMBRI") and _norm(planreal[i]) == "REAL":
+                col = i
+                break
+    if col is None:
+        print("  [acumulado] coluna 'TOTAL EMBRIÕES (REAL)' não encontrada na aba "
+              "PLANEJAMENTO — conferência da estação de monta fica de fora")
+        return 0
     total = 0.0
-    for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+    for i, row in enumerate(linhas, start=1):
         if i < 4 or row[0] is None:
             continue
         if not str(row[0]).strip().isdigit():
             continue
-        v = _to_num(row[8])
+        v = _to_num(row[col])
         if v:
             total += v
     return int(round(total))
