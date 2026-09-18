@@ -2577,6 +2577,16 @@ def _refina_afeta_headcount(rep: Report):
 OBS_SEM_LANCAMENTO = "não consta o movimento da aba SAIDAS-ENTRADAS"
 
 
+def _data_na_janela(rep: Report, linha: dict) -> str | None:
+    """Data de condição do roster, só se ela for desta semana.
+
+    As colunas de condição guardam o evento anterior do animal — 'SAIU DO HARAS' de
+    2024, 'ENTREGAR' combinado em agosto — e nenhuma delas é a data da saída que o
+    fechamento está publicando. Fora da janela, vazio."""
+    d = linha.get("condicao_final_data") or linha.get("condicao_data")
+    return d if (d and rep.semana_inicio <= d <= rep.semana_fim) else None
+
+
 def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
     """Saída que o ROSTER mostra e a aba SAIDAS-ENTRADAS não registrou.
 
@@ -2605,10 +2615,7 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
             # só quando cai dentro da janela: o 'ENTREGAR 07/08/2026' dela é a data em
             # que a entrega foi combinada, não a da saída.
             lanc = _LANCAMENTOS_SAIDA.get(nome) or {}
-            data = lanc.get("data")
-            if not data:
-                d = linha.get("condicao_final_data") or linha.get("condicao_data")
-                data = d if (d and rep.semana_inicio <= d <= rep.semana_fim) else None
+            data = lanc.get("data") or _data_na_janela(rep, linha)
             novas.append({
                 "animal": _s(linha.get("nome")),
                 "classificacao": _s(lanc.get("classificacao")) or "SAIDA-SOCIO",
@@ -2642,10 +2649,13 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         novas.append({
             "animal": _s(linha.get("nome")),
             "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
-            # DATA: lançamento da aba, senão a coluna de condição do roster — a MELISSA
-            # saiu em 17/11/2024 ('SAIU DO HARAS') e a linha ia sem data no painel.
+            # DATA: só o lançamento da aba, ou a condição do roster quando ela cai
+            # DENTRO da janela. A coluna de condição da MELISSA diz 'SAIU DO HARAS
+            # 17/11/2024', que é quando ela foi pro sócio — outro evento. O que a tirou
+            # do PLANTEL foi a entrega, agora, e essa data não está lançada: melhor
+            # vazio, com o aviso pedindo o lançamento, do que uma data de 2024.
             "data": ((_LANCAMENTOS_SAIDA.get(nome) or {}).get("data")
-                     or linha.get("condicao_data") or linha.get("condicao_final_data")),
+                     or _data_na_janela(rep, linha)),
             "de": _s(antes.get(nome)),
             "para": _s(linha.get("local_final")) or _s(linha.get("local")),
             "fonte": "roster",
@@ -2661,9 +2671,11 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
                       f"(muda de bucket, segue contado)")
             elif n.get("saida_da_semana", True):
                 print(f"    - {n['animal']}: {n['classificacao']} (sai da contagem)")
-            else:
-                print(f"    - {n['animal']}: {n['classificacao']} (sai da contagem; "
-                      f"já estava em {n['de']}, fora das saídas da semana)")
+        sem_data = [n["animal"] for n in novas if not n.get("data")]
+        if sem_data:
+            print(f"  [saídas] {len(sem_data)} sem DATA de saída — a aba não tem a "
+                  f"linha e a condição do roster é de outro evento; pedir o "
+                  f"lançamento: " + "; ".join(sem_data))
     return novas
 
 
