@@ -1754,7 +1754,11 @@ def _status_plantel_mensal() -> dict:
                               "status_plantel": _s(r[L["status"]]),
                               "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
         obs = _norm(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else ""
-        if STATUS_SOCIEDADE_PENDENTE in obs:
+        # Mesma regra dos vendidos: pendente de saída é quem ainda está aqui. A
+        # GABRIELA ELFAR e o ORFEU MH2 seguem marcados na OBS, mas o LOCAL já é SOCIO
+        # — são justamente as duas saídas desta semana. Contá-los punha 3 animais onde
+        # o haras publica 01 (a LIBRA DA PAO GRANDE, essa sim ainda na fazenda).
+        if STATUS_SOCIEDADE_PENDENTE in obs and _norm(local) in LOCAIS_NA_PROPRIEDADE:
             soc_pend.append({"nome": nome, "local": local, "categoria": categoria,
                              "obs": _s(r[COL_MENSAL_OBS]),
                              "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
