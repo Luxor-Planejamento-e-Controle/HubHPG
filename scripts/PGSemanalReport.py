@@ -2620,9 +2620,13 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
                 "animal": _s(linha.get("nome")),
                 "classificacao": _s(lanc.get("classificacao")) or "SAIDA-SOCIO",
                 "data": data,
-                "de": _s(lanc.get("local_saida")) or _s(origem),
-                "para": (_s(lanc.get("local_entrada")) or _s(linha.get("local_final"))
-                         or _s(local)),
+                # MESMOS campos do lançamento da aba (local_saida/local_entrada): a
+                # tabela monta as colunas pelo formato de quem veio da aba, e `de`/
+                # `para` não apareciam — a linha da GABRIELA ELFAR saía com os dois
+                # locais em branco mesmo tendo origem e destino conhecidos.
+                "local_saida": _s(lanc.get("local_saida")) or _s(origem),
+                "local_entrada": (_s(lanc.get("local_entrada"))
+                                  or _s(linha.get("local_final")) or _s(local)),
                 "fonte": "roster",
                 # continua na contagem: mudou de bucket, não saiu do headcount
                 "afeta_headcount": False,
