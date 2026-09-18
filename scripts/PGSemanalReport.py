@@ -1942,6 +1942,12 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
     if novos:
         print(f"  [embriões] {len(novos)} venda(s) da semana contada(s) como pendente "
               f"mesmo sem 'Pronto - Aguardando Entrega': " + "; ".join(novos))
+    if mantidos:
+        print(f"  [embriões] {len(mantidos)} venda(s) de semana anterior ainda "
+              f"pendente(s) de entrega: " + "; ".join(mantidos))
+    VENDIDOS_EMB_EXTRA.parent.mkdir(parents=True, exist_ok=True)
+    VENDIDOS_EMB_EXTRA.write_text(json.dumps(reg, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
     wb.close()
     return out
 
