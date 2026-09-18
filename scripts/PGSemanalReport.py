@@ -2599,18 +2599,23 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         if not origem or nome in lancados:
             continue
         if origem in LOCAIS_NA_PROPRIEDADE and local == "SOCIO":
-            # A data vem da coluna de condição, mas só vale se cair DENTRO da janela:
-            # a GABRIELA ELFAR tem 'ENTREGAR 07/08/2026' registrado, que é quando a
-            # entrega foi combinada, não quando ela mudou de local. Publicar 07/08
-            # numa saída da semana de 11 a 18/09 seria pior que deixar vazio.
-            data = linha.get("condicao_final_data") or linha.get("condicao_data")
-            if not (data and rep.semana_inicio <= data <= rep.semana_fim):
-                data = None
+            # DATA: primeiro o lançamento da aba, mesmo fora da janela — a GABRIELA
+            # ELFAR está lá com 17/08/2026 (PAO GRANDE -> HARAS RESSACA) e só mudou de
+            # LOCAL nesta semana. A coluna de condição do roster é o segundo recurso, e
+            # só quando cai dentro da janela: o 'ENTREGAR 07/08/2026' dela é a data em
+            # que a entrega foi combinada, não a da saída.
+            lanc = _LANCAMENTOS_SAIDA.get(nome) or {}
+            data = lanc.get("data")
+            if not data:
+                d = linha.get("condicao_final_data") or linha.get("condicao_data")
+                data = d if (d and rep.semana_inicio <= d <= rep.semana_fim) else None
             novas.append({
-                "animal": _s(linha.get("nome")), "classificacao": "SAIDA-SOCIO",
+                "animal": _s(linha.get("nome")),
+                "classificacao": _s(lanc.get("classificacao")) or "SAIDA-SOCIO",
                 "data": data,
-                "de": _s(origem),
-                "para": _s(linha.get("local_final")) or _s(local),
+                "de": _s(lanc.get("local_saida")) or _s(origem),
+                "para": (_s(lanc.get("local_entrada")) or _s(linha.get("local_final"))
+                         or _s(local)),
                 "fonte": "roster",
                 # continua na contagem: mudou de bucket, não saiu do headcount
                 "afeta_headcount": False,
@@ -2637,9 +2642,10 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         novas.append({
             "animal": _s(linha.get("nome")),
             "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
-            # DATA da saída pela coluna de condição do roster: a MELISSA saiu em
-            # 17/11/2024 e a linha aparecia sem data nenhuma no painel.
-            "data": linha.get("condicao_data") or linha.get("condicao_final_data"),
+            # DATA: lançamento da aba, senão a coluna de condição do roster — a MELISSA
+            # saiu em 17/11/2024 ('SAIU DO HARAS') e a linha ia sem data no painel.
+            "data": ((_LANCAMENTOS_SAIDA.get(nome) or {}).get("data")
+                     or linha.get("condicao_data") or linha.get("condicao_final_data")),
             "de": _s(antes.get(nome)),
             "para": _s(linha.get("local_final")) or _s(linha.get("local")),
             "fonte": "roster",
