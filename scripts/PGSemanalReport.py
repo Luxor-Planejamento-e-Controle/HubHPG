@@ -3109,6 +3109,20 @@ def _novos_confirmados(cur: dict, prev_keys) -> list:
     return novos
 
 
+CONFIRMADOS_EXTRA = BASE_DIR / "_cache" / "confirmados_extra.json"
+
+
+def _chave_recep(nome) -> str:
+    """Número da receptora como as duas planilhas o escrevem.
+
+    A de receptoras batiza ('511 (ERA 207 SABE)', '07 ALAZA', '526 (CASTANHA
+    ANDRADE)') e a ESTAÇÃO guarda só o número ('511', '7', '526'). Sem isto a mesma
+    prenhez entra como duas — uma pela receptora, outra pela estação — e o acumulado
+    conta em dobro assim que o haras lança o diagnóstico."""
+    token = _norm(nome).split()[0] if _norm(nome) else ""
+    return token.lstrip("0") or token
+
+
 def _confirmados_por_receptora(rep: Report) -> list:
     """Confirmação que a PLANILHA DE RECEPTORAS mostra e a ESTAÇÃO ainda não tem.
 
