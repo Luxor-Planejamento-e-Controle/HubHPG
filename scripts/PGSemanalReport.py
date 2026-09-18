@@ -2605,7 +2605,12 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         novas.append({
             "animal": _s(linha.get("nome")),
             "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
-            "de": _s(antes.get(nome)), "para": _s(linha.get("local")), "fonte": "roster",
+            # DATA da saída pela coluna de condição do roster: a MELISSA saiu em
+            # 17/11/2024 e a linha aparecia sem data nenhuma no painel.
+            "data": linha.get("condicao_data") or linha.get("condicao_final_data"),
+            "de": _s(antes.get(nome)),
+            "para": _s(linha.get("local_final")) or _s(linha.get("local")),
+            "fonte": "roster",
             # sai da contagem nos dois casos — é o Δ que muda
             "afeta_headcount": True,
             "saida_da_semana": na_propriedade,
