@@ -1859,9 +1859,15 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
     venda dentro da janela — sem ele, ou a linha nova some (foi o caso do NATUREZA
     DA PAO GRANDE x LEGITIMO ELFAR, vendido em 07/09/2026) ou entrariam as 25
     linhas 'A fazer' da planilha inteira, vendas de 2022 a 2025."""
+    reg = {}
+    if VENDIDOS_EMB_EXTRA.exists():
+        try:
+            reg = json.loads(VENDIDOS_EMB_EXTRA.read_text(encoding="utf-8"))
+        except Exception:
+            reg = {}
     wb = _load(EMB_COMERCIAIS)
     ws = wb["ENTREGAR"]
-    out, cols, ficam, novos = [], None, [], []
+    out, cols, ficam, novos, mantidos = [], None, [], [], []
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i == 3:
             cols = {n: _col_idx(r, n) for n in
