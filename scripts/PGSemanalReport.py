@@ -1928,7 +1928,11 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
             # Aguardando Entrega') e o NATUREZA x LEGITIMO (cota 50%, vendido em
             # 07/09). Cota parcial só manda para SOCIEDADE quando a venda é antiga
             # — aí o que sobrou é a sociedade, não o movimento da semana.
-            "tipo": "SOCIEDADE" if (parcial and not venda_na_semana) else "VENDA",
+            # `se_mantem` entra junto com `venda_na_semana`: o que nasceu VENDA não
+            # vira sociedade só por a semana da venda ter passado. O NATUREZA (cota
+            # 50%, vendido 07/09/2026) é venda pendente enquanto não for entregue.
+            "tipo": ("SOCIEDADE" if (parcial and not venda_na_semana and not se_mantem)
+                     else "VENDA"),
             "obs": _s(r[cols["Status embrião"]]), "reposicao": False,
             "especie": "EMBRIAO",
         })
