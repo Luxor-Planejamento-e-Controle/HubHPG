@@ -2938,6 +2938,14 @@ def _conferir_delta(rep: Report):
             rep.headcount["delta_entradas"] = nasc
             rep.headcount["delta_saidas"] = len(saiu_com_lancamento)
 
+        # Quem entrou no roster por ter nascido: produto pelo nome, ou nome batizado
+        # que está na lista de nascimentos da semana. É o que explica a variação do
+        # total sem ser entrada física (ver o aviso do Δ, no fim desta função).
+        nomes_nasc = {_norm(n.get("produto"))
+                      for n in (rep.detalhe.get("nascimentos_semana") or [])}
+        rep.headcount["delta_nascimentos"] = len(
+            [n for n in entraram if RE_PRODUTO.search(_norm(n)) or _norm(n) in nomes_nasc])
+
         sem_causa_saida = sorted(sairam - saiu_com_lancamento)
         sem_causa_entrada = sorted(
             n for n in entraram if not RE_PRODUTO.search(_norm(n)))
@@ -2953,10 +2961,20 @@ def _conferir_delta(rep: Report):
     delta = rep.headcount.get("delta")
     if None in (ent, sai) or delta is None:
         return
-    if ent - sai != delta:
+    # Nascimento move o TOTAL sem ser entrada. O potro já era do plantel como embrião
+    # confirmado (regra do Arthur, 18/09/2026): ele não chega de fora, só deixa de ser
+    # embrião e passa a contar como animal. Por isso ele não entra em `entradas` — mas
+    # a variação do total tem de ser lida com ele dentro, senão toda semana com
+    # parição acusa movimentação fantasma. Em 17/09/2026 o aviso saiu com +2 de
+    # headcount contra +0/-0 de movimento, e as duas contas estavam certas: os dois
+    # potros das recep 453 e 440.
+    nascidos = (rep.headcount.get("delta_nascimentos")
+                or rep.saidas.get("entradas_nascimento") or 0)
+    if ent + nascidos - sai != delta:
+        extra = f" + {nascidos} nascimento(s)" if nascidos else ""
         print(f"  [Δ] headcount variou {delta:+d} mas o diff da população dá "
-              f"+{ent}/-{sai} (líquido {ent - sai:+d}) — conferir: uma das duas "
-              f"fontes não registrou alguma movimentação")
+              f"+{ent}/-{sai}{extra} (líquido {ent + nascidos - sai:+d}) — conferir: "
+              f"uma das duas fontes não registrou alguma movimentação")
 
 
 def _chave_estavel(k: str) -> str:
