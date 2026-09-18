@@ -180,9 +180,18 @@ def _coerencia_interna(rep, dx):
     if sp:
         soma = sum(v for v in sp.values() if isinstance(v, int))
         ac = rep.producao.get("acumulado_estacao")
-        if ac and soma != ac:
-            print(f"    !  split PG/sócio/vendido soma {soma} e o acumulado é {ac} "
-                  f"— fatia de {ac - soma} parição(ões) não foi recuperada")
+        # A confirmação que veio da planilha de receptoras entra no acumulado sem
+        # fatia: a cota vive na aba ESTAÇÃO e nela essas linhas ainda estão sem
+        # diagnóstico. Descontar evita acusar "fatia não recuperada" toda semana por
+        # algo que só o lançamento do 60D resolve.
+        por_recep = rep.producao.get("acumulado_estacao_por_receptora") or 0
+        if por_recep:
+            print(f"    -  {por_recep} confirmação(ões) no acumulado ainda sem fatia: "
+                  f"vieram da planilha de receptoras, a cota só existe na ESTAÇÃO")
+        if ac and soma != ac - por_recep:
+            print(f"    !  split PG/sócio/vendido soma {soma} e o acumulado é "
+                  f"{ac - por_recep} — fatia de {ac - por_recep - soma} parição(ões) "
+                  f"não foi recuperada")
 
 
 def main():
