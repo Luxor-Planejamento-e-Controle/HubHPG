@@ -2677,13 +2677,15 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
             if n["afeta_headcount"]:
                 print(f"    - {n['animal']}: {n['classificacao']} (sai da contagem)")
             else:
-                print(f"    - {n['animal']}: {n['de']} -> {n['para']} "
-                      f"(muda de bucket, segue contado)")
-        sem_data = [n["animal"] for n in novas if not n.get("data")]
+                print(f"    - {n['animal']}: {n['local_saida']} -> "
+                      f"{n['local_entrada']} (muda de bucket, segue contado)")
+        # data do fechamento = não havia data na fonte; a real ainda tem de ser lançada
+        sem_data = [n["animal"] for n in novas if n.get("data") == rep.semana_fim
+                    and _norm(n["animal"]) not in _LANCAMENTOS_SAIDA]
         if sem_data:
-            print(f"  [saídas] {len(sem_data)} sem DATA de saída — a aba não tem a "
-                  f"linha e a condição do roster é de outro evento; pedir o "
-                  f"lançamento: " + "; ".join(sem_data))
+            print(f"  [saídas] {len(sem_data)} sem DATA na fonte — publicada a data do "
+                  f"fechamento; pedir o lançamento na aba SAIDAS-ENTRADAS: "
+                  + "; ".join(sem_data))
     return novas
 
 
