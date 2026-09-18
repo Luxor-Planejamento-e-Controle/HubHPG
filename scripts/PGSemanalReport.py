@@ -1672,9 +1672,18 @@ def _plantel_por_status(src: Path | None = None, quando: date | None = None) -> 
         # apareceria como saída de uma semana e entrada na outra ao mudar de sócio
         limpo = _sem_cotista(nome)
         vistos[chave] = limpo
+        _dcond = _dt(r[COL_MENSAL_COND_DATA]) if len(r) > COL_MENSAL_COND_DATA else None
+        _dfim = (_dt(r[COL_MENSAL_COND_FINAL_DATA])
+                 if len(r) > COL_MENSAL_COND_FINAL_DATA else None)
         linhas.append({"nome": limpo, "categoria": _s(r[L["categoria"]]),
                        "status_plantel": _s(r[L["status"]]), "local": _s(r[L["local"]]),
-                       "mae": mae, "pai": pai})
+                       "mae": mae, "pai": pai,
+                       # movimento (ver _saidas_por_mudanca_de_local): data e destino
+                       # de quem mudou de lugar sem passar pela aba SAIDAS-ENTRADAS
+                       "condicao_data": _dcond.isoformat() if _dcond else None,
+                       "condicao_final_data": _dfim.isoformat() if _dfim else None,
+                       "local_final": (_s(r[COL_MENSAL_LOCAL_FINAL])
+                                       if len(r) > COL_MENSAL_LOCAL_FINAL else None)})
     wb.close()
     if fora.get("na_mao"):
         print(f"  [marretada] {fora['na_mao']} linha(s) fora da contagem por override "
@@ -2578,7 +2587,11 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         if origem in LOCAIS_NA_PROPRIEDADE and local == "SOCIO":
             novas.append({
                 "animal": _s(linha.get("nome")), "classificacao": "SAIDA-SOCIO",
-                "de": _s(origem), "para": _s(local), "fonte": "roster",
+                # a data vem da coluna de condição; sem ela a linha ia vazia no painel
+                "data": linha.get("condicao_final_data") or linha.get("condicao_data"),
+                "de": _s(origem),
+                "para": _s(linha.get("local_final")) or _s(local),
+                "fonte": "roster",
                 # continua na contagem: mudou de bucket, não saiu do headcount
                 "afeta_headcount": False,
                 "obs": OBS_SEM_LANCAMENTO,
