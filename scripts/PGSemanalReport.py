@@ -2615,12 +2615,11 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         linha = descartadas.get(nome)
         if not linha or linha.get("motivo") != "status fora do plantel":
             continue      # sumiço sem causa na planilha continua virando aviso
-        # Quem já estava FORA da propriedade não saiu nesta semana: a saída física
-        # aconteceu antes e o que mudou agora foi só o status. A MELISSA DA PAO GRANDE
-        # estava no sócio desde antes de as saídas passarem a ser registradas assim, e
-        # virou 'VENDIDO E ENTREGUE' em 18/09/2026 — o relatório do haras faz a mesma
-        # distinção: Δ '-01' (ela sai da CONTAGEM) e 'Saídas na semana: 02', sem ela.
-        na_propriedade = _norm(antes.get(nome)) in LOCAIS_NA_PROPRIEDADE
+        # SAI DO PLANTEL, LOGO É SAÍDA (regra do Arthur, 18/09/2026). A MELISSA DA PAO
+        # GRANDE já estava no sócio antes da venda — a mudança de LOCAL foi antes de as
+        # saídas serem registradas assim —, então o movimento que interessa é este: ela
+        # deixou a contagem agora. Cheguei a tirá-la da lista por estar fora da
+        # propriedade e isso é o contrário do que a regra diz.
         novas.append({
             "animal": _s(linha.get("nome")),
             "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
@@ -3516,13 +3515,7 @@ def _snap_from_rep(rep: Report) -> dict:
             "confirmados": rep.detalhe.get("confirmados_semana"),
             "nascimentos": rep.detalhe.get("nascimentos_semana"),
             "abortos_obitos": rep.detalhe.get("abortos_obitos_semana"),
-            # A tabela do painel tem de listar o que o CARD conta: baixa de status de
-            # quem já tinha saído entra no Δ, não nas saídas da semana, e aparecia na
-            # lista fazendo o título dizer 3 com o card em 2 (MELISSA, 18/09/2026).
-            # A linha não se perde — segue em `saidas_diff` para o diff do roster e no
-            # aviso da rodada.
-            "saidas": [x for x in (rep.detalhe.get("saidas_diff") or [])
-                       if x.get("saida_da_semana", True)],
+            "saidas": rep.detalhe.get("saidas_diff"),
             "entradas": rep.detalhe.get("entradas_diff"),
             # cancelamento que o cadastro do haras não acompanhou: fica de fora do
             # headcount e não aparecia em relatório nenhum (ver _cancelamentos_pendentes)
