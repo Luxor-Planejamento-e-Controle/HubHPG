@@ -1423,8 +1423,28 @@ STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"      # rótulo, para mensagem
 # PROSPERO DA PAO GRANDE estava como 'VENDIDO PENDENDE DE SAIDA' (typo) e ficava
 # fora da lista de vendidos pendentes, mesmo já contando no headcount pelo
 # prefixo. Mesma tolerância nos dois lugares — ver PREFIXO_VENDIDO_PENDENTE.
-def _e_vendido_pendente(status_plantel) -> bool:
-    return PREFIXO_VENDIDO_PENDENTE in _norm(status_plantel)
+def _e_vendido_pendente(status_plantel, local=None) -> bool:
+    """Venda fechada e o animal AINDA NA PROPRIEDADE — fazenda ou arrendamento.
+
+    Duas correções de 18/09/2026, conferidas contra o relatório do haras ("05 animais"):
+    1. `VENDIDO` puro também conta. Exigir a palavra PENDENTE deixava de fora a ELEITA
+       DA PAO GRANDE e o PRADO DA PAO GRANDE (o potro incluído na venda dela), os dois
+       vendidos, cota zero e parados no Arrendamento Cesar Furtado. 'VENDIDO E
+       ENTREGUE' continua fora: entregue não é pendente.
+    2. Quem já está em SOCIO saiu — a pendência acabou. Era o caso da MELISSA DA PAO
+       GRANDE ('VENDIDO PENDENTE DE SAIDA', LOCAL=SOCIO, condição SAIU DO HARAS) e da
+       CANCAO DA ILHA. Contá-las dava 4 animais onde o haras publica 5, com nomes
+       diferentes dos dele nos dois lados.
+
+    Sem `local` a checagem de lugar não se aplica (chamadas antigas que só olham o
+    status)."""
+    st = _norm(status_plantel)
+    if "ENTREGUE" in st:
+        return False
+    pendente = PREFIXO_VENDIDO_PENDENTE in st or st.startswith("VENDIDO")
+    if not pendente:
+        return False
+    return local is None or _norm(local) in LOCAIS_NA_PROPRIEDADE
 
 STATUS_TERCEIRO = "TERCEIRO"
 # Sociedade pendente de animal: até 28/08/2026 não tinha marca nenhuma (comentário
