@@ -1889,10 +1889,24 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
         if ini and fim and cols.get("Data venda") is not None:
             dv = _dt(r[cols["Data venda"]])
             venda_na_semana = bool(dv and ini <= dv <= fim)
-        if EMB_STATUS_PENDENTE not in status and not sem_status and not venda_na_semana:
+        # Já registrado como pendente numa semana anterior continua pendente até a
+        # entrega — é o que faz a venda sobreviver à semana em que foi lançada.
+        chave_reg = _norm(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}')
+        terminal = any(t in status for t in EMB_STATUS_TERMINAL)
+        se_mantem = chave_reg in reg and not terminal
+        if se_mantem:
+            mantidos.append(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}'
+                            f' [{_s(r[cols["Status embrião"]]) or "sem status"}]')
+        if chave_reg in reg and terminal:
+            reg.pop(chave_reg, None)
+        if (EMB_STATUS_PENDENTE not in status and not sem_status
+                and not venda_na_semana and not se_mantem):
             if status.startswith("PRONTO"):
                 ficam.append(f'{_s(r[cols["ID Embrião"]])} ({_s(r[cols["Status embrião"]])})')
             continue
+        if not terminal:
+            reg.setdefault(chave_reg, {"comprador": _s(r[cols["Comprador"]]),
+                                       "data_venda": _s(r[cols["Data venda"]])})
         if sem_status or venda_na_semana:
             novos.append(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}'
                          + (f' [{_s(r[cols["Status embrião"]])}]' if status else ' [sem status]'))
