@@ -2241,11 +2241,14 @@ def build_report(ini: date, fim: date) -> Report:
     _paricoes_do_roster(rep)                      # potro no roster sem parição na ESTAÇÃO
     _registra_caminhos(rep)                       # pasta de cada fonte, p/ auditoria
     _aplica_manual(rep)                           # campos sem fonte de planilha
+    # ANTES do piso: o acumulado da safra soma as confirmações que só a planilha de
+    # receptoras tem, e o piso precisa gravar o número já com elas — senão a semana
+    # seguinte publica o valor sem esse pedaço.
+    _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
     _acumulado_nunca_cai(rep)                     # agregador da safra, nao cai
     # UMA vez, no fim: chamado no meio do caminho ele via as entradas ainda sem os
     # nascimentos e acusava movimentacao fantasma que se resolvia duas linhas depois
     _conferir_delta(rep)
-    _compute_confirmados_diff(rep)                # confirmados na semana = diff de confirmados (forward)
     _avisar_pasta_de_saida()
     _avisar_fontes_velhas(ini, fim)                # BLOQUEIA se a fonte for velha
     _arquivar_linhas(rep)                         # historico linha a linha
