@@ -1424,27 +1424,16 @@ STATUS_VENDIDO_PENDENTE = "VENDIDO PENDENTE"      # rótulo, para mensagem
 # fora da lista de vendidos pendentes, mesmo já contando no headcount pelo
 # prefixo. Mesma tolerância nos dois lugares — ver PREFIXO_VENDIDO_PENDENTE.
 def _e_vendido_pendente(status_plantel, local=None) -> bool:
-    """Venda fechada e o animal AINDA NA PROPRIEDADE — fazenda ou arrendamento.
+    """Venda fechada e o animal ainda não entregue ao comprador.
 
-    Duas correções de 18/09/2026, conferidas contra o relatório do haras ("05 animais"):
-    1. `VENDIDO` puro também conta. Exigir a palavra PENDENTE deixava de fora a ELEITA
-       DA PAO GRANDE e o PRADO DA PAO GRANDE (o potro incluído na venda dela), os dois
-       vendidos, cota zero e parados no Arrendamento Cesar Furtado. 'VENDIDO E
-       ENTREGUE' continua fora: entregue não é pendente.
-    2. Quem já está em SOCIO saiu — a pendência acabou. Era o caso da MELISSA DA PAO
-       GRANDE ('VENDIDO PENDENTE DE SAIDA', LOCAL=SOCIO, condição SAIU DO HARAS) e da
-       CANCAO DA ILHA. Contá-las dava 4 animais onde o haras publica 5, com nomes
-       diferentes dos dele nos dois lados.
+    NÃO filtra por LOCAL, ao contrário da sociedade pendente: para a VENDA o destino
+    é o comprador, e estar em SOCIO não quer dizer entregue — a MELISSA DA PAO GRANDE
+    está lá e o haras a conta entre os 05 animais. Para a SOCIEDADE é o oposto: ir
+    para SOCIO É a saída (ver a marca de OBS em _status_plantel_mensal).
 
-    Sem `local` a checagem de lugar não se aplica (chamadas antigas que só olham o
-    status)."""
-    st = _norm(status_plantel)
-    if "ENTREGUE" in st:
-        return False
-    pendente = PREFIXO_VENDIDO_PENDENTE in st or st.startswith("VENDIDO")
-    if not pendente:
-        return False
-    return local is None or _norm(local) in LOCAIS_NA_PROPRIEDADE
+    `local` fica no parâmetro porque quem chama já o tem em mãos e a assimetria acima
+    é fácil de esquecer — documentada aqui em vez de virar filtro escondido."""
+    return PREFIXO_VENDIDO_PENDENTE in _norm(status_plantel)
 
 STATUS_TERCEIRO = "TERCEIRO"
 # Sociedade pendente de animal: até 28/08/2026 não tinha marca nenhuma (comentário
@@ -1725,6 +1714,11 @@ def _status_plantel_mensal() -> dict:
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
     vendidos_pend, terceiros, soc_pend, marcado = [], [], [], False
+    # A égua vendida em cotas tem UMA linha por cotista — PEDRITA DA PAO GRANDE
+    # aparece como (CARLA) e (EDUARDO), e as duas estão 'VENDIDO PENDENTE DE SAIDA'
+    # na fazenda. É um animal só: contar as duas dava 6 onde o haras publica 05.
+    # Mesma deduplicação que o roster já faz em _plantel_por_status.
+    vend_vistos = set()
     # NOME SOCIO / COTAS (%) ficam fora do layout mínimo porque só este trecho usa.
     # Indexado pela receptora do fim do nome: é o que o roster semanal e o mensal
     # têm em comum (o mensal escreve a data no meio e acentua o garanhão).
@@ -1741,9 +1735,10 @@ def _status_plantel_mensal() -> dict:
         soc = _limpa_socio(r[COL_MENSAL_NOME_SOCIO]) if len(r) > COL_MENSAL_NOME_SOCIO else None
         if m_rec and soc:
             socio_por_recep[m_rec.group(1)] = soc
-        if _e_vendido_pendente(status_plantel, local):
+        if _e_vendido_pendente(status_plantel, local) and _sem_cotista(nome) not in vend_vistos:
             marcado = True
-            vendidos_pend.append({"nome": nome, "local": local, "cota": None,
+            vend_vistos.add(_sem_cotista(nome))
+            vendidos_pend.append({"nome": _sem_cotista(nome), "local": local, "cota": None,
                                   "comprador": None, "tipo": "VENDA",
                                   "obs": _s(r[L["status"]]), "reposicao": False,
                                   "categoria": categoria,
