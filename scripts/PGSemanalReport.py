@@ -3262,6 +3262,17 @@ def _confirmados_por_receptora(rep: Report) -> list:
     return sorted(out, key=lambda v: (v["semana"], str(v.get("receptora"))))
 
 
+# Colunas que saem da TABELA de confirmados (só dela — em pendentes, por exemplo,
+# `categoria` distingue potro de doadora e fica). A seção já diz que é embrião, da
+# safra corrente e da semana do fechamento: repetir isso em três colunas empurrava
+# doadora e garanhão, que é o que o haras publica, para o fim da linha.
+CONFIRMADO_COLS_FORA = ("categoria", "safra", "semana")
+
+
+def _confirmado_publicavel(e: dict) -> dict:
+    return {k: v for k, v in e.items() if k not in CONFIRMADO_COLS_FORA}
+
+
 def _compute_confirmados_diff(rep: Report):
     """Confirmados na semana = embriões que viraram +/-=OK vs o snapshot anterior
     (novos no conjunto de confirmados). Forward: precisa de 2 semanas capturadas."""
@@ -3297,7 +3308,8 @@ def _compute_confirmados_diff(rep: Report):
         por_recep = _confirmados_por_receptora(rep)
         desta_semana = [c for c in por_recep if c["semana"] == rep.semana_atual]
         rep.producao["confirmados_semana"] = len(novos) + len(desta_semana)
-        rep.detalhe["confirmados_semana"] = novos + desta_semana
+        rep.detalhe["confirmados_semana"] = [_confirmado_publicavel(e)
+                                             for e in novos + desta_semana]
         # ACUMULADO DA ESTAÇÃO conta confirmado, venha de onde vier (regra do Arthur,
         # 18/09/2026: "5 na semana, 5 no mês e 6 confirmados na estação"). O 6º é a
         # recep 7, que já está na aba ESTAÇÃO; as outras 5 só existem como PRENHA na
