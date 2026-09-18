@@ -15,6 +15,7 @@ const ICON = {
   semanal:'M3 5h18v16H3zM3 9h18M8 3v4M16 3v4M8 14h3M8 17h6',
   comite:'M4 20V10M10 20V4M16 20v-7M22 20H2',
   plantel:'M4 20V8l8-5 8 5v12M9 20v-6h6v6',
+  gastos:'M3 3v18h18M7 15l4-5 4 3 5-7',
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
@@ -26,6 +27,8 @@ const ROUTES = [
   {id:'plantel', nav:'Plantel / Movimentação',
    title:'Plantel Haras Pao Grande - Movimentação Jan a Dez 2026', sub:'', icon:'plantel',
    render:renderPlantel},
+  {id:'gastos', title:'Gastos', sub:'Orçado × realizado por natureza — Haras Pao Grande',
+   icon:'gastos', render:renderGastos},
 ];
 function allowed(){
   const ok=(window.HUB&&window.HUB.dashboards)||[];
@@ -122,6 +125,29 @@ function renderSemanal(el){
   }
   const f=document.createElement('iframe');
   f.className='embed auto-h'; f.title='Atualização Semanal';
+  f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
+  f.srcdoc=html;
+  el.appendChild(f);
+}
+
+/* ---- Gastos ----
+   Mesmo embed da Atualização Semanal: HTML autocontido, `srcdoc` e altura
+   acompanhando o conteúdo. O painel já vem com a marca e o título internos
+   escondidos pelo empacotador — a topbar daqui é quem identifica a aba.
+
+   Sem o HTML do bucket não há fallback local: diferente do semanal, este painel
+   não tem cópia em assets/, porque quem o gera é a rotina do Function App. */
+function renderGastos(el){
+  el.classList.add('flush');
+  const html=window.HUB&&window.HUB.gastosHtml;
+  if(!html){
+    el.innerHTML='<div class="empty"><div class="big">◔</div><div>Painel ainda não '
+      + 'publicado.<br>A rotina <code>publicar_gastos_haras</code> sobe o arquivo toda '
+      + 'segunda.</div></div>';
+    return;
+  }
+  const f=document.createElement('iframe');
+  f.className='embed auto-h'; f.title='Gastos';
   f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
   f.srcdoc=html;
   el.appendChild(f);

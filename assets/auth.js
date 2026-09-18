@@ -27,6 +27,10 @@ const HUB_DATASETS = {
   semanal: { file:'semanal.html', html:'semanalHtml' },
   comite:  { file:'comite.json',  json:'comiteSpec'  },
   plantel: { file:'plantel.json', json:'plantelMov'  },
+  /* HTML autocontido, como o semanal. Quem publica é a rotina
+     `publicar_gastos_haras` do Function App, que lê a planilha do Drive — não
+     sai deste repo (ver o comentário no tools/publish_hub.py). */
+  gastos:  { file:'gastos.html',  html:'gastosHtml'   },
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)
