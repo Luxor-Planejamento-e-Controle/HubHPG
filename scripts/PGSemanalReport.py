@@ -2658,10 +2658,14 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
             # 17/11/2024', que é quando ela foi pro sócio — outro evento. O que a tirou
             # do PLANTEL foi a entrega, agora, e essa data não está lançada: melhor
             # vazio, com o aviso pedindo o lançamento, do que uma data de 2024.
+            # Sem lançamento e sem condição desta semana, a data é a do FECHAMENTO: foi
+            # nesta semana que o animal deixou o plantel, é o que se sabe. A MELISSA DA
+            # PAO GRANDE entra assim, com a saída de hoje, e o aviso segue pedindo o
+            # lançamento na aba para a data real substituir esta.
             "data": ((_LANCAMENTOS_SAIDA.get(nome) or {}).get("data")
-                     or _data_na_janela(rep, linha)),
-            "de": _s(antes.get(nome)),
-            "para": _s(linha.get("local_final")) or _s(linha.get("local")),
+                     or _data_na_janela(rep, linha) or rep.semana_fim),
+            "local_saida": _s(antes.get(nome)),
+            "local_entrada": _s(linha.get("local_final")) or _s(linha.get("local")),
             "fonte": "roster",
             "afeta_headcount": True,
             "obs": OBS_SEM_LANCAMENTO,
