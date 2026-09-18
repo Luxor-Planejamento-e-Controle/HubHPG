@@ -1840,6 +1840,15 @@ def _embrioes_pendentes_estacao() -> list:
 # Os demais estados — A FAZER, ENTREGUE, NASCIDO, CANCELADO, REPOSIÇÃO — já ficavam
 # de fora. A aba EMBRIOES VENDIDOS do "Animais para sair" está vazia e não é usada.
 EMB_STATUS_PENDENTE = "AGUARDANDO ENTREGA"
+# Registro de embrião que JÁ entrou como venda pendente. A venda é lançada numa
+# semana e a entrega demora: o corte por data da venda (que existe para não arrastar
+# as ~25 linhas 'A fazer' de 2022-2025) tirava o embrião do card na semana seguinte.
+# Em 18/09/2026 foi o NATUREZA DA PAO GRANDE x LEGITIMO ELFAR DA MONTE BRANCO,
+# vendido em 07/09 e publicado no fechamento de 10/09, que sumiu sozinho. Pendência é
+# ESTADO: uma vez dentro, fica até o status virar terminal.
+VENDIDOS_EMB_EXTRA = BASE_DIR / "_cache" / "vendidos_embrioes_extra.json"
+# Status que encerram a pendência — entregue, nascido, cancelado ou virou reposição.
+EMB_STATUS_TERMINAL = ("ENTREGUE", "NASCIDO", "CANCELADO", "REPOSICAO")
 
 
 def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> list:
