@@ -3098,6 +3098,41 @@ def _novos_confirmados(cur: dict, prev_keys) -> list:
     return novos
 
 
+def _confirmados_por_receptora(rep: Report) -> list:
+    """Confirmação que a PLANILHA DE RECEPTORAS mostra e a ESTAÇÃO ainda não tem.
+
+    Mesmo padrão do fallback de saídas: o haras faz o diagnóstico, marca a receptora
+    como PRENHA e só depois lança a série 15D/30D/45D/60D na estação de monta. Em
+    18/09/2026 o quadro da sala listava 6 confirmados, as linhas existiam na ESTAÇÃO
+    (recep 7, 526, 77, 362, 511, 517) e só a recep 7 tinha diagnóstico — as outras 5
+    apareciam apenas como PRENHA na planilha de receptoras, e o card publicava 0.
+
+    Receptora que passa a PRENHA no diff da semana conta como confirmação, marcada
+    com a origem para a falta do lançamento continuar visível."""
+    ant = _arquivo_anterior(rep.semana_atual).get("receptoras") or []
+    if not ant:
+        return []
+    antes = {_norm(l.get("animal")): _norm(l.get("status")) for l in ant}
+    novos = []
+    for animal, info in sorted(_receptoras_info().items()):
+        st_antes = antes.get(animal)
+        if st_antes is None:
+            continue
+        if _norm(info.get("status")).startswith("PRENHA") and not st_antes.startswith("PRENHA"):
+            novos.append({"receptora": animal, "embriao": info.get("embriao"),
+                          "local": info.get("local"), "origem": "receptoras",
+                          "obs": "prenhez na planilha de receptoras, sem diagnóstico "
+                                 "lançado na estação de monta"})
+    if novos:
+        print(f"  [confirmados] {len(novos)} confirmação(ões) vistas só pela planilha "
+              f"de receptoras — a estação de monta não tem o 60D lançado:")
+        for n in novos:
+            print(f"    - receptora {n['receptora']} ({n['local']})")
+        print("    o acumulado da estação NÃO sobe por estas: ele sai da aba ESTAÇÃO, "
+              "e lá elas ainda não estão confirmadas.")
+    return novos
+
+
 def _compute_confirmados_diff(rep: Report):
     """Confirmados na semana = embriões que viraram +/-=OK vs o snapshot anterior
     (novos no conjunto de confirmados). Forward: precisa de 2 semanas capturadas."""
@@ -3128,8 +3163,13 @@ def _compute_confirmados_diff(rep: Report):
                   f"fora da contagem (provável erro de digitação na fonte): " +
                   "; ".join(f"{e['doadora']} x {e['garanhao']} (IA {e['data_ia']})"
                             for e in suspeitos))
-        rep.producao["confirmados_semana"] = len(novos)
-        rep.detalhe["confirmados_semana"] = novos
+        # Confirmação que só a planilha de receptoras tem entra aqui, sem duplicar o
+        # que a ESTAÇÃO já entregou (casa pela receptora).
+        por_recep = _confirmados_por_receptora(rep)
+        ja_na_estacao = {_norm(e.get("receptora")) for e in novos}
+        por_recep = [c for c in por_recep if _norm(c["receptora"]) not in ja_na_estacao]
+        rep.producao["confirmados_semana"] = len(novos) + len(por_recep)
+        rep.detalhe["confirmados_semana"] = novos + por_recep
     else:
         # BOOTSTRAP: 1ª captura → semeia do relatório oficial
         dx = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("producao", {})
