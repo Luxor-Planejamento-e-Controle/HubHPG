@@ -2597,11 +2597,14 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         print(f"  [saídas] {len(novas)} saída(s) vistas só pelo roster — a aba "
               f"SAIDAS-ENTRADAS não foi preenchida para elas:")
         for n in novas:
-            if n["afeta_headcount"]:
-                print(f"    - {n['animal']}: {n['classificacao']} (sai da contagem)")
-            else:
+            if not n["afeta_headcount"]:
                 print(f"    - {n['animal']}: {n['de']} -> {n['para']} "
                       f"(muda de bucket, segue contado)")
+            elif n.get("saida_da_semana", True):
+                print(f"    - {n['animal']}: {n['classificacao']} (sai da contagem)")
+            else:
+                print(f"    - {n['animal']}: {n['classificacao']} (sai da contagem; "
+                      f"já estava em {n['de']}, fora das saídas da semana)")
     return novas
 
 
