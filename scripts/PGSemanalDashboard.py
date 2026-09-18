@@ -361,13 +361,11 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)",
   mae:"Mãe",pai:"Pai",afeta_headcount:"Conta no Δ",cancelado_em:"Cancelado em",
   contraparte:"Contraparte",condicao:"Condição atual"};
-// `afeta_headcount` DEIXOU de ser interno: sem ela a tabela diz 'SAIDA-SOCIO'
-// para casos que se comportam ao contrário. Receptora que vai pro sócio SAI da
-// contagem (só conta em Pao Grande/Arrendamento), enquanto animal que vai pro
-// sócio troca de bucket e continua contado — e a classificação é a mesma nos
-// dois. A coluna resolve isso sem nota explicativa no painel.
+// `afeta_headcount` volta a ser interno (18/09/2026): a coluna 'Conta no Δ' era
+// detalhe de cálculo no meio da lista de saídas. Quem precisa da abertura tem o Δ
+// do headcount, que já publica entradas e saídas efetivas.
 const HIDE=new Set(["key","confirmado","reposicao","origem","especie","chave",
-  "era_receptora_contada","trocou_de_bucket"]);   // internos, não exibir
+  "afeta_headcount","era_receptora_contada","trocou_de_bucket"]);   // internos, não exibir
 const DATECOLS=new Set(["data","data_ia","data_confirmacao","data_paricao","data_aborto","data_obito"]);
 const PCTCOLS=new Set(["cota","cotas_pg"]);
 function lab(c){ return LABELS[c] || c.replace(/_/g," "); }
