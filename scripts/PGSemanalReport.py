@@ -3020,7 +3020,18 @@ def _conferir_delta(rep: Report):
             # só do PLANTEL, então perde receptora (a 397 foi pro sócio e saiu da
             # conta) e conta como entrada apenas nascimento (o NASDAQ, ENTRADA-SOCIO,
             # ficava de fora). Deu +0/-5 numa semana de +1/-6.
-            rep.headcount["delta_entradas"] = rep.saidas.get("entradas_no_headcount") or 0
+            # NASCIMENTO ENTRA NO Δ. O '+' do relatório é a abertura de ANIMAIS, e o
+            # potro é animal novo na conta: 17/07 (+01, 1 nascimento), 24/07 (+01, 1),
+            # 21/08 (+02, 2) e 18/09/2026 (+02, 2) — quatro semanas, mesma regra.
+            # Havia aqui o oposto, tirado de 28/08/2026, onde o relatório publicou
+            # '+00' — mas naquela semana ele também publicou nascimentos '--', isto é,
+            # não reconheceu as duas parições que só o roster tinha. A exceção era o
+            # relatório omitindo o nascimento, não o nascimento ficando fora do Δ.
+            # Isso NÃO faz do nascimento uma entrada física: ele continua fora de
+            # `entradas_semana` (o animal não chegou de lugar nenhum), só aparece na
+            # abertura do Δ, que é o que o haras publica.
+            nasc = rep.producao.get("nascimentos") or 0
+            rep.headcount["delta_entradas"] = (rep.saidas.get("entradas_no_headcount") or 0) + nasc
             rep.headcount["delta_saidas"] = rep.saidas.get("saidas_no_headcount") or 0
         else:
             rep.headcount["delta_entradas"] = nasc
