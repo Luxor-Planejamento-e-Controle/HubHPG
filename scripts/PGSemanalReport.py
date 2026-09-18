@@ -2463,12 +2463,6 @@ def _refina_afeta_headcount(rep: Report):
         1 for x in (rep.detalhe.get("entradas_diff") or []) if x.get("afeta_headcount"))
 
 
-# LOCAL que significa "o animal está na propriedade". Sair de um deles para SOCIO é
-# saída física — o animal deixa a fazenda, mas segue contado (o bucket SOCIO entra no
-# headcount), que é por que o relatório publica a saída e mantém o Δ em zero.
-LOCAIS_NA_PROPRIEDADE = ("FAZENDA PAO GRANDE", "ARRENDAMENTO CESAR FURTADO")
-
-
 def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
     """Saída que o ROSTER mostra e a aba SAIDAS-ENTRADAS não registrou.
 
