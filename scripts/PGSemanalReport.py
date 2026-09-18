@@ -745,9 +745,16 @@ def build_producao(rep: Report, ini: date, fim: date):
             continue
         ia = _dt(r[7])
         te = _dt(r[9])
-        # confirmação oficial = coluna +/- (idx17) == 'OK' (validado: os embriões
-        # confirmados no docx têm +/-='OK', 60D às vezes nem marcado). Conta = PLANEJAMENTO.
-        confirmado = _norm(r[17]) == "OK"
+        # CONFIRMAÇÃO É A PARTIR DOS 60 DIAS (regra do Arthur, 18/09/2026). A aba tem
+        # a série de diagnósticos — 15D, 30D, 45D, 60D (idx 12..15) — e a coluna
+        # consolidada '+ / -' (idx17). Só o consolidado era lido, e isso perde o
+        # embrião cujo exame de 60 dias já saiu positivo e o '+ / -' ainda não foi
+        # fechado: ele ficava fora do card na semana em que de fato confirmou.
+        # 'NAO OK' no consolidado é baixa posterior (perda depois dos 60 dias) e
+        # manda, mesmo com 60D positivo — são as 3 linhas da safra 25/26 nessa
+        # situação, que não podem voltar para a conta.
+        consolidado = _norm(r[17])
+        confirmado = consolidado == "OK" or (_s(r[15]) == "+" and consolidado != "NAO OK")
         # QUANDO ele conta como confirmado: no primeiro diagnóstico positivo, que é
         # o exame de 15 dias contado da TE/coleta. Era IA + 60 dias, e isso jogava
         # o embrião dois meses pra frente: em 04/09/2026 o JAVA DA PAO GRANDE x
