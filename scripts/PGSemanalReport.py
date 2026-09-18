@@ -1721,7 +1721,7 @@ def _status_plantel_mensal() -> dict:
         soc = _limpa_socio(r[COL_MENSAL_NOME_SOCIO]) if len(r) > COL_MENSAL_NOME_SOCIO else None
         if m_rec and soc:
             socio_por_recep[m_rec.group(1)] = soc
-        if _e_vendido_pendente(status_plantel):
+        if _e_vendido_pendente(status_plantel, local):
             marcado = True
             vendidos_pend.append({"nome": nome, "local": local, "cota": None,
                                   "comprador": None, "tipo": "VENDA",
