@@ -3212,10 +3212,18 @@ def _compute_confirmados_diff(rep: Report):
         # Confirmação que só a planilha de receptoras tem entra aqui, sem duplicar o
         # que a ESTAÇÃO já entregou (casa pela receptora).
         por_recep = _confirmados_por_receptora(rep)
-        ja_na_estacao = {_norm(e.get("receptora")) for e in novos}
-        por_recep = [c for c in por_recep if _norm(c["receptora"]) not in ja_na_estacao]
-        rep.producao["confirmados_semana"] = len(novos) + len(por_recep)
-        rep.detalhe["confirmados_semana"] = novos + por_recep
+        desta_semana = [c for c in por_recep if c["semana"] == rep.semana_atual]
+        rep.producao["confirmados_semana"] = len(novos) + len(desta_semana)
+        rep.detalhe["confirmados_semana"] = novos + desta_semana
+        # ACUMULADO DA ESTAÇÃO conta confirmado, venha de onde vier (regra do Arthur,
+        # 18/09/2026: "5 na semana, 5 no mês e 6 confirmados na estação"). O 6º é a
+        # recep 7, que já está na aba ESTAÇÃO; as outras 5 só existem como PRENHA na
+        # planilha de receptoras e somam aqui até o 60D ser lançado — quando for, elas
+        # saem deste bloco e entram pela estação, sem trocar o total.
+        if por_recep:
+            rep.producao["acumulado_estacao"] = (
+                rep.producao.get("acumulado_estacao") or 0) + len(por_recep)
+            rep.producao["acumulado_estacao_por_receptora"] = len(por_recep)
     else:
         # BOOTSTRAP: 1ª captura → semeia do relatório oficial
         dx = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("producao", {})
