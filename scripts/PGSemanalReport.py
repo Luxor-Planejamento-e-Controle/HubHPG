@@ -2436,6 +2436,49 @@ def _refina_afeta_headcount(rep: Report):
         1 for x in (rep.detalhe.get("entradas_diff") or []) if x.get("afeta_headcount"))
 
 
+# LOCAL que significa "o animal está na propriedade". Sair de um deles para SOCIO é
+# saída física — o animal deixa a fazenda, mas segue contado (o bucket SOCIO entra no
+# headcount), que é por que o relatório publica a saída e mantém o Δ em zero.
+LOCAIS_NA_PROPRIEDADE = ("FAZENDA PAO GRANDE", "ARRENDAMENTO CESAR FURTADO")
+
+
+def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
+    """Saída que o ROSTER mostra e a aba SAIDAS-ENTRADAS não registrou.
+
+    Compara o LOCAL de cada animal com o do arquivo de linhas da semana anterior.
+    Sair da propriedade para SOCIO é saída; o resto não entra aqui — transferência
+    entre FAZENDA e ARRENDAMENTO é interna, e doação para MATO GROSSO não é saída
+    (31/08/2026: 14 doações, ninguém mudou de lugar).
+
+    Só complementa: quem já tem lançamento na aba fica com o lançamento, para o mesmo
+    animal não ser contado duas vezes."""
+    ant = _arquivo_anterior(rep.semana_atual).get("roster") or []
+    if not ant:
+        return []
+    antes = {_norm(l.get("nome")): _norm(l.get("local")) for l in ant}
+    lancados = {_norm(e.get("animal")) for e in ja_lancadas}
+    novas = []
+    for linha in _LINHAS_BRUTAS.get("roster") or []:
+        nome, local = _norm(linha.get("nome")), _norm(linha.get("local"))
+        origem = antes.get(nome)
+        if not origem or nome in lancados:
+            continue
+        if origem in LOCAIS_NA_PROPRIEDADE and local == "SOCIO":
+            novas.append({
+                "animal": _s(linha.get("nome")), "classificacao": "SAIDA-SOCIO",
+                "de": _s(origem), "para": _s(local), "fonte": "roster",
+                # continua na contagem: mudou de bucket, não saiu do headcount
+                "afeta_headcount": False,
+                "obs": "mudança de local no roster, sem lançamento na aba SAIDAS-ENTRADAS",
+            })
+    if novas:
+        print(f"  [saídas] {len(novas)} saída(s) vistas só pela mudança de LOCAL no "
+              f"roster — a aba SAIDAS-ENTRADAS não foi preenchida para elas:")
+        for n in novas:
+            print(f"    - {n['animal']}: {n['de']} -> {n['para']}")
+    return novas
+
+
 def _compute_movimento(rep: Report):
     """Saídas/entradas na semana.
 
@@ -2473,6 +2516,14 @@ def _compute_movimento(rep: Report):
         # zerou a cota, e 8 deles seguem com LOCAL='SOCIO', contados no headcount
         # (ver STATUS_NO_PLANTEL). Contar como saída punha 15 saídas na semana onde
         # a fonte oficial registra 7.
+        # FALLBACK: saída que o ROSTER mostra e a aba não registrou. O relatório de
+        # 18/09/2026 publica 'Saídas na semana: 02' — GABRIELA ELFAR e ORFEU MH2 DA
+        # PAO GRANDE, os dois pro sócio — e a aba SAIDAS-ENTRADAS não tem nenhuma das
+        # duas linhas; o roster tem, as duas trocaram FAZENDA PAO GRANDE por SOCIO.
+        # Ficar em 0 porque ninguém preencheu a aba é perder movimentação que a fonte
+        # mostra. Elas entram marcadas com a origem, e a falta do lançamento vira
+        # aviso em vez de sumir.
+        sai = sai + _saidas_por_mudanca_de_local(rep, sai)
         rep.saidas["saidas_semana"] = len(sai)
         rep.saidas["entradas_semana"] = len(ent)
         rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
