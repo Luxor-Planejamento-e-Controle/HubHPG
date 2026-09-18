@@ -3510,7 +3510,13 @@ def _snap_from_rep(rep: Report) -> dict:
             "confirmados": rep.detalhe.get("confirmados_semana"),
             "nascimentos": rep.detalhe.get("nascimentos_semana"),
             "abortos_obitos": rep.detalhe.get("abortos_obitos_semana"),
-            "saidas": rep.detalhe.get("saidas_diff"),
+            # A tabela do painel tem de listar o que o CARD conta: baixa de status de
+            # quem já tinha saído entra no Δ, não nas saídas da semana, e aparecia na
+            # lista fazendo o título dizer 3 com o card em 2 (MELISSA, 18/09/2026).
+            # A linha não se perde — segue em `saidas_diff` para o diff do roster e no
+            # aviso da rodada.
+            "saidas": [x for x in (rep.detalhe.get("saidas_diff") or [])
+                       if x.get("saida_da_semana", True)],
             "entradas": rep.detalhe.get("entradas_diff"),
             # cancelamento que o cadastro do haras não acompanhou: fica de fora do
             # headcount e não aparecia em relatório nenhum (ver _cancelamentos_pendentes)
