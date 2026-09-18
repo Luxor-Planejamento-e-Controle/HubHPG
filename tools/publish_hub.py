@@ -49,6 +49,20 @@ DATASETS = {
     # A auditoria cita animal e comprador — mesma regra dos outros: bucket privado.
     "auditoria": (ROOT / "dashboards/auditoria_semanal.html", "auditoria.html",
                   "text/html; charset=utf-8"),
+    # 'gastos' NÃO entra aqui, de propósito.
+    #
+    # O painel de Gastos do Haras é publicado pela rotina `publicar_gastos_haras` do
+    # Function App, que lê a planilha do Drive e sobe o HTML direto para este mesmo
+    # bucket como `gastos.html`. O arquivo não nasce neste repo.
+    #
+    # Registrar mesmo assim seria armadilha: `--all` percorre todo o DATASETS, e
+    # `sobe()` devolve False para arquivo ausente, o que vira `sys.exit("Falha ao
+    # publicar")`. O dataset ficaria quebrando o publish de todo mundo para nunca
+    # poder ser publicado daqui.
+    #
+    # Para republicar à mão, invoque a função no Azure. O acesso segue o mesmo
+    # porteiro: a policy usa hub_can(split_part(name,'.',1)), então 'gastos.html'
+    # casa com hub_can('gastos'), que está no CHECK do hub_schema.sql.
 }
 # Memória do pipeline: vários arquivos sob o mesmo prefixo.
 ESTADO = [
