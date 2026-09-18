@@ -1973,6 +1973,9 @@ def build_pendentes(rep: Report):
     plantel = _plantel_por_status()
     rep.roster = plantel["roster"]
     _LINHAS_BRUTAS["roster"] = plantel["linhas"]
+    # as descartadas vêm junto: é nelas que está a CAUSA de quem sumiu do roster
+    # (ver _saidas_por_mudanca_de_local)
+    _LINHAS_BRUTAS["roster_descartadas"] = plantel["descartadas"]
     rep.fontes["roster_plantel"] = plantel["fonte"]
 
     # O "Animais para sair" saiu do pipeline: mora na pasta de divulgação (o que foi
@@ -2555,11 +2558,36 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
                 "afeta_headcount": False,
                 "obs": "mudança de local no roster, sem lançamento na aba SAIDAS-ENTRADAS",
             })
+
+    # SAIU DO ROSTER por entrega/baixa: some da contagem sem passar pela aba. Em
+    # 18/09/2026 a MELISSA DA PAO GRANDE virou 'VENDIDO E ENTREGUE' e o headcount caiu
+    # de 186 para 185 com o movimento dizendo +0/-0 — o Δ não fechava e a saída não
+    # aparecia em lugar nenhum. Esta, ao contrário da que vai pro sócio, SAI da
+    # contagem (afeta_headcount=True).
+    agora = {_norm(l.get("nome")) for l in (_LINHAS_BRUTAS.get("roster") or [])}
+    descartadas = {_norm(l.get("nome")): l
+                   for l in (_LINHAS_BRUTAS.get("roster_descartadas") or [])}
+    for nome in sorted(set(antes) - agora - lancados):
+        linha = descartadas.get(nome)
+        if not linha or linha.get("motivo") != "status fora do plantel":
+            continue      # sumiço sem causa na planilha continua virando aviso
+        novas.append({
+            "animal": _s(linha.get("nome")),
+            "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
+            "de": _s(antes.get(nome)), "para": _s(linha.get("local")), "fonte": "roster",
+            "afeta_headcount": True,
+            "obs": "saiu do roster por STATUS PLANTEL, sem lançamento na aba "
+                   "SAIDAS-ENTRADAS",
+        })
     if novas:
-        print(f"  [saídas] {len(novas)} saída(s) vistas só pela mudança de LOCAL no "
-              f"roster — a aba SAIDAS-ENTRADAS não foi preenchida para elas:")
+        print(f"  [saídas] {len(novas)} saída(s) vistas só pelo roster — a aba "
+              f"SAIDAS-ENTRADAS não foi preenchida para elas:")
         for n in novas:
-            print(f"    - {n['animal']}: {n['de']} -> {n['para']}")
+            if n["afeta_headcount"]:
+                print(f"    - {n['animal']}: {n['classificacao']} (sai da contagem)")
+            else:
+                print(f"    - {n['animal']}: {n['de']} -> {n['para']} "
+                      f"(muda de bucket, segue contado)")
     return novas
 
 
