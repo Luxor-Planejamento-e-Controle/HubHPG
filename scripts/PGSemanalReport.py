@@ -1569,16 +1569,35 @@ def _embrioes_sociedade_pendentes() -> list:
     return out
 
 
+# Colunas de movimento do controle mensal: CONDICAO ATUAL (18) com sua DATA (19),
+# CONDICAO FINAL (21) com DATA (22) e o LOCAL de destino (23). É daqui que sai a data
+# da saída de quem não tem lançamento na aba SAIDAS-ENTRADAS.
+COL_MENSAL_COND_DATA = 19
+COL_MENSAL_COND_FINAL = 21
+COL_MENSAL_COND_FINAL_DATA = 22
+COL_MENSAL_LOCAL_FINAL = 23
+
+
 def _fora_linha(acc: list, r, L, motivo: str):
     """Linha que o roster descartou, com o motivo. Serve pra auditar a contagem
     (ver tools/excel_headcount.py) sem reescrever os filtros em outro lugar — regra
     duplicada é regra que sai de sincronia."""
+    def _col(i, data=False):
+        if len(r) <= i:
+            return None
+        return (_dt(r[i]).isoformat() if _dt(r[i]) else None) if data else _s(r[i])
+
     acc.append({
         "nome": _s(r[L["nome"]]), "categoria": _s(r[L["categoria"]]),
         "status": _s(r[L["status"]]), "local": _s(r[L["local"]]),
         "cota": r[COL_MENSAL_COTAS] if len(r) > COL_MENSAL_COTAS else None,
         "condicao": _s(r[COL_MENSAL_CONDICAO]) if len(r) > COL_MENSAL_CONDICAO else None,
         "obs": _s(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else None,
+        # movimento: a data da condição é a data da saída de quem não passou pela aba
+        "condicao_data": _col(COL_MENSAL_COND_DATA, data=True),
+        "condicao_final": _col(COL_MENSAL_COND_FINAL),
+        "condicao_final_data": _col(COL_MENSAL_COND_FINAL_DATA, data=True),
+        "local_final": _col(COL_MENSAL_LOCAL_FINAL),
         "motivo": motivo})
 
 
