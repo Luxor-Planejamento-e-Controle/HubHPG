@@ -1222,6 +1222,11 @@ def _classificar_se(classif: str, animal: str = ""):
     return None, None
 
 
+# animal -> lançamento da aba SAIDAS-ENTRADAS, SEM filtro de janela. O fallback do
+# roster consulta aqui antes de dar a saída como sem data (ver _saidas_por_mudanca_de_local).
+_LANCAMENTOS_SAIDA: dict = {}
+
+
 def _saidas_entradas_planilha(wb, ini: date, fim: date):
     """Lê a aba SAIDAS-ENTRADAS. Devolve None se ela não existir ou estiver vazia,
     pra que o cálculo caia na diferença de roster (comportamento atual)."""
@@ -1230,11 +1235,20 @@ def _saidas_entradas_planilha(wb, ini: date, fim: date):
     evs = {"SAIDA": [], "ENTRADA": []}
     achou = False
     desconhecidas = []
+    _LANCAMENTOS_SAIDA.clear()
     for i, r in enumerate(wb["SAIDAS-ENTRADAS"].iter_rows(values_only=True), start=1):
         if i < 3 or r[1] is None or not str(r[1]).strip():
             continue
         achou = True
         d = _dt(r[4])
+        # TODO lançamento vai para o mapa, com janela ou sem ela: é onde o fallback
+        # do roster busca a data de quem saiu antes da semana em que o LOCAL mudou.
+        # A GABRIELA ELFAR está lançada em 17/08/2026 (PAO GRANDE -> HARAS RESSACA) e
+        # só mudou de LOCAL agora — pelo corte de janela a linha existia e a saída
+        # aparecia sem data nenhuma no painel.
+        _LANCAMENTOS_SAIDA[_norm(r[1])] = {
+            "data": d.isoformat() if d else None, "classificacao": _s(r[5]),
+            "local_saida": _s(r[2]), "local_entrada": _s(r[3])}
         if not d or not (ini <= d <= fim):
             continue
         classif = _norm(r[5])
