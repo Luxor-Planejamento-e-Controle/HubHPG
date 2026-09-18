@@ -2585,10 +2585,16 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         if not origem or nome in lancados:
             continue
         if origem in LOCAIS_NA_PROPRIEDADE and local == "SOCIO":
+            # A data vem da coluna de condição, mas só vale se cair DENTRO da janela:
+            # a GABRIELA ELFAR tem 'ENTREGAR 07/08/2026' registrado, que é quando a
+            # entrega foi combinada, não quando ela mudou de local. Publicar 07/08
+            # numa saída da semana de 11 a 18/09 seria pior que deixar vazio.
+            data = linha.get("condicao_final_data") or linha.get("condicao_data")
+            if not (data and rep.semana_inicio <= data <= rep.semana_fim):
+                data = None
             novas.append({
                 "animal": _s(linha.get("nome")), "classificacao": "SAIDA-SOCIO",
-                # a data vem da coluna de condição; sem ela a linha ia vazia no painel
-                "data": linha.get("condicao_final_data") or linha.get("condicao_data"),
+                "data": data,
                 "de": _s(origem),
                 "para": _s(linha.get("local_final")) or _s(local),
                 "fonte": "roster",
