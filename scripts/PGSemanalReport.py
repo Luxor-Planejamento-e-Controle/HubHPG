@@ -3220,6 +3220,7 @@ def _compute_confirmados_diff(rep: Report):
         # recep 7, que já está na aba ESTAÇÃO; as outras 5 só existem como PRENHA na
         # planilha de receptoras e somam aqui até o 60D ser lançado — quando for, elas
         # saem deste bloco e entram pela estação, sem trocar o total.
+        rep.detalhe["confirmados_por_receptora"] = por_recep
         if por_recep:
             rep.producao["acumulado_estacao"] = (
                 rep.producao.get("acumulado_estacao") or 0) + len(por_recep)
@@ -3259,8 +3260,8 @@ def _compute_confirmados_diff(rep: Report):
             return bool(ia_iso and date.fromisoformat(ia_iso) > hoje)
         # As confirmações vistas pela planilha de receptoras entram no mês pela SEMANA
         # em que foram registradas — elas não têm chave na ESTAÇÃO para o diff pegar.
-        do_mes = [c for c in (rep.detalhe.get("confirmados_semana") or [])
-                  if c.get("origem") == "receptoras" and c.get("semana", "") >= month_start]
+        do_mes = [c for c in (rep.detalhe.get("confirmados_por_receptora") or [])
+                  if c.get("semana", "") >= month_start]
         rep.producao["acumulado_mes"] = sum(
             1 for e in _novos_confirmados(cur, prev_month_keys)
             if not _ia_no_futuro(e)) + len(do_mes)
