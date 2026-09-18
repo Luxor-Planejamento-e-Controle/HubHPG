@@ -3134,28 +3134,49 @@ def _confirmados_por_receptora(rep: Report) -> list:
 
     Receptora que passa a PRENHA no diff da semana conta como confirmação, marcada
     com a origem para a falta do lançamento continuar visível."""
+    reg = {}
+    if CONFIRMADOS_EXTRA.exists():
+        try:
+            reg = json.loads(CONFIRMADOS_EXTRA.read_text(encoding="utf-8"))
+        except Exception:
+            reg = {}
+
     ant = _arquivo_anterior(rep.semana_atual).get("receptoras") or []
-    if not ant:
-        return []
-    antes = {_norm(l.get("animal")): _norm(l.get("status")) for l in ant}
-    novos = []
-    for animal, info in sorted(_receptoras_info().items()):
-        st_antes = antes.get(animal)
-        if st_antes is None:
-            continue
-        if _norm(info.get("status")).startswith("PRENHA") and not st_antes.startswith("PRENHA"):
-            novos.append({"receptora": animal, "embriao": info.get("embriao"),
-                          "local": info.get("local"), "origem": "receptoras",
-                          "obs": "prenhez na planilha de receptoras, sem diagnóstico "
-                                 "lançado na estação de monta"})
-    if novos:
-        print(f"  [confirmados] {len(novos)} confirmação(ões) vistas só pela planilha "
+    if ant:
+        antes = {_norm(l.get("animal")): _norm(l.get("status")) for l in ant}
+        for animal, info in sorted(_receptoras_info().items()):
+            st_antes = antes.get(animal)
+            if st_antes is None or _chave_recep(animal) in reg:
+                continue
+            if _norm(info.get("status")).startswith("PRENHA") and not st_antes.startswith("PRENHA"):
+                reg[_chave_recep(animal)] = {
+                    "receptora": animal, "embriao": info.get("embriao"),
+                    "local": info.get("local"), "semana": rep.semana_atual,
+                    "safra": SAFRA_ATUAL, "origem": "receptoras",
+                    "obs": "prenhez na planilha de receptoras, sem diagnóstico "
+                           "lançado na estação de monta",
+                }
+        CONFIRMADOS_EXTRA.parent.mkdir(parents=True, exist_ok=True)
+        CONFIRMADOS_EXTRA.write_text(json.dumps(reg, ensure_ascii=False, indent=2),
+                                     encoding="utf-8")
+
+    # O registro é CUMULATIVO em disco, pelo mesmo motivo de PARICOES_EXTRA: a prenhez
+    # só é "nova" na semana em que aparece, e o acumulado da safra não pode cair na
+    # semana seguinte por ela ter deixado de ser novidade.
+    na_estacao = {_chave_recep(e.get("receptora")) for e in rep.confirmed}
+    fora = {k: v for k, v in reg.items()
+            if v.get("safra") == SAFRA_ATUAL and k not in na_estacao}
+    desta = [v for k, v in fora.items() if v["semana"] == rep.semana_atual]
+    if desta:
+        print(f"  [confirmados] {len(desta)} confirmação(ões) vistas só pela planilha "
               f"de receptoras — a estação de monta não tem o 60D lançado:")
-        for n in novos:
+        for n in desta:
             print(f"    - receptora {n['receptora']} ({n['local']})")
-        print("    o acumulado da estação NÃO sobe por estas: ele sai da aba ESTAÇÃO, "
-              "e lá elas ainda não estão confirmadas.")
-    return novos
+    ja_na_estacao = [k for k in reg if k in na_estacao and reg[k].get("safra") == SAFRA_ATUAL]
+    if ja_na_estacao:
+        print(f"  [confirmados] {len(ja_na_estacao)} já lançada(s) na estação de monta, "
+              f"contadas por lá: " + ", ".join(sorted(ja_na_estacao)))
+    return sorted(fora.values(), key=lambda v: (v["semana"], v["receptora"]))
 
 
 def _compute_confirmados_diff(rep: Report):
