@@ -2529,6 +2529,12 @@ def _refina_afeta_headcount(rep: Report):
         1 for x in (rep.detalhe.get("entradas_diff") or []) if x.get("afeta_headcount"))
 
 
+# Uma frase só para as duas formas de saída vista pelo roster. O QUE aconteceu já vai
+# em `classificacao` (SAIDA-SOCIO, SAIDA-VENDIDO E ENTREGUE) e em `de`/`para`; a OBS
+# diz apenas o que falta na origem, sem repetir a causa em texto corrido.
+OBS_SEM_LANCAMENTO = "não consta o movimento da aba SAIDAS-ENTRADAS"
+
+
 def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
     """Saída que o ROSTER mostra e a aba SAIDAS-ENTRADAS não registrou.
 
@@ -2556,7 +2562,7 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
                 "de": _s(origem), "para": _s(local), "fonte": "roster",
                 # continua na contagem: mudou de bucket, não saiu do headcount
                 "afeta_headcount": False,
-                "obs": "mudança de local no roster, sem lançamento na aba SAIDAS-ENTRADAS",
+                "obs": OBS_SEM_LANCAMENTO,
             })
 
     # SAIU DO ROSTER por entrega/baixa: some da contagem sem passar pela aba. Em
@@ -2576,8 +2582,7 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
             "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
             "de": _s(antes.get(nome)), "para": _s(linha.get("local")), "fonte": "roster",
             "afeta_headcount": True,
-            "obs": "saiu do roster por STATUS PLANTEL, sem lançamento na aba "
-                   "SAIDAS-ENTRADAS",
+            "obs": OBS_SEM_LANCAMENTO,
         })
     if novas:
         print(f"  [saídas] {len(novas)} saída(s) vistas só pelo roster — a aba "
