@@ -1865,6 +1865,19 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
             reg = json.loads(VENDIDOS_EMB_EXTRA.read_text(encoding="utf-8"))
         except Exception:
             reg = {}
+    elif fim:
+        # BOOTSTRAP: o registro é novo, mas o card já publicava embrião pendente antes
+        # dele existir. Semeia do arquivo de linhas da semana anterior para não perder
+        # quem já estava lá — sem isto o NATUREZA x LEGITIMO ELFAR, publicado em
+        # 10/09/2026, sumiria justamente na semana em que o registro foi criado.
+        anterior = _arquivo_anterior(fim.isoformat()).get("pendentes_saida") or []
+        for x in anterior:
+            if x.get("especie") == "EMBRIAO" and x.get("tipo") == "VENDA":
+                reg[_norm(x.get("nome"))] = {"comprador": x.get("comprador"),
+                                             "data_venda": None, "origem": "snapshot"}
+        if reg:
+            print(f"  [embriões] registro de pendentes semeado com {len(reg)} venda(s) "
+                  f"já publicada(s): " + "; ".join(sorted(reg)))
     wb = _load(EMB_COMERCIAIS)
     ws = wb["ENTREGAR"]
     out, cols, ficam, novos, mantidos = [], None, [], [], []
@@ -1904,9 +1917,6 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
             if status.startswith("PRONTO"):
                 ficam.append(f'{_s(r[cols["ID Embrião"]])} ({_s(r[cols["Status embrião"]])})')
             continue
-        if not terminal:
-            reg.setdefault(chave_reg, {"comprador": _s(r[cols["Comprador"]]),
-                                       "data_venda": _s(r[cols["Data venda"]])})
         if sem_status or venda_na_semana:
             novos.append(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}'
                          + (f' [{_s(r[cols["Status embrião"]])}]' if status else ' [sem status]'))
@@ -1936,6 +1946,13 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
             "obs": _s(r[cols["Status embrião"]]), "reposicao": False,
             "especie": "EMBRIAO",
         })
+        # Só VENDA entra no registro. Registrar tudo que passou do filtro fazia o
+        # embrião de SOCIEDADE virar venda na rodada seguinte (ele voltava por
+        # `se_mantem`), e os vendidos pendentes saltaram de 7 para 10 numa semana em
+        # que nada mudou na planilha.
+        if out[-1]["tipo"] == "VENDA" and not terminal:
+            reg.setdefault(chave_reg, {"comprador": _s(r[cols["Comprador"]]),
+                                       "data_venda": _s(r[cols["Data venda"]])})
     if ficam:
         print(f"  [embriões] {len(ficam)} pronto(s) que NÃO saem, fora da pendência: "
               + "; ".join(ficam))
