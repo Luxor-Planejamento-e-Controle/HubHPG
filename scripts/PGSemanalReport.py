@@ -1881,48 +1881,23 @@ def _embrioes_pendentes_estacao() -> list:
 # Casar só o prefixo 'PRONTO' misturava os dois e inflava o card de sociedade em 3.
 # Os demais estados — A FAZER, ENTREGUE, NASCIDO, CANCELADO, REPOSIÇÃO — já ficavam
 # de fora. A aba EMBRIOES VENDIDOS do "Animais para sair" está vazia e não é usada.
+# Pendente de saída = PRONTO para entregar, e só. 'A fazer' e 'Em andamento' são
+# venda fechada sem embrião produzido (Eduardo, 20/09/2026).
 EMB_STATUS_PENDENTE = "AGUARDANDO ENTREGA"
-# Registro de embrião que JÁ entrou como venda pendente. A venda é lançada numa
-# semana e a entrega demora: o corte por data da venda (que existe para não arrastar
-# as ~25 linhas 'A fazer' de 2022-2025) tirava o embrião do card na semana seguinte.
-# Em 18/09/2026 foi o NATUREZA DA PAO GRANDE x LEGITIMO ELFAR DA MONTE BRANCO,
-# vendido em 07/09 e publicado no fechamento de 10/09, que sumiu sozinho. Pendência é
-# ESTADO: uma vez dentro, fica até o status virar terminal.
-VENDIDOS_EMB_EXTRA = BASE_DIR / "_cache" / "vendidos_embrioes_extra.json"
-# Status que encerram a pendência — entregue, nascido, cancelado ou virou reposição.
-EMB_STATUS_TERMINAL = ("ENTREGUE", "NASCIDO", "CANCELADO", "REPOSICAO")
 
 
 def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> list:
-    """Embriões prontos e aguardando entrega, tipo SOCIEDADE (cota parcial) ou VENDA.
+    """Embriões PRONTOS para entrega, tipo SOCIEDADE (cota parcial) ou VENDA.
 
-    Conta também a venda LANÇADA NESTA SEMANA, mesmo com 'Status embrião' ainda em
-    'A fazer': vendido e não entregue é pendente por definição. O corte é a data da
-    venda dentro da janela — sem ele, ou a linha nova some (foi o caso do NATUREZA
-    DA PAO GRANDE x LEGITIMO ELFAR, vendido em 07/09/2026) ou entrariam as 25
-    linhas 'A fazer' da planilha inteira, vendas de 2022 a 2025."""
-    reg = {}
-    if VENDIDOS_EMB_EXTRA.exists():
-        try:
-            reg = json.loads(VENDIDOS_EMB_EXTRA.read_text(encoding="utf-8"))
-        except Exception:
-            reg = {}
-    elif fim:
-        # BOOTSTRAP: o registro é novo, mas o card já publicava embrião pendente antes
-        # dele existir. Semeia do arquivo de linhas da semana anterior para não perder
-        # quem já estava lá — sem isto o NATUREZA x LEGITIMO ELFAR, publicado em
-        # 10/09/2026, sumiria justamente na semana em que o registro foi criado.
-        anterior = _arquivo_anterior(fim.isoformat()).get("pendentes_saida") or []
-        for x in anterior:
-            if x.get("especie") == "EMBRIAO" and x.get("tipo") == "VENDA":
-                reg[_norm(x.get("nome"))] = {"comprador": x.get("comprador"),
-                                             "data_venda": None, "origem": "snapshot"}
-        if reg:
-            print(f"  [embriões] registro de pendentes semeado com {len(reg)} venda(s) "
-                  f"já publicada(s): " + "; ".join(sorted(reg)))
+    PENDENTE DE SAÍDA É SÓ O QUE ESTÁ PRONTO PARA ENTREGAR (Eduardo, 20/09/2026):
+    embrião 'A fazer' é venda fechada sem embrião produzido, e não ocupa fila de
+    saída. Antes entrava por duas portas — a venda lançada dentro da janela e um
+    registro em disco que a mantinha depois —, e foi assim que o NATUREZA DA PAO
+    GRANDE x LEGITIMO ELFAR ('A fazer', vendido em 07/09/2026) apareceu no card.
+    As duas portas saíram; quem manda é a coluna 'Status embrião'."""
     wb = _load(EMB_COMERCIAIS)
     ws = wb["ENTREGAR"]
-    out, cols, ficam, novos, mantidos = [], None, [], [], []
+    out, cols, ficam, novos = [], None, [], []
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i == 3:
             cols = {n: _col_idx(r, n) for n in
@@ -1936,32 +1911,17 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
         if cols is None or (r[cols["ID Embrião"]] is None and r[cols["Doadora"]] is None):
             continue
         status = _norm(r[cols["Status embrião"]])
-        # Status vazio numa linha com venda lançada = venda nova, ainda sem
-        # tratamento: conta como pendente e sai avisada, para não ficar invisível
-        # esperando alguém preencher a coluna.
-        sem_status = not status and r[cols["Doadora"]] is not None
-        venda_na_semana = False
-        if ini and fim and cols.get("Data venda") is not None:
-            dv = _dt(r[cols["Data venda"]])
-            venda_na_semana = bool(dv and ini <= dv <= fim)
-        # Já registrado como pendente numa semana anterior continua pendente até a
-        # entrega — é o que faz a venda sobreviver à semana em que foi lançada.
-        chave_reg = _norm(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}')
-        terminal = any(t in status for t in EMB_STATUS_TERMINAL)
-        se_mantem = chave_reg in reg and not terminal
-        if se_mantem:
-            mantidos.append(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}'
-                            f' [{_s(r[cols["Status embrião"]]) or "sem status"}]')
-        if chave_reg in reg and terminal:
-            reg.pop(chave_reg, None)
-        if (EMB_STATUS_PENDENTE not in status and not sem_status
-                and not venda_na_semana and not se_mantem):
+        if EMB_STATUS_PENDENTE not in status:
             if status.startswith("PRONTO"):
                 ficam.append(f'{_s(r[cols["ID Embrião"]])} ({_s(r[cols["Status embrião"]])})')
+            # venda desta semana que ainda não tem embrião pronto: fora do card, mas
+            # visível na rodada — é dela que vem a pergunta "cadê o que vendi".
+            elif ini and fim and cols.get("Data venda") is not None:
+                dv = _dt(r[cols["Data venda"]])
+                if dv and ini <= dv <= fim:
+                    novos.append(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}'
+                                 f' [{_s(r[cols["Status embrião"]]) or "sem status"}]')
             continue
-        if sem_status or venda_na_semana:
-            novos.append(f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}'
-                         + (f' [{_s(r[cols["Status embrião"]])}]' if status else ' [sem status]'))
         cota = r[cols["Cota PG"]]
         # Cota ZERADA é 100% vendido (regra do Arthur, 11/09/2026), não sociedade:
         # a coluna guarda a fatia que fica com a PG, e zero quer dizer que não
@@ -1974,39 +1934,16 @@ def _embrioes_pendentes(ini: date | None = None, fim: date | None = None) -> lis
             "nome": f'{_s(r[cols["Doadora"]])} x {_s(r[cols["Garanhão"]])}',
             "id": _s(r[cols["ID Embrião"]]), "local": None, "cota": cota,
             "comprador": _s(r[cols["Comprador"]]),
-            # Venda LANÇADA NA SEMANA é venda, mesmo com cota parcial: a abertura
-            # publicada pelo haras em 11/09/2026 põe 2 embriões em VENDIDOS, e os
-            # únicos candidatos são o LIBRA x OLIMPO (cota 100%, 'Pronto -
-            # Aguardando Entrega') e o NATUREZA x LEGITIMO (cota 50%, vendido em
-            # 07/09). Cota parcial só manda para SOCIEDADE quando a venda é antiga
-            # — aí o que sobrou é a sociedade, não o movimento da semana.
-            # `se_mantem` entra junto com `venda_na_semana`: o que nasceu VENDA não
-            # vira sociedade só por a semana da venda ter passado. O NATUREZA (cota
-            # 50%, vendido 07/09/2026) é venda pendente enquanto não for entregue.
-            "tipo": ("SOCIEDADE" if (parcial and not venda_na_semana and not se_mantem)
-                     else "VENDA"),
+            "tipo": "SOCIEDADE" if parcial else "VENDA",
             "obs": _s(r[cols["Status embrião"]]), "reposicao": False,
             "especie": "EMBRIAO",
         })
-        # Só VENDA entra no registro. Registrar tudo que passou do filtro fazia o
-        # embrião de SOCIEDADE virar venda na rodada seguinte (ele voltava por
-        # `se_mantem`), e os vendidos pendentes saltaram de 7 para 10 numa semana em
-        # que nada mudou na planilha.
-        if out[-1]["tipo"] == "VENDA" and not terminal:
-            reg.setdefault(chave_reg, {"comprador": _s(r[cols["Comprador"]]),
-                                       "data_venda": _s(r[cols["Data venda"]])})
     if ficam:
         print(f"  [embriões] {len(ficam)} pronto(s) que NÃO saem, fora da pendência: "
               + "; ".join(ficam))
     if novos:
-        print(f"  [embriões] {len(novos)} venda(s) da semana contada(s) como pendente "
-              f"mesmo sem 'Pronto - Aguardando Entrega': " + "; ".join(novos))
-    if mantidos:
-        print(f"  [embriões] {len(mantidos)} venda(s) de semana anterior ainda "
-              f"pendente(s) de entrega: " + "; ".join(mantidos))
-    VENDIDOS_EMB_EXTRA.parent.mkdir(parents=True, exist_ok=True)
-    VENDIDOS_EMB_EXTRA.write_text(json.dumps(reg, ensure_ascii=False, indent=2),
-                                  encoding="utf-8")
+        print(f"  [embriões] {len(novos)} venda(s) da semana FORA dos pendentes de "
+              f"saída — o embrião ainda não está pronto: " + "; ".join(novos))
     wb.close()
     return out
 
