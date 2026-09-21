@@ -1655,6 +1655,17 @@ function fichaMov(m){
   if (m.posterior) avisos.push(`${m.posterior.length} ocorrência(s) POSTERIOR(es) ao mês `
     + '— mantido o valor do mês anterior');
 
+  /* Ficha sem ocorrência no mês ficava muda: o LEGADO DA PAO GRANDE de ago/26
+     só mudou de local (FAZENDA PAO GRANDE -> ARRENDAMENTO CESAR FURTADO, Δ R$
+     0,00) e o log do haras não tem nada dele em 2026 — a última ocorrência é de
+     01/09/2025. Sem descrição, o card não dizia POR QUE estava na fila. A
+     origem é sempre a comparação das duas planilhas; dizer isso, e dizer que o
+     log do mês está calado, é o que falta pra decidir. */
+  const origem = !(m.log || []).length
+    ? `${deltas.length ? deltas.map(([r]) => r).join(', ') : 'valor'} mudou entre as planilhas`
+      + ` · sem ocorrência no log de ${rotMes(ST.mes)}`
+    : '';
+
   /* sem sugestão, o select abre em branco e o OK só grava depois da escolha —
      gravar o primeiro da lista por inércia seria pior que não gravar */
   const opcoes = `<option value=""${m.sugestao ? '' : ' selected'}>— escolha —</option>`
@@ -1679,14 +1690,13 @@ function fichaMov(m){
       ${m.cota_atual ? `<span class="conta-obs">${pct(m.cota_atual)} de ${rs(m.valor_atual)}</span>` : ''}
     </div>
     ${(m.log || []).map(l => `<p class="ficha-log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</p>`).join('')}
+    ${!origem ? '' : `<p class="ficha-log sem-log">${esc(origem)}</p>`}
     ${avisos.map(a => `<p class="ficha-aviso">⚠ ${esc(a)}</p>`).join('')}
     <div class="ficha-perg">
-      ${m.sugestao
-        ? `<span class="ficha-perg-rot">Foi isto?</span>
-           <button type="button" class="cls-bt sugerida" data-conf="${esc(m.chave)}:${esc(m.sugestao)}">
-             ✓ ${esc(m.sugestao)}</button>`
-        : `<span class="ficha-perg-rot sem-palpite">Sem sugestão — o que foi?</span>`}
-      ${outras.map(c => `<button type="button" class="cls-bt" data-conf="${esc(m.chave)}:${c}">${c}</button>`).join('')}
+      <span class="ficha-perg-rot${m.sugestao ? '' : ' sem-palpite'}">${m.sugestao
+        ? 'Confirma movimentação:' : 'Sem sugestão — classifique:'}</span>
+      <select class="cls-sel" data-sel="${esc(m.chave)}">${opcoes}</select>
+      <button type="button" class="cls-ok" data-ok="${esc(m.chave)}">OK</button>
     </div>
   </div>`;
 }
@@ -2188,11 +2198,14 @@ function liga(){
       }
       return;
     }
-    const conf = e.target.closest('[data-conf]');
-    if (conf) {
-      // corta no ULTIMO ':' — nome de animal com dois-pontos partiria a chave
-      const bruto = conf.dataset.conf, corte = bruto.lastIndexOf(':');
-      const chave = bruto.slice(0, corte), classe = bruto.slice(corte + 1);
+    /* a ficha grava no OK, não na escolha: o `<select>` ao lado guarda a classe
+       e só este clique registra — trocar de ideia antes do OK não custa nada */
+    const ok = e.target.closest('[data-ok]');
+    if (ok) {
+      const chave = ok.dataset.ok;
+      const sel = ok.closest('.ficha').querySelector(`[data-sel]`);
+      const classe = sel ? sel.value : '';
+      if (!classe) { alert('escolha a movimentação antes de confirmar'); return; }
       const mv = movimentacaoDoMes(ST.mes);
       const mov = mv && mv.movs.find(m => m.chave === chave);
       if (mov) { await registra(ST.mes, mov, classe, ''); pinta(); }

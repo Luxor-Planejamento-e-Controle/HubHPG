@@ -140,15 +140,19 @@ table.t td.oque .log{display:block;white-space:normal;word-break:break-word}
 .ficha-conta .seta-conta{color:var(--ink-3);font-size:14px;align-self:center}
 .ficha-conta .conta-obs{margin-left:auto;color:var(--ink-3);font-size:11.5px;align-self:center}
 .ficha-log{margin:7px 0 0;font-size:11.5px;color:var(--ink-2);line-height:1.45}
+/* origem da ficha quando o log do mês não diz nada: é contexto, não ocorrência */
+.ficha-log.sem-log{color:var(--ink-3);font-style:italic}
 .ficha-aviso{margin:6px 0 0;font-size:11.5px;color:var(--amber)}
 .ficha-perg{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:11px;
   border-top:1px solid var(--line);padding-top:10px}
 .ficha-perg-rot{color:var(--ink-3);font-size:12px;margin-right:2px}
-.cls-bt{background:transparent;border:1px solid var(--line);color:var(--ink-2);border-radius:7px;
-  padding:5px 11px;font:inherit;font-size:12px;cursor:pointer}
-.cls-bt:hover{border-color:var(--amber);color:var(--amber)}
-.cls-bt.sugerida{border-color:var(--amber);color:var(--amber);font-weight:600}
-.cls-bt.sugerida:hover{background:var(--amber);color:#1a1300}
+.ficha-perg-rot.sem-palpite{color:var(--amber)}
+.cls-sel{background:var(--bg-2);border:1px solid var(--line);color:var(--ink);border-radius:7px;
+  padding:5px 9px;font:inherit;font-size:12px;cursor:pointer}
+.cls-sel:hover,.cls-sel:focus{border-color:var(--amber);outline:none}
+.cls-ok{background:transparent;border:1px solid var(--amber);color:var(--amber);border-radius:7px;
+  padding:5px 14px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.cls-ok:hover{background:var(--amber);color:#1a1300}
 .barra-filtro{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:10px}
 .barra-rot{color:var(--ink-3);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .fbtn-rot{background:var(--card);border:1px solid var(--line);color:var(--ink-2);border-radius:7px;
