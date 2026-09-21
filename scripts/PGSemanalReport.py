@@ -1025,17 +1025,39 @@ def _count_doadoras() -> int:
     e trazia gente que já vendeu, já saiu ou nunca fez parte deste time (RELIQUIA,
     CANCAO, INUSITADA, BISCA, MEIRELLES, XARDA, XICA apareciam lá e NENHUMA está
     em PLANEJAMENTO). As duas listas não têm quase nada em comum — não é ajuste
-    fino, é fonte errada desde o início. PLANEJAMENTO tem exatamente 12 linhas
-    (header na linha 3, dado 4 em diante), batendo com o índice oficial (30÷12
-    = 2,5) sem precisar de nenhuma exclusão adicional."""
+    fino, é fonte errada desde o início.
+
+    SÓ AS QUE ESTÃO NO HARAS: a coluna MOVIMENTACOES, criada pelo haras em
+    21/09/2026 a pedido do Eduardo, marca quem saiu ('SAIDA-HARAS'). Sem ela o card
+    contava as 13 linhas da safra 26/27 inteiras, ADRENALINA e NATUREZA incluídas,
+    as duas já no sócio — e o índice de eficiência (vazias/doadoras) dividia por
+    13 em vez de 11."""
     master = _latest_estacao_master()
     wb = _load(master)
     ws = wb["PLANEJAMENTO"]
-    n = 0
-    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
+    linhas = list(ws.iter_rows(values_only=True))
+    # coluna pelo cabeçalho (linha 3), não por índice fixo: a aba ganha coluna nova
+    col_mov = None
+    if len(linhas) >= 3:
+        for i, nome in enumerate(linhas[2]):
+            if _norm(nome).startswith("MOVIMENTA"):
+                col_mov = i
+                break
+    if col_mov is None:
+        print("  [doadoras] aba PLANEJAMENTO sem coluna MOVIMENTACOES — contando "
+              "todas as linhas, inclusive quem já saiu")
+    n, fora = 0, []
+    for i, r in enumerate(linhas, start=1):
         if i < 4 or r[1] is None or not str(r[1]).strip():
             continue
+        mov = _norm(r[col_mov]) if col_mov is not None and len(r) > col_mov else ""
+        if "SAIDA" in mov:
+            fora.append(f"{_s(r[1])} ({_s(r[col_mov])})")
+            continue
         n += 1
+    if fora:
+        print(f"  [doadoras] {len(fora)} fora da conta por MOVIMENTACOES: "
+              + "; ".join(fora))
     wb.close()
     return n
 
