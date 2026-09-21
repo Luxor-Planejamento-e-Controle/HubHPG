@@ -896,7 +896,31 @@ def _inad_dir():
     return INAD_DIR
 
 
+INAD_CONGELADO = Path(__file__).resolve().parent.parent / "_cache" / "inadimplencia"
+
+
+def _inad_congelada(m, ano):
+    """Posição da carteira ARQUIVADA para aquele mês, se houver.
+
+    A saída do ControleInadimplencia.py é uma foto só, sobrescrita a cada rodada:
+    em 18/09/2026 ela passou a valer 18/09 e o deck de AGOSTO, se regerado, trocaria
+    a posição de 31/08 (R$ 5,5M em aberto) pela de setembro (R$ 5,3M). Fechado não
+    muda: o mês que já tem foto guardada lê daqui, e só o mês corrente vai na
+    planilha viva. Mesma ideia dos snapshots semanais."""
+    f = INAD_CONGELADO / f"{ano}-{m:02d}.json"
+    if not f.exists():
+        return None
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
 def slide_inadimplencia(m, ano):
+    congelada = _inad_congelada(m, ano)
+    if congelada:
+        print(f"  [inad] {ano}-{m:02d} lida da foto arquivada ({congelada.get('sub','')[:38]}…)")
+        return congelada
     pasta = _inad_dir()
     if pasta is None:
         return pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
@@ -911,7 +935,7 @@ def slide_inadimplencia(m, ano):
     rows = [[str(i).split(" - ", 1)[-1].title(), int(r["qtd_titulos"]),
              brl_curto(r["valor_total"]), f"{r['valor_total']/tot_venc*100:.0f}%"]
             for i, r in venc.iterrows()]
-    return {"t": "kpis_tabela", "n": 31, "titulo": "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS",
+    slide = {"t": "kpis_tabela", "n": 31, "titulo": "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS",
             "sub": (f"Posição de {ref} · agregados do ControleInadimplencia.py"
                     f" · sem dado identificável de devedor"),
             "kpis": [{"v": brl_curto(k["total_em_aberto"]), "l": "Em Aberto", "s": f"{int(k['qtd_clientes_total'])} clientes"},
@@ -924,6 +948,15 @@ def slide_inadimplencia(m, ano):
             "tabela": {"cols": ["FAIXA DE ATRASO", "TÍTULOS", "VALOR", "% DO VENCIDO"], "rows": rows},
             "obs": None if pd.to_datetime(k["data_referencia"]).month == m
                    else f"a base de cobrança está posicionada em {ref}"}
+    # Foto do próprio mês vira arquivo: a planilha é sobrescrita na rodada seguinte
+    # e sem isto a posição se perde para sempre (ver _inad_congelada).
+    dref = pd.to_datetime(k["data_referencia"])
+    if dref.month == m and dref.year == ano:
+        INAD_CONGELADO.mkdir(parents=True, exist_ok=True)
+        (INAD_CONGELADO / f"{ano}-{m:02d}.json").write_text(
+            json.dumps(slide, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"  [inad] posição de {ref} arquivada para {ano}-{m:02d}")
+    return slide
 
 
 # ============================================================== Vendas (S29–S35)
