@@ -1632,9 +1632,11 @@ const ordMov = (m, i) => COLS_MOV[i][2] ? num(COLS_MOV[i][1](m)) : String(COLS_M
    o `<select>` de "foi outra coisa" destoava no meio de botões; e nada cabia na
    tela sem rolagem horizontal.
 
-   Cada pendência vira um cartão que faz UMA pergunta: foi isto? A sugestão vem
-   como o botão aceso; as outras classes ficam ao lado, do mesmo tamanho, porque
-   escolher outra é tão legítimo quanto confirmar. */
+   Cada pendência vira um cartão que pede UMA confirmação. A fileira de oito
+   botões saiu (Arthur, 21/09/2026): oito alvos do mesmo tamanho não são uma
+   pergunta, são um teste de pontaria — e qualquer um deles gravava no clique,
+   sem chance de rever. Agora é seleção + OK: a sugestão vem escolhida, trocar
+   é mexer no `<select>`, e só o OK grava. */
 function fichaMov(m){
   const deltas = [];
   if (m.mudou_status) deltas.push(['status', `${esc(m.mudou_status[0])} → ${esc(m.mudou_status[1])}`]);
@@ -1653,8 +1655,11 @@ function fichaMov(m){
   if (m.posterior) avisos.push(`${m.posterior.length} ocorrência(s) POSTERIOR(es) ao mês `
     + '— mantido o valor do mês anterior');
 
-  // sem sugestão, todas as classes viram opção de primeira linha
-  const outras = CLASSES_MOV.filter(c => c !== m.sugestao);
+  /* sem sugestão, o select abre em branco e o OK só grava depois da escolha —
+     gravar o primeiro da lista por inércia seria pior que não gravar */
+  const opcoes = `<option value=""${m.sugestao ? '' : ' selected'}>— escolha —</option>`
+    + CLASSES_MOV.map(c => `<option value="${c}"${c === m.sugestao ? ' selected' : ''}>${c}${
+        c === m.sugestao ? ' (sugerido)' : ''}</option>`).join('');
   return `<div class="ficha">
     <div class="ficha-topo">
       <div class="ficha-nome" title="${esc(m.nome)}">${esc(m.nome)}</div>
