@@ -1476,6 +1476,41 @@ def divide(slide, campo="linhas"):
     return partes
 
 
+def divide_lista_mes(slide):
+    """Quebra o slide mês-a-mês (INVESTIMENTOS) quando a lista não cabe na tela.
+
+    Cada mês rende uma linha de cabeçalho mais uma por item, e descrição longa
+    ocupa duas — é o caso dos comentários de compra, que vêm da planilha em texto
+    corrido. Sem isto o slide cresce em silêncio: com o DRE v3, agosto entrou com
+    3 itens e a lista passou a ter 8 meses; o cabeçalho de AGOSTO aparecia com o
+    total R$ 74.000 e os itens ficavam fora da área visível."""
+    meses = slide.get("meses") or []
+
+    def peso(mes):
+        return 1 + sum(2 if len(str(i.get("desc") or "")) > 70 else 1
+                       for i in mes.get("itens") or [])
+
+    if sum(peso(x) for x in meses) <= MAX_LINHAS:
+        return [slide]
+    paginas, atual, carga = [], [], 0
+    for mes in meses:
+        p = peso(mes)
+        if atual and carga + p > MAX_LINHAS:
+            paginas.append(atual)
+            atual, carga = [], 0
+        atual.append(mes)
+        carga += p
+    if atual:
+        paginas.append(atual)
+    out, n = [], len(paginas)
+    for k, pag in enumerate(paginas):
+        s = dict(slide, meses=pag)
+        s["titulo"] = (f"{slide['titulo']} (1/{n})" if k == 0
+                       else f"{slide['titulo']} (cont. {k + 1}/{n})")
+        out.append(s)
+    return out
+
+
 def so_mensal(slides):
     """Marca os slides que recortam o MÊS — os que não vão no trimestral.
 
@@ -1525,7 +1560,7 @@ def monta_deck(m, ano, ctx):
                     "DRE 2026 | HPG · acumulado no ano",
                     dre_ytd("HPG", "Competência", ano, m, so_subtotal=True),
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
-    s.append(slide_investimentos(m, ano))
+    s += divide_lista_mes(slide_investimentos(m, ano))
     s += so_mensal(divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}",
                     "FC 2026 | HPG · caixa mensal",
                     dre_mes("HPG", "Caixa", ano, m, so_subtotal=True))))
