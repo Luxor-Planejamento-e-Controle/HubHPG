@@ -95,7 +95,32 @@ RECEPTORAS_DIR = PLANTEL_DIR_BASE / "Estação 2025-2026"   # so p/ mensagens de
 # Mapa de Vendas — quem consome é o deck do comitê (tools/build_comite.py),
 # não o fechamento semanal. Cheguei a tratar como constante morta por não achar
 # uso neste módulo; o uso está no outro.
-MAPA_VENDAS_DIR = DRIVE_ROOT / "VENDAS" / "MAPAS DE VENDAS" / "Estação 2025-2026"
+MAPA_VENDAS_BASE = DRIVE_ROOT / "VENDAS" / "MAPAS DE VENDAS"
+
+
+def _mapa_vendas_dir() -> Path:
+    """Pasta de estação do MAPA DE VENDAS que tem o arquivo mais novo.
+
+    Era fixa em 'Estação 2025-2026' e envelheceu na virada: em 21/09/2026 a pasta
+    'Estação 2026-2027' já tinha o 260902_PG_Mapa Vendas.xlsx (04/09) com duas
+    vendas que a cópia velha não tem — a última venda lá é de 30/07/2026 contra
+    27/08/2026 na nova. O mapa é cumulativo desde 2020, então a pasta da safra
+    corrente contém o histórico inteiro; o que muda é só até onde ele vai."""
+    if not MAPA_VENDAS_BASE.exists():
+        return MAPA_VENDAS_BASE
+    cands = []
+    for d in MAPA_VENDAS_BASE.glob("Estação *"):
+        if not d.is_dir():
+            continue
+        arqs = [f for f in d.glob("*_PG_Mapa Vendas.xlsx") if not f.name.startswith("~$")]
+        if arqs:
+            cands.append((max(f.name[:6] for f in arqs), d))
+    if not cands:
+        return MAPA_VENDAS_BASE / "Estação 2025-2026"
+    return max(cands)[1]
+
+
+MAPA_VENDAS_DIR = _mapa_vendas_dir()
 # CONTROLE_DE_PLANTEL mensal (STATUS PLANTEL, SAIDAS-ENTRADAS, MOVIMENTAÇÕES)
 CONTROLE_MENSAL_DIR = RECEPTORAS_DIR
 

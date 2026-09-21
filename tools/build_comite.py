@@ -64,8 +64,29 @@ DRE_ANUAL_DIR = Path(
 
 
 def _dre_anual(ano: int, entidade: str) -> Path:
-    """xlsx anual do DRE. `entidade` é o sufixo do nome: 'HPG - HARAS', 'FPG - CASA'."""
-    return DRE_ANUAL_DIR / str(ano) / "Fluxo de Caixa e DRE" / f"DRE {ano} {entidade}.xlsx"
+    """xlsx anual do DRE, na VERSÃO mais nova. `entidade` é o sufixo do nome:
+    'HPG - HARAS', 'FPG - CASA'.
+
+    A controladoria versiona no nome — 'DRE 2026 HPG - HARAS.xlsx', depois ' v2',
+    ' v3'. O caminho era fixo no nome sem sufixo, que é justamente o mais ANTIGO:
+    em 21/09/2026 a pasta tinha v3 de 16/09 17:45 e o comitê lia a cópia de 11/09
+    17:59. Escolhe pelo número de versão e, no empate, pelo mtime."""
+    pasta = DRE_ANUAL_DIR / str(ano) / "Fluxo de Caixa e DRE"
+    base = f"DRE {ano} {entidade}"
+    cands = [f for f in pasta.glob(f"{base}*.xlsx") if not f.name.startswith("~$")]
+    if not cands:
+        return pasta / f"{base}.xlsx"      # inexistente: quem chama avisa
+
+    def _versao(f: Path) -> tuple[int, float]:
+        m = re.search(r"\bv(\d+)\b", f.stem, re.I)
+        return (int(m.group(1)) if m else 0, f.stat().st_mtime)
+
+    escolhido = max(cands, key=_versao)
+    if len(cands) > 1:
+        print(f"  [DRE] {len(cands)} versões de {base!r}; usando {escolhido.name} "
+              f"(outras: " + ", ".join(sorted(f.name for f in cands
+                                              if f != escolhido)) + ")")
+    return escolhido
 
 
 DRE_HARAS = _dre_anual(2026, "HPG - HARAS")
