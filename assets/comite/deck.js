@@ -685,8 +685,18 @@ function atualizaAviso(){
 }
 
 window.addEventListener('resize', fit);
+/* Atalho de slide só vale FORA de campo de texto e com o editor fechado.
+   Antes o guard era só SELECT: digitando no editor, o espaço virava "próximo
+   slide" com preventDefault — não dava pra escrever "VOLUMOSO E CONCENTRADO" —
+   e as setas, Home/End e 'p' também mexiam no deck por baixo do modal. */
+const _digitando = el => !!el && (el.isContentEditable
+  || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+const _editorAberto = () => {
+  const ov = document.getElementById('editorOverlay');
+  return !!ov && ov.style.display !== 'none';
+};
 document.addEventListener('keydown', e => {
-  if (e.target.tagName === 'SELECT') return;
+  if (_digitando(e.target) || _editorAberto()) return;
   if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { go(idx + 1); e.preventDefault(); }
   else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { go(idx - 1); e.preventDefault(); }
   else if (e.key === 'Home') go(0);
