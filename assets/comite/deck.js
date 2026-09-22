@@ -351,10 +351,16 @@ async function montaSlidesAoVivo(mes){
 /* troca, na lista `slides` já carregada, os slides de um tipo pelos novos —
    por tipo (comentarios/manejo/fotos) ou pelo par tabela(n=23)+resultados
    (exposições, que são dois tipos de slide pra 1 conteúdo só). */
+/* Troca os slides de um editor pelos recem-salvos, na posicao em que ja
+   estavam. O casamento e por `editorDe`, nao por `s.t`: o slide AINDA VAZIO vem
+   como t='pendente' (com `edita`), entao comparar `s.t === chave` nao o
+   reconhecia — ele sobrevivia ao filtro, `primeiro` ficava -1 e o slide escrito
+   ia parar no FIM do deck. Da tela, salvar nao mudava nada: o lugar de sempre
+   continuava dizendo "a escrever". */
 function substituiSlidesDoTipo(chave, novos){
   let primeiro = -1;
   slides = slides.filter((s, i) => {
-    const bate = chave === 'exposicoes' ? (ehExposicaoProg(s) || s.t === 'resultados') : s.t === chave;
+    const bate = editorDe(s) === chave;
     if (bate && primeiro === -1) primeiro = i;
     return !bate;
   });
