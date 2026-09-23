@@ -114,6 +114,17 @@ function _ajustaAlturaEmbed(f){
 
 function renderSemanal(el){
   el.classList.add('flush');
+  /* Atualizar aqui = enfileirar um pedido (assets/hubjob.js). O pipeline lê o
+     Drive em G:, então quem executa é o agente na máquina que tem o Drive; o
+     botão não tem como retroagir semana nenhuma, porque não manda data — a
+     janela sai do último snapshot congelado e o PGSemanal.py recusa refazer
+     semana já fechada. */
+  if(window.HubJob){
+    const topo=document.createElement('div');
+    topo.className='hj-topo';
+    el.appendChild(topo);
+    window.HubJob.barra(topo,'semanal',{aoTerminar:()=>location.reload()});
+  }
   const html=window.HUB&&window.HUB.semanalHtml;
   if(!html){
     const f=document.createElement('iframe');

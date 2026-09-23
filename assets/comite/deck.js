@@ -306,6 +306,11 @@ async function checaEditor(){
   }
   const btn = document.getElementById('editar');
   if (btn) btn.hidden = !souEditor;
+  // histórico e atualização andam com a edição: quem não escreve não precisa
+  // ver versão nem disparar pipeline
+  const bv = document.getElementById('versoes');
+  if (bv) bv.hidden = !souEditor;
+  if (souEditor) montaBarraJob();
   /* o slide vazio mostra o botao 'Escrever agora' so pra quem edita, e quem
      edita so se sabe DEPOIS desta consulta — entao repinta o slide atual */
   if (souEditor && typeof render === 'function' && slides.length) render();
@@ -1365,6 +1370,99 @@ document.getElementById('prev').onclick = () => go(idx - 1);
 document.getElementById('next').onclick = () => go(idx + 1);
 document.getElementById('ir').onchange = e => go(+e.target.value);
 document.getElementById('play').onclick = play;
+/* ---- versões do conteúdo ----
+   O histórico é gravado por trigger no banco a cada salvar (ver a migration
+   20260923120000): aqui é só a janela pra ver, cravar e restaurar. "Cravar"
+   congela o estado atual com um rótulo — é o que se faz antes de levar o deck
+   ao comitê; o rastro automático guarda o de antes de cada edição. */
+async function listaVersoes(mes){
+  const sb = hubSb();
+  if (!sb) return [];
+  const { data } = await sb.from('comite_conteudo_versao')
+    .select('versao,cravada,rotulo,criado_por,criado_em')
+    .eq('mes', mes).order('versao', {ascending: false});
+  return data || [];
+}
+
+async function abreVersoes(){
+  const sb = hubSb();
+  if (!sb) return;
+  let ov = document.getElementById('versoesOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'versoesOverlay';
+    ov.innerHTML = `<div id="versoesPanel">
+      <div class="ed-head"><h3 id="vsTitulo"></h3>
+        <button type="button" id="vsFechar" aria-label="Fechar">✕</button></div>
+      <div class="vs-cravar">
+        <input id="vsRotulo" placeholder="Rótulo (ex.: levado ao comitê de setembro)">
+        <button type="button" id="vsCravar" class="primary">Cravar versão de agora</button>
+      </div>
+      <div id="vsLista"></div>
+    </div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.style.display = 'none'; });
+    document.getElementById('vsFechar').onclick = () => { ov.style.display = 'none'; };
+    document.getElementById('vsCravar').onclick = async () => {
+      const rot = document.getElementById('vsRotulo').value;
+      const { error } = await sb.rpc('comite_cravar_versao', {p_mes: mesAtual, p_rotulo: rot});
+      if (error) return alert('Não deu pra cravar: ' + error.message);
+      document.getElementById('vsRotulo').value = '';
+      pintaVersoes();
+    };
+  }
+  ov.style.display = 'flex';
+  document.getElementById('vsTitulo').textContent = `Versões — ${SPEC.labels[mesAtual]}`;
+  pintaVersoes();
+}
+
+async function pintaVersoes(){
+  const lista = document.getElementById('vsLista');
+  lista.innerHTML = '<p class="vs-vazio">carregando…</p>';
+  const vs = await listaVersoes(mesAtual);
+  if (!vs.length) {
+    lista.innerHTML = '<p class="vs-vazio">Nenhuma versão ainda. A primeira aparece no próximo salvar, '
+      + 'ou agora, se você cravar uma.</p>';
+    return;
+  }
+  const dt = t => { try { return new Date(t).toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'}); }
+                    catch(e){ return t; } };
+  lista.innerHTML = vs.map(v => `<div class="vs-item${v.cravada ? ' vs-cravada' : ''}">
+    <div class="vs-meta">
+      <b>v${v.versao}</b>${v.cravada ? ' <span class="tag ok">cravada</span>' : ''}
+      <span class="vs-quando">${dt(v.criado_em)}</span>
+      <span class="vs-quem">${esc(v.criado_por || '')}</span>
+    </div>
+    ${v.rotulo ? `<div class="vs-rotulo">${esc(v.rotulo)}</div>` : ''}
+    <button type="button" class="vs-voltar" data-restaura="${v.versao}">restaurar</button>
+  </div>`).join('');
+  lista.querySelectorAll('[data-restaura]').forEach(b => b.onclick = async () => {
+    const v = +b.dataset.restaura;
+    if (!confirm(`Restaurar a v${v} de ${SPEC.labels[mesAtual]}?
+
+`
+      + 'O conteúdo de agora não se perde: ele vira uma versão nova antes de ser substituído.')) return;
+    const { error } = await hubSb().rpc('comite_restaurar_versao', {p_mes: mesAtual, p_versao: v});
+    if (error) return alert('Não deu pra restaurar: ' + error.message);
+    delete conteudoCache[mesAtual];
+    await aplicaConteudoAoVivo(mesAtual);
+    pintaVersoes();
+  });
+}
+
+document.getElementById('versoes').onclick = abreVersoes;
+
+/* Barra de atualizar: só pra quem edita o comitê — quem só assiste não dispara
+   pipeline. Ao terminar, recarrega o spec do bucket em vez de mandar o usuário
+   apertar F5: o deck inteiro é montado a partir dele. */
+function montaBarraJob(){
+  if (!window.HubJob || !souEditor) return;
+  const slot = document.getElementById('barraJob');
+  if (!slot || slot.dataset.pronto) return;
+  slot.dataset.pronto = '1';
+  window.HubJob.barra(slot, 'comite', {aoTerminar: () => location.reload()});
+}
+
 document.getElementById('pdf').onclick = exportarPdf;
 document.getElementById('pptx').onclick = e => exportarPptx(e.currentTarget);
 

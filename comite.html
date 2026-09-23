@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Comitê Mensal — Haras Pao Grande</title>
 <link rel="icon" href="assets/pg-logo.png">
-<link rel="stylesheet" href="assets/comite/deck.css?v=202609211436">
+<link rel="stylesheet" href="assets/comite/deck.css?v=202609231129">
 </head>
 <body>
 <div class="stage" id="stage"></div>
@@ -21,6 +21,8 @@
   <select id="ir" title="Ir para o slide"></select>
   <button type="button" id="play" title="Apresentar (P · Esc para sair)">Apresentar</button>
   <button type="button" id="editar" hidden title="Editar este slide (comentários, exposições, manejo, fotos)">✎ Editar</button>
+  <button type="button" id="versoes" hidden title="Histórico do conteúdo deste mês">⏱ Versões</button>
+  <span id="barraJob" class="hj-slot"></span>
   <span class="spacer"></span>
   <span class="aviso" id="aviso"></span>
   <!-- os dois exports andam juntos: mesmo peso visual e sem quebrar a linha no
@@ -31,16 +33,19 @@
   </span>
 </div>
 <script src="assets/vendor/pptxgen.bundle.js"></script>
+<!-- barra de "Atualizar dados": o pedido vai pra fila e quem executa é o agente
+     na máquina que tem o Drive (tools/agente_hub.py) -->
+<script src="assets/hubjob.js?v=202609231200"></script>
 <!-- spec.js e gerado e gitignored: existe na maquina (demo offline), nao no
      site publico. Em producao o deck le o spec que o porteiro do hub baixou
      do bucket privado — iframe de mesmo origin, entao window.parent resolve. -->
-<script src="assets/comite/spec.js?v=202609211436" onerror="void 0"></script>
+<script src="assets/comite/spec.js?v=202609231129" onerror="void 0"></script>
 <script>
   if(!window.COMITE_SPEC){
     try { window.COMITE_SPEC = window.parent.HUB && window.parent.HUB.comiteSpec; }
     catch(e) { console.warn("[deck] sem spec: nem local nem do hub", e); }
   }
 </script>
-<script src="assets/comite/deck.js?v=202609211436"></script>
+<script src="assets/comite/deck.js?v=202609231129"></script>
 </body>
 </html>

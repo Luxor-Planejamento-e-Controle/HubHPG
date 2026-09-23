@@ -268,3 +268,20 @@ body:not(.hub-ready) .app{visibility:hidden}
 }
 .gate-box button:hover{background:var(--amber-deep)}
 #gate-msg{font-size:12px;color:var(--ink-3);min-height:18px}
+
+/* ---- barra "Atualizar dados" (assets/hubjob.js) ----
+   Vive acima do painel embutido, não dentro dele: o iframe é gerado pelo
+   pipeline e não conhece o hub. */
+.hj-topo{display:flex;padding:10px 0 14px}
+.hj-barra{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.hj-btn{background:var(--amber,#CA9703);color:#1a1300;border:0;border-radius:8px;
+  padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
+.hj-btn:hover:not(:disabled){filter:brightness(1.08)}
+.hj-btn:disabled{opacity:.45;cursor:default}
+.hj-estado{font-size:12.5px;color:var(--mut,#93AABC)}
+.hj-estado.espera{color:var(--amber,#CA9703)}
+.hj-estado.ok{color:var(--pos,#4CC38A)}
+.hj-estado.erro{color:var(--neg,#F07A7A)}
+.hj-log{background:none;border:1px solid var(--line,#1B486B);color:var(--mut,#93AABC);
+  border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer}
+.hj-log:hover{color:var(--ink,#EAF0F4);border-color:var(--amber,#CA9703)}

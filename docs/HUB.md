@@ -106,3 +106,56 @@ embutida; é o molde das próximas.
    para o bucket privado (é dado do plantel, não pode virar arquivo público).
 4. **Netlify** — site próprio. O plano é por conta, não por site: os créditos
    são os mesmos do hub do P&C.
+
+## Atualizar os dados pelo hub (botão + agente)
+
+O pipeline lê as planilhas do Google Drive montado em `G:`, que só existe na
+máquina de quem fecha. Então o botão **Atualizar dados** no hub não executa
+nada: ele grava um pedido na tabela `hub_job`, e quem executa é o agente desta
+máquina.
+
+```bash
+python tools/agente_hub.py            # processa a fila e sai
+python tools/agente_hub.py --status   # só mostra a fila
+```
+
+Agendar (a cada 10 minutos):
+
+```
+schtasks /create /tn "HPG - Agente do hub" /sc minute /mo 10 ^
+  /tr "python C:\Users\Arthur\repos\HubHPG\tools\agente_hub.py"
+```
+
+O que o agente roda:
+
+| pedido | sequência |
+|---|---|
+| `semanal` | `PGSemanal.py --no-open` → `tools/build_semanal.py` → `tools/publish_hub.py semanal` |
+| `comite` | crava versão de cada mês → `tools/build_comite.py` → `tools/publish_hub.py comite` |
+
+Duas garantias que o botão sozinho não daria:
+
+- **Semanal não retroage.** O agente chama `PGSemanal.py` sem data e sem
+  `--forcar`. A janela sai do último snapshot congelado (`_janela()`) e o próprio
+  script aborta se existir semana posterior já fechada. Recusa do pipeline não é
+  sucesso: o agente procura `ABORTADO` na saída e marca o pedido como erro, para
+  o hub mostrar em vermelho em vez de dizer "atualizado".
+- **Comitê não perde texto.** `build_comite.py` só lê `comite_conteudo`, mas o
+  agente ainda crava uma versão de cada mês antes de rodar — rede para o caso de
+  alguém pedir atualização no meio de uma edição.
+
+## Versões do conteúdo do comitê
+
+`comite_conteudo` tem uma linha por mês e o editor grava por upsert. Com várias
+pessoas escrevendo o mesmo mês, quem salvasse por último sobrescrevia o anterior
+sem deixar rastro. Agora:
+
+- **toda gravação** guarda o estado anterior em `comite_conteudo_versao`, por
+  trigger no banco (`comite_conteudo_versiona`) — não depende de o navegador
+  lembrar. Update que não muda nada não gera versão.
+- **⏱ Versões**, na barra do deck, lista o histórico, permite **cravar** o estado
+  atual com um rótulo (`comite_cravar_versao`) e **restaurar** qualquer versão
+  (`comite_restaurar_versao`). Restaurar não perde o atual: ele vira versão antes
+  de ser substituído.
+
+Os dois botões aparecem só para quem está em `comite_editores` (ou é admin).
