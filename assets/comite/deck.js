@@ -360,7 +360,9 @@ function decodifica(file){
   return new Promise(resolve => {
     const url = URL.createObjectURL(file);
     const v = document.createElement('video');
-    v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.src = url;
+    // 'auto' e não 'metadata': o veredito depende de decodificar um frame de
+    // verdade, e com metadata alguns navegadores param antes disso
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
     const fim = ok => { URL.revokeObjectURL(url); v.remove(); resolve(ok); };
     const prazo = setTimeout(() => fim(false), 15000);
     v.onerror = () => { clearTimeout(prazo); fim(false); };
@@ -378,7 +380,7 @@ function decodifica(file){
    `decodifica()` acima é quem barra esse caso, antes de chegar aqui. */
 const MIMES_SAIDA = ['video/mp4;codecs=h264,aac', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
 
-function comprimeVideo(file, aoProgredir){
+function comprimeVideo(file, aoProgredir, ladoMax, tetoBps){
   return new Promise(async resolve => {
     const mime = MIMES_SAIDA.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
     if (!mime) return resolve(null);
@@ -392,7 +394,7 @@ function comprimeVideo(file, aoProgredir){
         const dur = v.duration;
         if (!dur || !isFinite(dur)) { limpa(); return resolve(null); }
         // 720p no maior lado, mantendo proporção e lado par (exigência de codec)
-        const escala = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));
+        const escala = Math.min(1, (ladoMax || 1280) / Math.max(v.videoWidth, v.videoHeight));
         const par = n => Math.max(2, Math.round(n * escala / 2) * 2);
         const c = document.createElement('canvas');
         c.width = par(v.videoWidth); c.height = par(v.videoHeight);
@@ -400,7 +402,7 @@ function comprimeVideo(file, aoProgredir){
         // bitrate que cabe no alvo, com teto de 2,5 Mbps — acima disso 720p
         // não melhora o suficiente pra justificar o tamanho
         const audioBps = 96000;
-        const videoBps = Math.max(600000, Math.min(2500000, (ALVO_COMPRESSAO * 8) / dur - audioBps));
+        const videoBps = Math.max(250000, Math.min(tetoBps || 2500000, (ALVO_COMPRESSAO * 8) / dur - audioBps));
         const saida = c.captureStream(30);
         const doVideo = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null);
         (doVideo ? doVideo.getAudioTracks() : []).forEach(t => saida.addTrack(t));
@@ -422,6 +424,26 @@ function comprimeVideo(file, aoProgredir){
       } catch (e) { limpa(); resolve(null); }
     };
   });
+}
+
+/* Escada de qualidade: tenta 720p, e só desce se o resultado ainda não coube.
+   Sem Supabase Pro o teto de 50 MB é fixo, então vale mais entregar um vídeo
+   de 480p do que recusar um de 4 minutos — no slide ele aparece em 1/6 da tela
+   e a diferença mal se nota. Cada degrau custa o tempo de duração do vídeo,
+   por isso o primeiro chute já é calculado pelo bitrate que caberia. */
+const DEGRAUS = [[1280, 2500000], [854, 1200000], [640, 700000]];
+
+async function comprimeAteCaber(file, diz){
+  let ultimo = null;
+  for (const [lado, teto] of DEGRAUS) {
+    const rot = lado >= 1280 ? '720p' : (lado >= 854 ? '480p' : '360p');
+    const saida = await comprimeVideo(file, f => diz(`convertendo em ${rot} — ${Math.round(f * 100)}%`), lado, teto);
+    if (!saida) return ultimo;               // navegador não deu conta: para por aqui
+    ultimo = saida;
+    if (saida.size <= LIMITE_UPLOAD) return saida;
+    diz(`${rot} ficou em ${mb(saida.size)} MB — tentando menor…`);
+  }
+  return ultimo;
 }
 
 function capturaPoster(file){
@@ -706,6 +728,8 @@ async function renderFotos(){
         <div class="ed-foto-acoes">
           <button type="button" data-mv="${gi}:${ai}:-1" ${ai === 0 ? 'disabled' : ''}>↑</button>
           <button type="button" data-mv="${gi}:${ai}:1" ${ai === g.arquivos.length - 1 ? 'disabled' : ''}>↓</button>
+          ${v ? `<label class="ed-capa" title="Trocar a capa do vídeo">capa<input type="file"
+             accept="image/*" data-capa="${escAttr(p)}" hidden></label>` : ''}
           <button type="button" data-rmf="${gi}:${ai}">✕</button>
         </div></div>`;
     }));
@@ -737,13 +761,21 @@ async function renderFotos(){
     const gi = +inp.dataset.up;
     // vídeo demora: o status conta quantos faltam, senão parece travado
     const fila = [...inp.files];
+    const st = document.getElementById('edStatus');
     for (const [k, file] of fila.entries()) {
-      document.getElementById('edStatus').textContent =
-        `enviando ${k + 1} de ${fila.length}${(file.type || '').startsWith('video/') ? ' (vídeo — pode demorar)' : ''}…`;
-      const path = await sobeFoto(file);
+      const pre = fila.length > 1 ? `${k + 1}/${fila.length} · ` : '';
+      const path = await sobeFoto(file, t => { st.textContent = pre + t; });
       if (path) estado[gi].arquivos.push(path);
     }
-    document.getElementById('edStatus').textContent = '';
+    st.textContent = '';
+    renderFotos();
+  });
+  /* capa manual: grava por cima do poster automático, mesmo nome */
+  corpo.querySelectorAll('[data-capa]').forEach(inp => inp.onchange = async () => {
+    const st = document.getElementById('edStatus');
+    st.textContent = 'trocando a capa…';
+    await trocaCapa(inp.dataset.capa, inp.files[0]);
+    st.textContent = '';
     renderFotos();
   });
   document.getElementById('edAddG').onclick = () => { estado.push({tema:'', arquivos:[]}); renderFotos(); };
@@ -761,15 +793,77 @@ async function sobeArquivo(path, file, contentType){
 
 /* Sobe foto ou vídeo. No vídeo vai junto o poster, com o nome do próprio
    arquivo + '.poster.jpg' — assim quem lê sabe onde procurar sem guardar mais
-   nada no JSON. Poster que não pôde ser gerado simplesmente não sobe. */
-async function sobeFoto(file){
-  const nome = `${Date.now()}_${file.name}`.replace(/[^\w.-]/g, '_');
+   nada no JSON.
+
+   Antes de gastar upload, dois portões: o navegador precisa decodificar o
+   arquivo (senão nem capa nem playback existem) e ele precisa caber no teto do
+   Storage — passando disso, tenta encolher na hora. Quem não passa é recusado
+   com o motivo, não com um erro de rede no meio do envio. */
+async function sobeFoto(file, aviso){
+  const diz = t => { if (aviso) aviso(t); };
+  const video = (file.type || '').startsWith('video/') || ehVideo(file.name);
+  let dados = file, nomeBase = file.name, poster = null;
+
+  if (video) {
+    diz('conferindo o vídeo…');
+    if (!await decodifica(file)) {
+      alert(`"${file.name}" não abre neste navegador — provavelmente HEVC, o formato padrão do iPhone.\n\n`
+        + 'Três saídas, da mais simples pra menos:\n'
+        + '1. No iPhone: Ajustes › Câmera › Formatos › "Mais Compatível". Grava em H.264 e o problema '
+        + 'não volta mais.\n'
+        + '2. Subir este mesmo vídeo pelo Safari (Mac ou iPhone), que decodifica HEVC — eu converto '
+        + 'sozinho na hora do upload.\n'
+        + '3. Converter o arquivo pra MP4/H.264 antes de subir.\n\n'
+        + 'Não subi o arquivo: do jeito que está, ele também não tocaria no deck.');
+      return null;
+    }
+    /* Re-encoda também quando o formato não é universal, mesmo cabendo no
+       limite. É o caso do .mov/HEVC subido pelo Safari (que decodifica): sem
+       isso ele passa aqui e falha na hora de assistir, no Chrome de outra
+       pessoa — o pior lugar pra descobrir. Re-encodar entrega H.264 ou VP9,
+       que tocam em todo lugar. */
+    const formatoArriscado = /\.mov$/i.test(file.name) || (file.type || '') === 'video/quicktime';
+    if (file.size > LIMITE_UPLOAD || formatoArriscado) {
+      diz(formatoArriscado && file.size <= LIMITE_UPLOAD
+        ? 'convertendo pra formato compatível (leva o tempo do vídeo)…'
+        : `comprimindo (${mb(file.size)} MB — leva o tempo do vídeo)…`);
+      const menor = await comprimeAteCaber(file, diz);
+      // formato arriscado que já cabia: se a conversão falhar, sobe o original
+      // mesmo — toca pra quem decodifica, e é melhor que perder o vídeo
+      if (!menor && formatoArriscado && file.size <= LIMITE_UPLOAD) {
+        diz('não deu pra converter — subindo o original');
+      } else if (!menor || menor.size > LIMITE_UPLOAD) {
+        alert(`"${file.name}" tem ${mb(file.size)} MB e o limite por arquivo é ${mb(LIMITE_UPLOAD)} MB.\n\n`
+          + (menor ? `Mesmo em 360p ficou em ${mb(menor.size)} MB. ` : 'A conversão automática não funcionou aqui. ')
+          + 'Corte um trecho mais curto — no slide o vídeo ocupa 1/6 da tela, então 20 ou 30 segundos '
+          + 'costumam bastar.');
+        return null;
+      } else {
+        dados = menor;
+        // a extensão tem de casar com o formato de saída, senão o deck não
+        // reconhece o item como vídeo (o tipo sai do nome do arquivo)
+        const ext = (menor.type || '').includes('mp4') ? 'mp4' : 'webm';
+        nomeBase = file.name.replace(/\.[^.]+$/, '') + '.' + ext;
+        diz(`convertido: ${mb(file.size)} MB → ${mb(menor.size)} MB`);
+      }
+    }
+    poster = await capturaPoster(dados) || await capturaPoster(file);
+  }
+
+  const nome = `${Date.now()}_${nomeBase}`.replace(/[^\w.-]/g, '_');
   const path = `${mesAtual}/${nome}`;
-  const video = (file.type || '').startsWith('video/') || ehVideo(nome);
-  const poster = video ? await capturaPoster(file) : null;
-  if (!await sobeArquivo(path, file)) return null;
+  diz('enviando…');
+  if (!await sobeArquivo(path, dados, dados.type || file.type)) return null;
   if (poster) await sobeArquivo(posterDe(path), poster, 'image/jpeg');
   return path;
+}
+
+/* Capa escolhida à mão — para quando o frame automático sai preto, tremido ou
+   simplesmente feio. Grava no mesmo nome que o automático usaria, então o
+   slide, o PPTX e o build pegam a nova sem saber a diferença. */
+async function trocaCapa(pathVideo, file){
+  if (!file || !file.type.startsWith('image/')) return false;
+  return await sobeArquivo(posterDe(pathVideo), file, file.type);
 }
 
 async function salvaEditor(){

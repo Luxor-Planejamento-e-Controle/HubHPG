@@ -302,6 +302,11 @@ table.t tr:not(.tot):not(.sub) td{color:var(--ink-2)}
   border-radius:6px;font-size:12px;cursor:pointer;padding:4px 0}
 .ed-foto-acoes button:hover{background:var(--amber);color:#1a1300}
 .ed-foto-acoes button:disabled{opacity:.3;cursor:default;background:rgba(255,255,255,.14);color:#fff}
+/* troca da capa do vídeo — é um <label> de input file, mas se comporta como os
+   botões vizinhos da barra de ações */
+.ed-capa{flex:1;background:rgba(255,255,255,.14);color:#fff;border-radius:5px;cursor:pointer;
+  font-size:11px;line-height:1;padding:5px 0;text-align:center}
+.ed-capa:hover{background:var(--amber);color:#1a1300}
 .ed-vazio{grid-column:1/-1;color:var(--ink-3);font-size:12.5px;padding:10px 2px;white-space:nowrap}
 .ed-rodape{display:flex;align-items:center;justify-content:flex-end;gap:10px;
   padding:14px 20px;border-top:1px solid var(--line)}
