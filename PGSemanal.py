@@ -47,13 +47,25 @@ def _parse_ref(args) -> date:
 
 
 def _janela(ref: date) -> tuple[date, date]:
-    """Janela da semana: do último snapshot capturado (+1 dia) até ref; senão ref-7."""
+    """Janela da semana: do dia seguinte ao último fechamento até `ref`.
+
+    O corte é por SEMANA, não por data de run: entradas da mesma semana de `ref`
+    ficam de fora, senão rodar quarta e depois sexta faria a sexta enxergar uma
+    janela de dois dias em vez da semana inteira. Rodar 3x na mesma semana
+    recalcula sempre a semana toda, e o último run sobrescreve a entrada.
+
+    O início vem de `apurado_ate` (até onde o dado da semana anterior foi), não
+    da chave: quando a semana passada fechou na quinta, a atual começa na sexta
+    e nada cai num vão. Entrada antiga não tem esse campo — aí a chave É a data
+    apurada, que era o comportamento de antes.
+    """
+    wid_atual = R.sexta_da_semana(ref).isoformat()
     hist = R._load_hist()
     prev = None
     for wid in sorted(hist):
-        if R._is_iso(wid) and wid < ref.isoformat():
-            prev = date.fromisoformat(wid)
-    ini = (prev + timedelta(days=1)) if prev else (ref - timedelta(days=7))
+        if R._is_iso(wid) and wid < wid_atual:
+            prev = hist[wid].get("apurado_ate") or wid
+    ini = (date.fromisoformat(prev) + timedelta(days=1)) if prev else (ref - timedelta(days=7))
     return ini, ref
 
 
@@ -216,7 +228,12 @@ def main():
     # 21/08/2026 refazer 14/08 trocaria o headcount de 203 pelo atual. Quando a regra
     # de contagem muda, o certo é reaplicá-la sobre o que já está congelado —
     # scripts/PGSemanalRecompor.py faz isso sem abrir planilha.
-    posteriores = [w for w in R._load_hist() if R._is_iso(w) and w > fim.isoformat()]
+    # Compara SEMANAS: rodar de novo na semana corrente é atualizar, não
+    # retroagir — é o caso de quem roda quarta e volta na sexta. O bloqueio
+    # continua valendo pro que importa: refazer uma semana com outra já fechada
+    # depois dela.
+    wid_atual = R.sexta_da_semana(fim).isoformat()
+    posteriores = [w for w in R._load_hist() if R._is_iso(w) and w > wid_atual]
     if posteriores:
         print()
         print('!! ATENCAO: ja existe(m) semana(s) congelada(s) depois desta '

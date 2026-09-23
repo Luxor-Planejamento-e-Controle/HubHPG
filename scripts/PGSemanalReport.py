@@ -2317,7 +2317,9 @@ def build_report(ini: date, fim: date) -> Report:
     # semana_atual era "" ali, nenhuma semana passava no teste e o diff caía sempre no
     # bootstrap contra o arquivo anterior de receptoras — em 14/08/2026 isso recontou
     # as 14 transferências de 07/08 (o diff real dos snapshots é 0).
-    rep.semana_atual = fim.isoformat()           # semana de referência = data do fechamento
+    # Chave do snapshot = sexta da semana, não o dia do run (ver sexta_da_semana).
+    # A janela em si (semana_inicio/semana_fim) continua sendo a real.
+    rep.semana_atual = sexta_da_semana(fim).isoformat()
     build_producao(rep, ini, fim)
     build_receptoras(rep)
     build_headcount(rep)
@@ -3499,10 +3501,31 @@ def _compute_confirmados_diff(rep: Report):
               f"— {placeholder.get('obs', 'aguardando lançamento na ESTAÇÃO')}")
 
 
+def sexta_da_semana(d: date) -> date:
+    """Sexta-feira da semana de `d` — a chave do snapshot.
+
+    A chave era a DATA DO RUN, e por isso rodar no meio da semana criava uma
+    semana nova: o histórico tem 3 quintas entre 31 sextas, e a semana seguinte
+    a uma delas fechou com janela de 8 dias. Com a âncora na sexta, rodar
+    segunda, quarta e sexta grava na MESMA entrada e o último run manda — que é
+    como o fechamento semanal funciona de fato. Rodou só até quinta e não teve
+    sexta? A entrada continua sendo a da sexta, com `apurado_ate` dizendo até
+    quando o dado vai.
+
+    Sábado e domingo caem na sexta que acabou de passar (não na seguinte): a
+    semana já fechou, um run no fim de semana é atraso, não adiantamento.
+    """
+    return d + timedelta(days=4 - d.weekday())
+
+
 def _snap_from_rep(rep: Report) -> dict:
     """Snapshot completo desta run (mesmo schema do _map_docx_to_snap)."""
     return {
         "source": "extractor",
+        # Até onde o dado desta entrada vai de verdade. A chave é sempre a sexta;
+        # este campo é o dia do fechamento. É ele que abre a janela da semana
+        # seguinte — senão um fechamento na quinta faria sexta virar um vão.
+        "apurado_ate": rep.semana_fim,
         "acumulado_estacao": rep.producao.get("acumulado_estacao"),
         # Mesmo esquecimento do fontes_caminhos: computado em rep.producao, nunca
         # copiado pro snapshot. É a acumulada da SAFRA NOVA — conceito diferente de
