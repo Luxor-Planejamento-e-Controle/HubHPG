@@ -164,9 +164,18 @@ const R = {
   // a grade vem do spec (s.grade = [colunas, linhas]) para bater com a do PPTX; o
   // último slide do mês raramente fecha com 6 fotos, e julho/26 tem uma só
   fotos: s => head(s) + `<div class="s-body"><div class="fotos" style="grid-template-columns:repeat(${(s.grade||[3])[0]},1fr)">` +
-    // f ja vem como data URI: as fotos nao existem como arquivo no site (repo e
-    // site sao publicos), vem embutidas no spec, que sai do bucket privado.
-    s.fotos.map(f => `<div class="f" style="background-image:url('${f}')"></div>`).join('') +
+    // img ja vem como data URI: as fotos nao existem como arquivo no site (repo
+    // e site sao publicos), vem embutidas no spec, que sai do bucket privado.
+    // Video e um <a> de verdade, nao um <button>: no "Salvar como PDF" o Chrome
+    // preserva href e o frame no PDF fica clicavel, que e o combinado.
+    s.fotos.map(f => {
+      const o = itemFoto(f);
+      const bg = o.img ? ` style="background-image:url('${o.img}')"` : '';
+      return o.video
+        ? `<a class="f f-video${o.img ? '' : ' f-sem-capa'}" href="${escAttr(linkVideo(o.video))}"
+             data-video="${escAttr(o.video)}"${bg}><span class="play" aria-hidden="true"></span></a>`
+        : `<div class="f"${bg}></div>`;
+    }).join('') +
     `</div></div>`,
 
   pendente: s => head(s) + `<div class="s-body">` + (editorDe(s)
@@ -226,6 +235,35 @@ function vazio(glyph, tag, titulo, texto, fonte, motivo){
    de slide_comentarios/slides_exposicoes/slide_manejo/_fotos_grupo_por_tema
    do build_comite.py, só que em JS. Se o Supabase não responder ou o mês
    não tiver linha lá, o SPEC (baked) continua valendo — não quebra nada. */
+/* ---- vídeo no slide de fotos ----
+   Vídeo entra na MESMA grade das fotos: o que aparece no slide é o primeiro
+   frame (poster), e o clique abre o vídeo. O poster é gerado no navegador de
+   quem sobe e guardado ao lado do arquivo (`<path>.poster.jpg`), por dois
+   motivos: o deck não precisa decodificar vídeo pra desenhar o slide, e o PPTX
+   tem uma imagem pronta pra colar — o pptxgen não extrai frame nenhum.
+
+   O arquivo continua sendo um path no bucket privado, então o formato gravado
+   em `comite_conteudo.fotos` não muda: segue um array de strings. Vídeo se
+   reconhece pela extensão. */
+const EXT_VIDEO = /\.(mp4|webm|mov|m4v|ogv)$/i;
+const ehVideo = p => EXT_VIDEO.test(String(p || ''));
+const posterDe = p => `${p}.poster.jpg`;
+/* Link que o PPTX e o PDF carregam: abre o deck no vídeo, que lá dentro pede uma
+   URL assinada nova. Não dá pra pôr a URL assinada do bucket no arquivo — ela
+   vence em 1h e o .pptx circula por semanas. */
+const linkVideo = p => `${location.origin}${location.pathname}?video=${encodeURIComponent(p)}`;
+/* Teto por arquivo do Supabase Storage no plano atual. Medido em 23/09/2026
+   subindo blobs de tamanho crescente: 50 MB passa, 51 devolve 413
+   EntityTooLarge. Não é config do bucket (que está sem limite próprio) — é do
+   plano, então não adianta mexer no painel. */
+const LIMITE_UPLOAD = 50 * 1024 * 1024;
+const ALVO_COMPRESSAO = 45 * 1024 * 1024;   // folga pro container do webm/mp4
+const mb = n => (n / 1024 / 1024).toFixed(0);
+/* Item da grade, normalizado: o spec baked traz string (data URI da foto) e o
+   conteúdo ao vivo traz {img, video}. Os três consumidores — slide, PPTX e
+   export — passam por aqui pra não divergirem. */
+const itemFoto = f => (typeof f === 'string' ? {img: f, video: null} : (f || {img: null, video: null}));
+
 const FOTOS_POR_SLIDE = 6;
 const GRADE_FOTOS = {1:[1,1], 2:[2,1], 3:[3,1], 4:[2,2], 5:[3,2], 6:[3,2]};
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -289,14 +327,124 @@ async function buscaConteudoAoVivo(mes){
    usa (ver dataURI() mais abaixo, reaproveitada aqui) — assim a exportação
    PPTX continua funcionando sem mudar nada nela (ela espera base64 embutido,
    não URL remota). */
-async function fotoDataUri(path){
+async function urlAssinada(path, seg){
   const sb = hubSb();
   if (!sb) return null;
   try {
-    const { data, error } = await sb.storage.from('comite-fotos').createSignedUrl(path, 3600);
-    if (error || !data) return null;
-    return await dataURI(data.signedUrl);
+    const { data, error } = await sb.storage.from('comite-fotos').createSignedUrl(path, seg || 3600);
+    return (error || !data) ? null : data.signedUrl;
   } catch (e) { return null; }
+}
+async function fotoDataUri(path){
+  const url = await urlAssinada(path);
+  return url ? await dataURI(url) : null;
+}
+
+/* Primeiro frame do vídeo, como Blob JPEG — o poster que vai pro slide, pro
+   PPTX e pro PDF. Roda no navegador de quem sobe, uma vez.
+
+   Procura o frame em ~0.6s, não em 0: o começo costuma ser preto ou tremido, e
+   um quadro preto na grade parece foto que não carregou. Se o navegador não
+   decodifica o formato (.mov do iPhone é o caso comum fora do Safari), devolve
+   null e o item fica com a marca de play sem imagem — o vídeo continua salvo e
+   tocável, só não tem capa. */
+/* O navegador consegue DECODIFICAR este vídeo?
+
+   Vale a pergunta antes de subir: se a resposta é não, não é só a capa que
+   falha — o vídeo não toca no deck, e subir 40 MB de algo que ninguém vê é o
+   pior desfecho. O caso comum é o .mov do iPhone gravado em HEVC: o Safari
+   toca, o Chrome no Windows só com o decodificador do sistema. Testar de
+   verdade (carregar e pedir um frame) é mais confiável que `canPlayType`, que
+   responde "maybe" para praticamente tudo. */
+function decodifica(file){
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.src = url;
+    const fim = ok => { URL.revokeObjectURL(url); v.remove(); resolve(ok); };
+    const prazo = setTimeout(() => fim(false), 15000);
+    v.onerror = () => { clearTimeout(prazo); fim(false); };
+    v.onloadeddata = () => { clearTimeout(prazo); fim(!!(v.videoWidth && v.videoHeight)); };
+  });
+}
+
+/* Re-encoda pra caber no teto do Storage: desenha o vídeo num canvas menor e
+   grava a saída com o MediaRecorder, junto com a faixa de áudio do original.
+   Canvas em vez de `video.captureStream()` direto porque o stream do elemento
+   sai na resolução original — e é justamente a resolução que precisa cair.
+
+   Roda em tempo real: um vídeo de 1 minuto leva ~1 minuto. Só funciona se o
+   navegador decodificar o original, então HEVC no Chrome continua de fora — o
+   `decodifica()` acima é quem barra esse caso, antes de chegar aqui. */
+const MIMES_SAIDA = ['video/mp4;codecs=h264,aac', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+
+function comprimeVideo(file, aoProgredir){
+  return new Promise(async resolve => {
+    const mime = MIMES_SAIDA.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+    if (!mime) return resolve(null);
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    const limpa = () => { URL.revokeObjectURL(url); v.remove(); };
+    v.onerror = () => { limpa(); resolve(null); };
+    v.onloadedmetadata = async () => {
+      try {
+        const dur = v.duration;
+        if (!dur || !isFinite(dur)) { limpa(); return resolve(null); }
+        // 720p no maior lado, mantendo proporção e lado par (exigência de codec)
+        const escala = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));
+        const par = n => Math.max(2, Math.round(n * escala / 2) * 2);
+        const c = document.createElement('canvas');
+        c.width = par(v.videoWidth); c.height = par(v.videoHeight);
+        const ctx = c.getContext('2d');
+        // bitrate que cabe no alvo, com teto de 2,5 Mbps — acima disso 720p
+        // não melhora o suficiente pra justificar o tamanho
+        const audioBps = 96000;
+        const videoBps = Math.max(600000, Math.min(2500000, (ALVO_COMPRESSAO * 8) / dur - audioBps));
+        const saida = c.captureStream(30);
+        const doVideo = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null);
+        (doVideo ? doVideo.getAudioTracks() : []).forEach(t => saida.addTrack(t));
+        const rec = new MediaRecorder(saida, {mimeType: mime, videoBitsPerSecond: videoBps, audioBitsPerSecond: audioBps});
+        const pedacos = [];
+        rec.ondataavailable = e => { if (e.data && e.data.size) pedacos.push(e.data); };
+        rec.onstop = () => { limpa(); resolve(new Blob(pedacos, {type: mime.split(';')[0]})); };
+        let vivo = true;
+        const pinta = () => {
+          if (!vivo) return;
+          ctx.drawImage(v, 0, 0, c.width, c.height);
+          if (aoProgredir && dur) aoProgredir(Math.min(1, v.currentTime / dur));
+          requestAnimationFrame(pinta);
+        };
+        v.onended = () => { vivo = false; if (rec.state !== 'inactive') rec.stop(); };
+        rec.start(1000);
+        await v.play();
+        pinta();
+      } catch (e) { limpa(); resolve(null); }
+    };
+  });
+}
+
+function capturaPoster(file){
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    const fim = blob => { URL.revokeObjectURL(url); v.remove(); resolve(blob); };
+    const erro = () => fim(null);
+    const prazo = setTimeout(erro, 15000);
+    v.onerror = erro;
+    v.onloadeddata = () => { v.currentTime = Math.min(0.6, (v.duration || 1) / 2); };
+    v.onseeked = () => {
+      clearTimeout(prazo);
+      try {
+        const c = document.createElement('canvas');
+        c.width = v.videoWidth; c.height = v.videoHeight;
+        if (!c.width || !c.height) return erro();
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        c.toBlob(b => fim(b), 'image/jpeg', 0.85);
+      } catch (e) { erro(); }
+    };
+  });
 }
 
 /* monta os slides sem fonte a partir do conteúdo ao vivo — mesma regra do
@@ -332,11 +480,18 @@ async function montaSlidesAoVivo(mes){
     const grupos = typeof c.fotos[0] === 'string' ? [{tema:'', arquivos:c.fotos}] : c.fotos;
     const s = [];
     for (const g of grupos) {
-      const urls = (await Promise.all((g.arquivos || []).map(fotoDataUri))).filter(Boolean);
-      if (!urls.length) continue;
-      const n = Math.ceil(urls.length / FOTOS_POR_SLIDE);
+      /* Foto vira data URI (é o que o PPTX cola). Vídeo vira {img: poster,
+         video: path}: o arquivo em si nunca é embutido — o slide mostra a capa
+         e o clique busca uma URL assinada na hora. Vídeo sem poster entra
+         assim mesmo, com a marca de play e sem capa. */
+      const itens = (await Promise.all((g.arquivos || []).map(async a => {
+        if (!ehVideo(a)) { const img = await fotoDataUri(a); return img ? {img, video: null} : null; }
+        return {img: await fotoDataUri(posterDe(a)), video: a};
+      }))).filter(Boolean);
+      if (!itens.length) continue;
+      const n = Math.ceil(itens.length / FOTOS_POR_SLIDE);
       for (let k = 0; k < n; k++) {
-        const bloco = urls.slice(k * FOTOS_POR_SLIDE, (k + 1) * FOTOS_POR_SLIDE);
+        const bloco = itens.slice(k * FOTOS_POR_SLIDE, (k + 1) * FOTOS_POR_SLIDE);
         const [cols, rows] = GRADE_FOTOS[bloco.length];
         let sub = g.tema ? `Obras e melhorias realizadas · ${g.tema}` : `Registros de ${MESES_PT[mNum-1]} ${ano}`;
         if (n > 1) sub += ` (${k+1}/${n})`;
@@ -542,9 +697,12 @@ async function renderFotos(){
   const corpo = document.getElementById('edCorpo');
   const blocos = await Promise.all(estado.map(async (g, gi) => {
     const thumbs = await Promise.all((g.arquivos || []).map(async (p, ai) => {
-      const uri = await fotoDataUri(p);
-      return `<div class="ed-foto">
+      // vídeo mostra o poster que subiu com ele; sem poster, fica só a marca
+      const v = ehVideo(p);
+      const uri = await fotoDataUri(v ? posterDe(p) : p);
+      return `<div class="ed-foto${v ? ' ed-video' : ''}">
         <img src="${uri || ''}" alt="">
+        ${v ? '<span class="ed-play" aria-hidden="true"></span>' : ''}
         <div class="ed-foto-acoes">
           <button type="button" data-mv="${gi}:${ai}:-1" ${ai === 0 ? 'disabled' : ''}>↑</button>
           <button type="button" data-mv="${gi}:${ai}:1" ${ai === g.arquivos.length - 1 ? 'disabled' : ''}>↓</button>
@@ -554,7 +712,7 @@ async function renderFotos(){
     return `<div class="ed-grupo">
       <div class="ed-grupo-head">
         <input data-gi="${gi}" value="${escAttr(g.tema)}" placeholder="Tema (opcional)">
-        <label class="ed-upload">+ foto<input type="file" accept="image/*" multiple data-up="${gi}" hidden></label>
+        <label class="ed-upload">+ foto/vídeo<input type="file" accept="image/*,video/*" multiple data-up="${gi}" hidden></label>
         <button type="button" class="ed-rm" data-rmg="${gi}">✕ remover grupo</button>
       </div>
       <div class="ed-fotos-grade">${thumbs.join('') || '<span class="ed-vazio">sem foto neste grupo</span>'}</div>
@@ -577,8 +735,11 @@ async function renderFotos(){
   });
   corpo.querySelectorAll('[data-up]').forEach(inp => inp.onchange = async () => {
     const gi = +inp.dataset.up;
-    document.getElementById('edStatus').textContent = 'enviando foto…';
-    for (const file of inp.files) {
+    // vídeo demora: o status conta quantos faltam, senão parece travado
+    const fila = [...inp.files];
+    for (const [k, file] of fila.entries()) {
+      document.getElementById('edStatus').textContent =
+        `enviando ${k + 1} de ${fila.length}${(file.type || '').startsWith('video/') ? ' (vídeo — pode demorar)' : ''}…`;
       const path = await sobeFoto(file);
       if (path) estado[gi].arquivos.push(path);
     }
@@ -587,16 +748,28 @@ async function renderFotos(){
   });
   document.getElementById('edAddG').onclick = () => { estado.push({tema:'', arquivos:[]}); renderFotos(); };
 }
-async function sobeFoto(file){
+async function sobeArquivo(path, file, contentType){
   const sb = hubSb();
-  if (!sb) return null;
+  if (!sb) return false;
+  try {
+    const { error } = await sb.storage.from('comite-fotos')
+      .upload(path, file, {contentType: contentType || file.type, upsert: true});
+    if (error) { alert('Falha no upload: ' + error.message); return false; }
+    return true;
+  } catch (e) { alert('Falha no upload: ' + e.message); return false; }
+}
+
+/* Sobe foto ou vídeo. No vídeo vai junto o poster, com o nome do próprio
+   arquivo + '.poster.jpg' — assim quem lê sabe onde procurar sem guardar mais
+   nada no JSON. Poster que não pôde ser gerado simplesmente não sobe. */
+async function sobeFoto(file){
   const nome = `${Date.now()}_${file.name}`.replace(/[^\w.-]/g, '_');
   const path = `${mesAtual}/${nome}`;
-  try {
-    const { error } = await sb.storage.from('comite-fotos').upload(path, file, {contentType: file.type, upsert: true});
-    if (error) { alert('Falha no upload: ' + error.message); return null; }
-    return path;
-  } catch (e) { alert('Falha no upload: ' + e.message); return null; }
+  const video = (file.type || '').startsWith('video/') || ehVideo(nome);
+  const poster = video ? await capturaPoster(file) : null;
+  if (!await sobeArquivo(path, file)) return null;
+  if (poster) await sobeArquivo(posterDe(path), poster, 'image/jpeg');
+  return path;
 }
 
 async function salvaEditor(){
@@ -769,10 +942,12 @@ async function exportarPptx(btn){
     p.title = `Relatório de Desempenho Estratégico — ${SPEC.labels[mesAtual]}`;
     const logo = await dataURI(LOGO);
     // fotos precisam virar base64 antes: o pptxgen não busca arquivo sozinho
+    // item JA carrega o data URI (fotos vem embutidas no spec, nao como
+    // arquivo). Video entra pelo poster + hyperlink, montados no pptSlide.
     const imgs = {};
     for (const s of slides) for (const f of (s.fotos || [])) {
-      // f JA e data URI (fotos vem embutidas no spec, nao como arquivo)
-      if (!(f in imgs)) imgs[f] = f;
+      const img = itemFoto(f).img;
+      if (img && !(img in imgs)) imgs[img] = img;
     }
     slides.forEach((s, i) => pptSlide(p, s, i, logo, imgs));
     const rotulo = modo === 'trimestral' ? 'TRIMESTRAL' : 'MENSAL';
@@ -1055,10 +1230,23 @@ function pptSlide(p, s, i, logo, imgs){
     const w = (9.2 - gap * (cols - 1)) / cols;
     const alt = (4.15 - gap * (linhas - 1)) / linhas;
     s.fotos.forEach((f, k) => {
-      const d = imgs && imgs[f];
-      if (!d) return;
-      sl.addImage({data:d, x:0.41 + (k % cols) * (w + gap), y:0.95 + Math.floor(k / cols) * (alt + gap),
-                   w, h:alt, sizing:{type:'cover', w, h:alt}});
+      const o = itemFoto(f);
+      const x = 0.41 + (k % cols) * (w + gap), y = 0.95 + Math.floor(k / cols) * (alt + gap);
+      /* Video vira o frame com hyperlink pro hub — o arquivo NAO e embutido:
+         um .pptx com os videos dentro passa de 100 MB e nao sai por e-mail.
+         Sem poster (formato que o navegador de quem subiu nao decodificou)
+         entra um retangulo com o rotulo, pra ninguem achar que sumiu. */
+      const link = o.video ? {hyperlink:{url: linkVideo(o.video), tooltip:'Abrir o vídeo no hub'}} : {};
+      const d = o.img && imgs ? imgs[o.img] : null;
+      if (d) {
+        sl.addImage({data:d, x, y, w, h:alt, sizing:{type:'cover', w, h:alt}, ...link});
+      } else if (o.video) {
+        sl.addShape(p.ShapeType.roundRect, {x, y, w, h:alt, fill:{color:C.card}, line:{color:C.line, width:1}, rectRadius:0.06});
+        T('▶ VÍDEO', {x, y: y + alt / 2 - 0.15, w, h:0.3, fontSize:11, bold:true, color:C.amber, align:'center', ...link});
+      }
+      if (o.video && d) {
+        T('▶', {x, y, w:0.34, h:0.28, fontSize:12, bold:true, color:'FFFFFF', align:'center', ...link});
+      }
     });
     return;
   }
@@ -1090,9 +1278,64 @@ document.getElementById('editar').onclick = () => abreEditor(slides[idx]);
 /* mesmo editor, chamado do cartao do slide vazio */
 document.body.addEventListener('click', e => {
   if (e.target.closest('[data-abrir-editor]')) abreEditor(slides[idx]);
+  const v = e.target.closest('[data-video]');
+  if (v) { e.preventDefault(); abreVideo(v.dataset.video); }
 });
+
+/* ---- player do vídeo ----
+   Dentro do deck o clique no frame toca aqui mesmo, sem sair do slide. Vindo
+   do PPTX ou do PDF chega pelo `?video=`, com a página abrindo direto no
+   player. Nos dois casos a URL assinada é pedida agora: a do arquivo exportado
+   já teria vencido. */
+async function abreVideo(path){
+  if (!path) return;
+  let ov = document.getElementById('videoOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'videoOverlay';
+    ov.innerHTML = `<div id="videoBox">
+      <button type="button" id="videoFechar" aria-label="Fechar">✕</button>
+      <video id="videoPlayer" controls playsinline></video>
+      <p id="videoErro" hidden></p>
+    </div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) fechaVideo(); });
+    document.getElementById('videoFechar').onclick = fechaVideo;
+  }
+  const player = document.getElementById('videoPlayer');
+  const erro = document.getElementById('videoErro');
+  ov.style.display = 'flex';
+  player.hidden = true; erro.hidden = true;
+  const url = await urlAssinada(path, 7200);
+  if (!url) {
+    erro.textContent = 'Não foi possível abrir o vídeo. Entre no hub e tente de novo.';
+    erro.hidden = false;
+    return;
+  }
+  player.src = url; player.hidden = false;
+  player.play().catch(() => {});   // autoplay bloqueado: fica nos controles
+}
+function fechaVideo(){
+  const ov = document.getElementById('videoOverlay');
+  if (!ov) return;
+  const player = document.getElementById('videoPlayer');
+  if (player) { player.pause(); player.removeAttribute('src'); player.load(); }
+  ov.style.display = 'none';
+}
+document.addEventListener('keydown', e => {
+  const ov = document.getElementById('videoOverlay');
+  if (e.key === 'Escape' && ov && ov.style.display !== 'none') { fechaVideo(); e.stopPropagation(); }
+}, true);
 
 const alvo = /^#([\d-]+)\/(\d+)$/.exec(location.hash);
 if (alvo && SPEC.decks[alvo[1]]) { idx = +alvo[2] - 1; mesAtual = alvo[1]; }
 trocaMes(mesAtual);
 checaEditor();
+/* `?video=<path>` — é para onde o frame do PPTX e do PDF aponta. O mês vem no
+   próprio path (`2026-08/...`), então o deck abre no mês certo antes de tocar. */
+const pedido = new URLSearchParams(location.search).get('video');
+if (pedido) {
+  const mesDoVideo = pedido.split('/')[0];
+  if (SPEC.decks[mesDoVideo] && mesDoVideo !== mesAtual) trocaMes(mesDoVideo);
+  abreVideo(pedido);
+}

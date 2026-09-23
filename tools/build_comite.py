@@ -1313,6 +1313,12 @@ def _foto_do_bucket(path: str) -> str | None:
 # ("fotos/arquivo.jpg", só em conteúdo ainda não migrado) lê do disco.
 _RE_PATH_BUCKET = re.compile(r"^\d{4}-\d{2}/")
 
+# Vídeo entra na mesma grade das fotos, mas o que se embute no spec é o POSTER
+# (`<path>.poster.jpg`, gravado junto no upload) — nunca o arquivo: um mp4 em
+# base64 no spec.js deixaria o deck impossível de carregar. O item vira
+# {"img": <poster>, "video": <path>}; o deck monta o link a partir do path.
+_RE_VIDEO = re.compile(r"\.(mp4|webm|mov|m4v|ogv)$", re.I)
+
 
 def _fotos_grupo_por_tema(grupos, m, ano):
     """Um ou mais slides por TEMA, igual ao deck oficial — 'Obras e melhorias
@@ -1323,6 +1329,13 @@ def _fotos_grupo_por_tema(grupos, m, ano):
         tema, arquivos = g.get("tema") or "", g.get("arquivos") or []
         embutidas = []
         for f in arquivos:
+            if _RE_VIDEO.search(f):
+                # sem poster o item ficaria sem nada pra mostrar no slide baked;
+                # o conteúdo ao vivo ainda o resgata com a marca de play
+                poster = _foto_do_bucket(f + ".poster.jpg") if _RE_PATH_BUCKET.match(f) else None
+                if poster:
+                    embutidas.append({"img": poster, "video": f})
+                continue
             uri = _foto_do_bucket(f) if _RE_PATH_BUCKET.match(f) else _foto_embutida(OUT / f)
             if uri:
                 embutidas.append(uri)
