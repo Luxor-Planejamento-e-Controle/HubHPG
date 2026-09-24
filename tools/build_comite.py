@@ -151,6 +151,97 @@ def brl_curto(v):
     return f"{s}R$ {a:.0f}"
 
 
+def brl_cheio(v):
+    """R$ 102.500 — valor inteiro com milhar, como o relatório escreve."""
+    if v is None:
+        return "—"
+    return ("-" if v < 0 else "") + "R$ " + f"{abs(v):,.0f}".replace(",", ".")
+
+
+def brl_k(v):
+    """R$30k / R$105k — a coluna VALOR dos contratos de embrião. Arredonda como o
+    relatório (meio vai pro par: 22.500 sai R$22k, 51.750 sai R$52k)."""
+    if not v:
+        return "—"
+    return ("-" if v < 0 else "") + f"R${round(abs(v) / 1000):.0f}k"
+
+
+# ------------------------------------------------------------ nomes como o haras
+# As planilhas guardam nome de animal e de pessoa em caixa alta e sem acento
+# ("JUSTICA DA PAO GRANDE", "SERGIO MUNIZ"); o relatório da Ana escreve com acento
+# e abrevia o sufixo do haras ("Damasco da PG"). O dicionário cobre as palavras
+# que aparecem nos slides — palavra fora dele fica como veio, sem adivinhação.
+ACENTOS = {
+    "JUSTICA": "JUSTIÇA", "MUSICA": "MÚSICA", "BEGONIA": "BEGÔNIA", "TRES": "TRÊS",
+    "CORACOES": "CORAÇÕES", "IMPERIO": "IMPÉRIO", "INVENCIVEL": "INVENCÍVEL",
+    "XODO": "XODÓ", "FEITICO": "FEITIÇO", "LEGITIMO": "LEGÍTIMO", "PAVAO": "PAVÃO",
+    "PETUNIA": "PETÚNIA", "ACAUA": "ACAUÃ", "CAPADOCIA": "CAPADÓCIA", "RETA": "RETÃ",
+    "ATLANTICO": "ATLÂNTICO", "ATALNTICO": "ATLÂNTICO", "OPERA": "ÓPERA",
+    "NEGOCIO": "NEGÓCIOS", "NEGOCIOS": "NEGÓCIOS", "LEILAO": "LEILÃO",
+    "EMBRIAO": "EMBRIÃO", "EMBRIOES": "EMBRIÕES", "RECEPTORA": "RECEPTORA",
+    "PECUARIA": "PECUÁRIA", "AGROPECUARIA": "AGROPECUÁRIA", "JOSE": "JOSÉ",
+    "JOAO": "JOÃO", "SERGIO": "SÉRGIO", "TARCISIO": "TARCÍSIO", "VINICIUS": "VINÍCIUS",
+    "JULIO": "JÚLIO", "NIOBIO": "NIÓBIO", "OASIS": "OÁSIS", "PLATAO": "PLATÃO",
+    "PICANCO": "PICANÇO", "ANTONIO": "ANTÔNIO", "MARCIO": "MÁRCIO", "FABIO": "FÁBIO",
+    "ROGERIO": "ROGÉRIO", "LUCIO": "LÚCIO", "LIDIA": "LÍDIA", "LUDIA": "LÚDIA",
+    "CAMPEA": "CAMPEÃ", "CAMPEAO": "CAMPEÃO", "COBERTURA": "COBERTURA",
+    "SEMEN": "SÊMEN", "ALCATEIA": "ALCATEIA", "ALCATÉIA": "ALCATEIA",
+    "CANCELAMENTO": "CANCELAMENTO", "REPOSICAO": "REPOSIÇÃO", "CONFIRMACAO": "CONFIRMAÇÃO",
+}
+PARTICULAS = {"DA", "DE", "DO", "DAS", "DOS", "E", "COM", "PARA", "EM", "A", "O", "AS", "OS",
+              "NA", "NO", "NAS", "NOS", "À", "AO", "POR"}
+
+
+def _acentua(txt: str) -> str:
+    return " ".join(ACENTOS.get(p, p) for p in str(txt or "").split())
+
+
+def nome_animal(txt: str, curto: bool = True) -> str:
+    """Nome de animal em CAIXA ALTA, acentuado; `curto` troca 'DA PAO GRANDE' por
+    'DA PG' (é como a Ana escreve nos slides de estação)."""
+    s = _acentua(" ".join(str(txt or "").upper().split()))
+    if curto:
+        s = re.sub(r"\bDA PAO GRANDE\b", "DA PG", s)
+    return s
+
+
+def titulo_pt(txt: str) -> str:
+    """'DAMASCO DA PAO GRANDE' -> 'Damasco da PG'; 'A DEFINIR' -> 'A Definir'."""
+    s = _acentua(" ".join(str(txt or "").upper().split()))
+    s = re.sub(r"\bPAO GRANDE\b", "PG", s)
+    out = []
+    for i, p in enumerate(s.split()):
+        if p in ("PG", "MH", "EAO", "ABCCMM", "RJ", "CTE", "GTA", "DNA", "TI", "II", "III",
+                 "IV", "V", "VI", "XV", "XVI", "XXIX", "XX", "XXX", "N19", "I"):
+            out.append(p)
+        elif i and p in PARTICULAS:
+            out.append(p.lower())
+        else:
+            out.append(p[:1] + p[1:].lower())
+    return " ".join(out)
+
+
+def pessoa_curta(txt: str) -> str:
+    """Contraparte do contrato como o relatório mostra: sem o percentual, no máximo
+    três nomes e sem terminar em 'de/da'. Contrato com dois compradores ('25% FULANO
+    / 25% BELTRANO') vira 'Fulano Sobrenome / Beltrano'."""
+    s = str(txt or "").strip()
+    if not s:
+        return "—"
+    s = re.split(r"\s+-\s+", s)[0]                   # 'MARCOS REZENDE - HARAS ...'
+    partes = [re.sub(r"^\s*\d+([.,]\d+)?\s*%\s*", "", p).strip() for p in s.split("/")]
+    partes = [p for p in partes if p]
+
+    def encurta(p, n):
+        ws = titulo_pt(p).split()[:n]
+        while len(ws) > 1 and ws[-1].upper() in PARTICULAS:
+            ws.pop()
+        return " ".join(ws)
+    if len(partes) > 1:
+        return f"{encurta(partes[0], 2)} / {encurta(partes[1], 1)}"
+    return encurta(partes[0], 3)
+
+
 # ==================================================================== DRE
 # Fonte: DRE_Historico.xlsx — a base consolidada que o LxDREdataExtractor gera e
 # que o LuxorP&CHub já lê. É ela, e NÃO o "DRE 2026 HPG - HARAS.xlsx":
@@ -472,6 +563,194 @@ def dre_grupo(cc, modelo, ano, m, grupo):
     return _linhas_dre(df, "Orçado", "Realizado", so_com_valor=True)
 
 
+# ------------------------------------------------ face do relatório (as linhas dela)
+# O resumo do relatório da Ana não é a aba oficial inteira (48 linhas): é um
+# recorte de 19, com três pesos de linha — grupo (preto), detalhe (cinza recuado)
+# e resultado (faixa azul em negrito), fechando com a linha invertida em navy.
+# Cada linha aponta para o rótulo da aba "Real x Orçado", que é de onde o VALOR
+# sai (via _na_ordem_oficial, conferido 158/158 com a face em agosto/2026).
+#   (rótulo no slide, rótulo na face oficial, estilo)
+GAB_RESUMO = [
+    ("Receita Bruta", "Receita Bruta", "grupo"),
+    ("Venda de Produtos", "Venda de Produtos", "det"),
+    ("Receitas Financeiras", "Receitas Financeiras", "det"),
+    ("Deduções e Cancelamentos", "Deduções e Cancelamentos", "grupo"),
+    ("Cancelamentos", "Cancelamentos", "det"),
+    ("Custos de Venda", "Custos de Venda", "det"),
+    ("Receita Líquida", "Receita operacional - Líquida", "banda"),
+    ("Custos e Despesas", "Custos E Despesas", "banda"),
+    ("Custos", "Custos", "det"),
+    ("Despesas", "Despesas", "det"),
+    ("Arrendamentos", "Despesas - Arrendamentos", "det"),
+    ("Resultado Operacional", "Resultado Operacional", "banda"),
+    ("Variação Patrimonial", "Variação Patrimonial", "grupo"),
+    ("Baixas de Estoque", "Baixas De Estoque", "grupo"),
+    ("Por Venda", "Baixa De Estoque Por Venda", "det"),
+    ("Mortes e Doações", "Baixa De Estoque Por Mortes E Doações", "det"),
+    ("Resultado Patrimonial", "Resultado Patrimonial", "banda"),
+    ("Investimentos", "Investimentos", "grupo"),
+    ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
+]
+GAB_CAIXA = [
+    ("Receita Bruta", "Receita Bruta", "grupo"),
+    ("Receita Líquida", "Receita operacional - Líquida", "banda"),
+    ("Custos e Despesas", "Custos E Despesas", "banda"),
+    ("Resultado Operacional", "Resultado Operacional", "banda"),
+    ("Investimentos", "Investimentos", "grupo"),
+    ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
+]
+GAB_CASA = [
+    ("CASA", None, "rotulo"),
+    ("Receita Bruta", "Receita Bruta", "grupo"),
+    ("Deduções", "Deduções", "det"),
+    ("Receitas Financeiras", "Receitas Financeiras", "det"),
+    ("Receita Líquida — Locação", "Receita Liquida - Locação", "banda"),
+    ("Despesas Gerais", "Despesas Gerais", "grupo"),
+    ("Desp. com Pessoal", "Despesa Com Pessoal", "det"),
+    ("Manutenção", "Manutenção ( Servicos E Materiais)", "det"),
+    ("Contas de Consumo", "Contas De Consumo", "det"),
+    ("Materiais de Consumo", "Materiais De Consumo", "det"),
+    ("Desp. Administrativas", "Despesas Administrativas", "det"),
+    ("Tributos", "Tributos", "det"),
+    ("Resultado Operacional", "Resultado Operacional", "banda"),
+    ("Investimentos", "Investimentos", "grupo"),
+    ("Resultado após Investimentos", "Resultado após Investimentos", "fim"),
+]
+# Linhas de Despesas Gerais que a Ana não trazia (em julho estavam zeradas).
+# Com valor no mês elas ENTRAM, como detalhe — senão os detalhes não fecham com
+# o total do grupo (agosto: Marketing -1.100 e Hospedagem Família +2.400).
+CASA_EXTRAS = [("Marketing", "Marketing"), ("Hospedagem Família", "Hospedagem Familia")]
+
+
+def linhas_face(face: list[dict], gab: list, extras=None, depois_de=None) -> list[dict]:
+    """Recorta a face oficial (saída de _na_ordem_oficial) no gabarito do slide."""
+    por = {_chave_dre(l["nome"]): l for l in face}
+    out = []
+    for rot, rot_face, estilo in gab:
+        if rot_face is None:
+            out.append({"nome": rot, "estilo": estilo, "v": [None, None, None, None]})
+            continue
+        l = por.get(_chave_dre(rot_face))
+        v = list(l["v"]) if l else [0.0, 0.0, 0.0, None]
+        out.append({"nome": rot, "estilo": estilo, "v": v})
+        if extras and rot == depois_de:
+            for rot_x, face_x in extras:
+                lx = por.get(_chave_dre(face_x))
+                if lx and (abs(lx["v"][0] or 0) >= 0.5 or abs(lx["v"][1] or 0) >= 0.5):
+                    out.append({"nome": rot_x, "estilo": "det", "v": list(lx["v"])})
+    return out
+
+
+# ------------------------------------------------------ análise de custos/despesas
+# A lista é a do relatório dela: por subgrupo, as naturezas que ela acompanha,
+# na ordem em que ela as apresenta — e não "tudo que teve valor". Duas páginas
+# por tema, a linha TOTAL no topo de cada uma. Cada linha é casada na base pelo
+# (Subgrupo, Natureza) — o nome repete entre blocos (Sanidade e Reprodução
+# existem em Custos e em Despesas/Vassouras).
+#   (rótulo, estilo, grupo da base, subgrupo, natureza)
+_CUS = "CUSTOS E DESPESAS OPERACIONAIS"
+_DES = "DESPESAS"
+ANALISE_CUSTOS = [
+    [("CUSTOS TOTAIS", "total", _CUS, "CUSTOS INDIRETOS DE PRODUÇÃO", "CUSTOS INDIRETOS DE PRODUÇÃO"),
+     ("Volumoso e Concentrado", "sub", _CUS, "VOLUMOSO E CONCENTRADO", "VOLUMOSO E CONCENTRADO"),
+     ("Manutenção de Pastagem", "folha", _CUS, "VOLUMOSO E CONCENTRADO", "MANUTENÇÃO DE PASTAGEM"),
+     ("Ração", "folha", _CUS, "VOLUMOSO E CONCENTRADO", "RAÇÃO"),
+     ("Feno e Alfafa", "folha", _CUS, "VOLUMOSO E CONCENTRADO", "FENO E ALFAFA"),
+     ("Sanidade", "sub", _CUS, "SANIDADE", "SANIDADE"),
+     ("Vacinas", "folha", _CUS, "SANIDADE", "VACINAS"),
+     ("Internações e Tratamentos", "folha", _CUS, "SANIDADE", "INTERNAÇÕES E TRATAMENTOS"),
+     ("Medic. Clínica", "folha", _CUS, "SANIDADE", "MEDICAMENTOS DE CLINICA"),
+     ("Exames Clínicos", "folha", _CUS, "SANIDADE", "EXAMES CLINICOS"),
+     ("Reprodução", "sub", _CUS, "REPRODUÇÃO", "REPRODUÇÃO"),
+     ("Vet. Reprodução (Transf. Embrião)", "folha", _CUS, "REPRODUÇÃO",
+      "VETERINARIOS DE REPRODUÇÃO - TRANSF. EMBRIÃO"),
+     ("Fretes e Transportes (Reprodução)", "folha", _CUS, "REPRODUÇÃO", "FRETES E TRANSPORTES PARA REPRODUÇÃO"),
+     ("Coleta Coberturas/Sêmen", "folha", _CUS, "REPRODUÇÃO", "COLETA DE COBERTURAS/SEMEN"),
+     ("Medic. Reprodução", "folha", _CUS, "REPRODUÇÃO", "MEDICAMENTOS DE REPRODUÇÃO"),
+     ("GTA e Exames (Reprodução)", "folha", _CUS, "REPRODUÇÃO", "GTA E EXAMES DE REPRODUÇÃO")],
+    [("CUSTOS TOTAIS", "total", _CUS, "CUSTOS INDIRETOS DE PRODUÇÃO", "CUSTOS INDIRETOS DE PRODUÇÃO"),
+     ("Pista", "sub", _CUS, "PISTA", "PISTA"),
+     ("Com Exposição", "folha", _CUS, "PISTA", "COM EXPOSIÇÃO"),
+     ("Consultoria Pista", "folha", _CUS, "PISTA", "CONSULTORIA PISTA"),
+     ("Medicamento de Pista", "folha", _CUS, "PISTA", "MEDICAMENTOS E MATERIAL DE PISTA"),
+     ("Dentista", "folha", _CUS, "PISTA", "DENTISTA"),
+     ("CTE (Centro de Treinamento)", "folha", _CUS, "PISTA", "CTE (CENTRO DE TREINAMENTO)"),
+     ("Suplemento Pista", "folha", _CUS, "PISTA", "SUPLEMENTO PISTA"),
+     ("Frete de Pista", "folha", _CUS, "PISTA", "FRETE DE PISTA"),
+     ("GTA e Exames de Pista", "folha", _CUS, "PISTA", "GTA E EXAMES DE PISTA"),
+     ("Registros e Transf.", "sub", _CUS, "REGISTROS E TRANSFERENCIAS", "REGISTROS E TRANSFERENCIAS"),
+     ("Técnico", "folha", _CUS, "REGISTROS E TRANSFERENCIAS", "TENICO"),
+     ("ABCCMM (Associação)", "folha", _CUS, "REGISTROS E TRANSFERENCIAS", "ABCCMM (ASSOCIAÇÃO)")],
+]
+ANALISE_DESPESAS = [
+    [("DESPESAS TOTAIS", "total", _DES, None, "DESPESAS"),
+     ("Marketing", "sub", _DES, "MARKETING", "MARKETING"),
+     ("Manutenção", "sub", _DES, "MANUTENÇÃO", "MANUTENÇÃO"),
+     ("Veículos - Caminhão", "folha", _DES, "MANUTENÇÃO", "VEICULOS - CAMINHÃO"),
+     ("Manutenção Instalações", "folha", _DES, "MANUTENÇÃO", "MANUTENÇÃO DE INSTALAÇÕES"),
+     ("Veículos - Trator e Implementos", "folha", _DES, "MANUTENÇÃO", "VEÍCULOS - TRATOR E IMPLEMENTOS"),
+     ("Manut. Máquinas e Equipamentos", "folha", _DES, "MANUTENÇÃO", "MANUTENÇÃO DE MÁQUINAS E EQUIPAMENTOS"),
+     ("Consumo de Água e Luz", "sub", _DES, "CONSUMO DE ÁGUA E LUZ", "CONSUMO DE ÁGUA E LUZ"),
+     ("Despesas com Pessoal", "sub", _DES, "DESPESAS COM PESSOAL", "DESPESAS COM PESSOAL"),
+     ("Outras Desp. Pessoal", "folha", _DES, "DESPESAS COM PESSOAL", "OUTRAS DESPESAS COM PESSOAL"),
+     ("Férias", "folha", _DES, "DESPESAS COM PESSOAL", "FÉRIAS"),
+     ("Cesta Básica", "folha", _DES, "DESPESAS COM PESSOAL", "CESTA BÁSICA"),
+     ("Rescisões", "folha", _DES, "DESPESAS COM PESSOAL", "RESCISÕES"),
+     ("INSS", "folha", _DES, "DESPESAS COM PESSOAL", "INSS"),
+     ("Uniformes/EPIs", "folha", _DES, "DESPESAS COM PESSOAL", "UNIFORMES E EPI´S"),
+     ("Salário", "folha", _DES, "DESPESAS COM PESSOAL", "SALÁRIO"),
+     ("FGTS", "folha", _DES, "DESPESAS COM PESSOAL", "FGTS")],
+    [("DESPESAS TOTAIS", "total", _DES, None, "DESPESAS"),
+     ("Desp. Administrativas", "sub", _DES, "DESPESAS ADMINISTRATIVAS", "DESPESAS ADMINISTRATIVAS"),
+     ("Cobrança Adm. e Jurídica", "folha", _DES, "DESPESAS ADMINISTRATIVAS", "COBRANÇA ADM E JURÍDICA"),
+     ("Custo RJ", "folha", _DES, "DESPESAS ADMINISTRATIVAS", "CUSTO RJ"),
+     ("Despesas com Visitas", "folha", _DES, "DESPESAS ADMINISTRATIVAS", "DESPESAS COM VISITAS"),
+     ("Arrendamento D. Lúdia", "sub", _DES, "DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS",
+      "DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS"),
+     ("Arrendamento de Pasto", "folha", _DES, "DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS", "ARRENDAMENTO DE PASTO"),
+     ("Arrendamento Vassouras", "sub", _DES, "DESPESAS - ARRENDAMENTO Vassouras - HARAS",
+      "DESPESAS - ARRENDAMENTO Vassouras - HARAS"),
+     ("Volumes e Concentrados", "folha", _DES, "VOLUMES E CONCENTRADOS", "VOLUMES E CONCENTRADOS"),
+     ("Pessoal", "folha", _DES, "PESSOAL", "PESSOAL"),
+     ("Reprodução", "folha", _DES, "REPRODUÇÃO", "REPRODUÇÃO"),
+     ("Sanidade", "folha", _DES, "SANIDADE", "SANIDADE"),
+     ("Resultado Operacional", "banda", "RESULTADO OPERACIONAL", None, "RESULTADO OPERACIONAL")],
+]
+
+
+def linhas_analise(ano: int, m: int, pagina: list) -> list[dict]:
+    """Uma página da análise: cada linha do gabarito casada na base do mês."""
+    h = le_historico()
+    if not h:
+        return []
+    g = h["geral"]
+    df = g[(g["Centro de Custo"] == "HPG") & (g["Modelo"] == "Competência")
+           & (g["ano"] == ano) & (g["mes"] == m)]
+    ch = lambda x: _chave_dre(x) if isinstance(x, str) else ""
+    grupo_k = df["Grupo"].map(ch)
+    sub_k = df["Subgrupo"].map(ch)
+    nat_k = df["Natureza de Lançamento"].map(ch)
+    out = []
+    for rot, estilo, grupo, sub, nat in pagina:
+        sel = (nat_k == _chave_dre(nat)) & (grupo_k == _chave_dre(grupo))
+        if sub:
+            sel &= sub_k == _chave_dre(sub)
+        cand = df[sel]
+        if len(cand) > 1:
+            # A base traz o bloco de Manutenção duas vezes (o principal e um bloco
+            # residual de -760). O relatório mostra o principal: o de maior valor.
+            cand = cand.assign(_p=cand["Orçado"].abs().fillna(0) + cand["Realizado"].abs().fillna(0)) \
+                       .sort_values("_p", ascending=False).head(1)
+        if cand.empty:
+            orc = real = 0.0
+        else:
+            r = cand.iloc[0]
+            orc, real = num(r["Orçado"]) or 0.0, num(r["Realizado"]) or 0.0
+        out.append({"nome": rot, "estilo": estilo,
+                    "v": [orc, real, (real - orc) / 1000.0, pct(orc, real)]})
+    return out
+
+
 # =========================================================== Investimentos (S09)
 def slide_investimentos(m, ano):
     if not DRE_HARAS.exists():
@@ -502,16 +781,35 @@ def slide_investimentos(m, ano):
                 atual["total"] = v
             continue
         if bl == "COMPRA DE ANIMAIS E PRODUTOS" and v is not None:
-            atual["itens"].append({"desc": b or a.title(), "valor": v})
+            atual["itens"].append({"desc": desc_investimento(b, a), "valor": v})
     wb.close()
     # o slide é acumulado do ano: mostra de janeiro até o mês do deck
     idx = {nm.lower(): i + 1 for i, nm in enumerate(MESES)}
     meses = [x for x in meses if idx.get(x["mes"].lower(), 99) <= m]
     for x in meses:
+        k = idx.get(x["mes"].lower(), 0)
+        # rótulo do relatório: 'Jan/26'; o mês do deck vai na faixa dourada
+        x["rotulo"] = f"{ABR[k-1]}/{str(ano)[2:]}" if k else x["mes"]
+        x["atual"] = k == m
         if not x["itens"]:
             x["itens"] = [{"desc": "Sem compra de animais e produtos registrada no mês", "valor": 0.0}]
     return {"t": "lista_mes", "n": 9, "titulo": f"INVESTIMENTOS — COMENTÁRIOS {ano}",
-            "sub": f"Compra de animais e produtos · Jan–{ABR[m-1]}", "meses": meses}
+            "sub": f"Compra de Animais e Produtos  ·  Janeiro a {MESES[m-1]}", "meses": meses}
+
+
+def desc_investimento(desc: str, quem: str) -> str:
+    """Linha da compra como o relatório escreve: 'Ref. Canc. 25% Nióbio da PG — IV
+    Semana de Negócios PG (Vitor Bezerra de Menezes Picanço)'. Tira a data que a
+    controladoria cola no fim e troca os separadores; o texto continua o dela."""
+    d = " ".join(str(desc or "").split())
+    d = re.sub(r"\s*-?\s*\d{2}/\d{2}/\d{4}\s*$", "", d)            # data no fim
+    d = re.sub(r"(?i)\bREF\.?\s*CANCELAMENTO\b", "REF. CANC.", d)
+    d = re.sub(r"(?i)\bCOMPRA DE 0(\d)\b", r"COMPRA DE \1", d)
+    t = titulo_pt(d).replace(" X ", " × ").replace(" x ", " × ").replace(" - ", " — ")
+    t = re.sub(r"\bRef\. Canc\.", "Ref. Canc.", t)
+    t = re.sub(r"^Ref\. canc\.", "Ref. Canc.", t, flags=re.I)
+    q = titulo_pt(quem) if quem else ""
+    return f"{t} ({q})" if q else t
 
 
 # ============================================================ Plantel (S11/S12/S37)
@@ -591,19 +889,17 @@ def slide_estoque(m, ano):
     # porque ele existe no plantel; o que falta é a avaliação dele.
     medio = float(x["valor_100"].sum()) / len(x) if len(x) else 0.0
     cat = x["categoria"].value_counts()
-    return {"t": "kpis_tabela", "n": 11, "titulo": "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE",
-            "sub": (f"Composição patrimonial do plantel · {MESES[m-1].upper()} {ano} · {len(x)} animais"
-                    f" · Status PLANTEL · Sufixo: Da PG / Outros"
-                    + (f" / E 100% (Eduardo)" if n_eduardo else "")),
-            "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos",
-                      "s": (f"Da PG + Outros + {n_eduardo} do Eduardo" if n_eduardo
-                            else "DA PAO GRANDE + OUTROS")},
-                     {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "patrimônio proporcional"},
-                     {"v": brl_curto(medio), "l": "Valor Médio",
-                      "s": (f"{len(x)} animais · {len(x) - aval} sem avaliação" if aval < len(x)
-                            else f"{len(x)} animais avaliados")}],
-            "tabela": {"cols": ["CATEGORIA", "Nº", "%"],
-                       "rows": _linhas_categoria(cat, len(x))}}
+    # Cartões como os dela: só valor e rótulo, e o de animais com a regra do
+    # sufixo embaixo. Quantos estão sem avaliação não aparece no slide — o valor
+    # médio já é sobre todos (ver acima).
+    return {"t": "estoque", "n": 11, "titulo": "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE",
+            "sub": (f"Composição patrimonial do plantel  ·  {MESES[m-1].upper()} {ano}  ·  "
+                    f"{len(x)} animais  ·  Status PLANTEL  ·  Sufixo: Da PG / Outros"),
+            "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "DA PAO GRANDE + OUTROS",
+                      "cor": "navy", "pt": 28},
+                     {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "", "cor": "ouro", "pt": 20},
+                     {"v": brl_curto(medio), "l": "Valor Médio", "s": "", "cor": "azul", "pt": 24}],
+            "rows": _linhas_categoria(cat, len(x))}
 
 
 MOV_LINHAS = [("saldo_ini", "Saldo Inicial"), ("compra", "(+) Compras"), ("producao", "(+) Prod. Emb."),
@@ -612,7 +908,83 @@ MOV_LINHAS = [("saldo_ini", "Saldo Inicial"), ("compra", "(+) Compras"), ("produ
               ("saldo_fim", "Saldo Final")]
 
 
+# Resumo da movimentação = a aba `Resumo Contabil` do mapa de movimentações da
+# Controladoria, que é o número LIBERADO (e o que o slide da Ana reproduz na
+# vírgula: julho/26 fecha em R$ 15.970.552,61). A cascata calculada
+# (mov_cascata.parquet) somava também o Eduardo e saía do divulgado.
+MAPA_MOV_DIR = Path(r"G:\Drives compartilhados\Luxor Controladoria\Relatórios Gerenciais"
+                    r"\RELATORIOS - OPERAÇÃO HARAS E FAZENDA PG\Posição Equinos"
+                    r"\PLANTEL - Movimentações")
+MOV_ROTULOS = {"SALDO INICIAL": "saldo_ini", "(+) COMPRAS": "compras",
+               "(+) PRODUCAO EMBRIOES": "producao", "(-) BAIXA VENDAS": "vendas",
+               "(-) BAIXA MORTES E DOACOES": "mortes", "(+/-) REAVALIACOES": "reaval",
+               "SALDO FINAL": "saldo_fim"}
+MOV_LINHAS_ANA = [("saldo_ini", "Saldo Inicial"), ("compras", "(+) Compras"),
+                  ("producao", "(+) Prod. Emb."), ("vendas", "(-) Baixa Vendas"),
+                  ("mortes", "(-) Baixa Mortes"), ("reaval", "(+/-) Reaval."),
+                  ("saldo_fim", "Saldo Final")]
+
+
+def _mapa_mov(ano: int, m: int):
+    """Mapa daquele fechamento ('... (Jul 2026).xlsx'); sem ele, o mais novo do ano.
+    Mês fechado lê o arquivo do próprio mês: o mais novo pode ter revisado o
+    passado, e o deck de julho não muda porque agosto foi publicado."""
+    pasta = MAPA_MOV_DIR / str(ano)
+    if not pasta.exists():
+        return None
+    todos = [f for f in pasta.glob("*.xlsx") if "Movimenta" in f.name and not f.name.startswith("~$")]
+    do_mes = [f for f in todos if f"({ABR[m-1]} {ano})" in f.name]
+    cands = do_mes or todos
+    return max(cands, key=lambda f: f.stat().st_mtime) if cands else None
+
+
+def resumo_contabil(ano: int, m: int) -> dict:
+    """{'2026-01': {saldo_ini, compras, ...}} da aba Resumo Contabil."""
+    f = _mapa_mov(ano, m)
+    if f is None:
+        return {}
+    wb = _load(_registra("resumo contábil (mapa)", f))
+    aba = next((s for s in wb.sheetnames if "RESUMO" in _norm(s)), None)
+    out, col_mes = {}, {}
+    if aba:
+        for r in wb[aba].iter_rows(values_only=True):
+            rot = _norm(r[1]) if len(r) > 1 and r[1] is not None else ""
+            if rot == "TITULO":
+                for j, c in enumerate(r):
+                    k = next((i + 1 for i, a in enumerate(ABR) if _norm(c or "")[:3] == _norm(a)), None)
+                    if k and j > 1:
+                        col_mes[j] = k
+                continue
+            campo = MOV_ROTULOS.get(rot)
+            if not campo:
+                continue
+            for j, k in col_mes.items():
+                v = r[j] if j < len(r) else None
+                if isinstance(v, (int, float)):
+                    out.setdefault(k, {})[campo] = float(v)
+    wb.close()
+    return out
+
+
 def slide_movimentacao(m, ano):
+    rc = resumo_contabil(ano, m)
+    meses = [k for k in range(1, m + 1) if k in rc]
+    if meses:
+        u = rc[meses[-1]]
+        mes_nome = MESES[meses[-1] - 1]
+        rows = [[rot] + [rc[k].get(campo, 0.0) for k in meses] for campo, rot in MOV_LINHAS_ANA]
+        ab = ABR[meses[-1] - 1]
+        return {"t": "movimentacao", "n": 12, "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}",
+                "sub": "Saldo mensal · Compras, produções, vendas e baixas",
+                "kpis": [{"v": ("+" if u.get("producao", 0) >= 0 else "") + brl_curto(u.get("producao", 0)),
+                          "l": f"Produção Emb. {ab}", "s": f"{mes_nome} {ano}", "cor": "navy"},
+                         {"v": brl_curto(u.get("vendas", 0)), "l": f"Baixa Vendas {ab}",
+                          "s": f"{mes_nome} {ano}", "cor": "vinho"},
+                         {"v": brl_curto(u.get("mortes", 0)), "l": f"Mortes/Doações {ab}",
+                          "s": f"{mes_nome} {ano}", "cor": "vermelho"},
+                         {"v": brl_curto(u.get("saldo_fim", 0)), "l": f"Saldo Final {ab}",
+                          "s": "Haras PG", "cor": "azul"}],
+                "cols": ["TÍTULO"] + [ABR[k - 1].upper() for k in meses], "rows": rows}
     f = PLANTEL_DIR / "mov_cascata.parquet"
     if not f.exists():
         return pend(12, f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}", "", f.name,
@@ -831,20 +1203,22 @@ def funil(wb, safra):
             ab += 1
     conf = p60 - ab
     ref = lambda v: f"{v/lav*100:.0f}% dos lavados" if lav else "—"
-    return {"t": "kpis_tabela", "n": 16, "titulo": f"ESTAÇÃO DE MONTA {safra} — EMBRIÕES E PRENHEZES",
-            "sub": (f"{conf} embriões confirmados · taxa de recuperação {lav/tent*100:.0f}%"
-                    f" · {tent} tentativas" if tent else "sem tentativas na safra"),
-            "kpis": [{"v": str(conf), "l": "Embriões Conf.", "s": f"Estação {safra}"},
-                     {"v": str(lav), "l": "Lavados (+)", "s": f"{lav/tent*100:.0f}% de positivos" if tent else "—"},
-                     {"v": f"{lav/tent*100:.0f}%" if tent else "—", "l": "Taxa Recup.", "s": safra},
-                     {"v": str(ab), "l": "Abortos", "s": "confirmados > 60d"}],
-            "tabela": {"cols": [f"FUNIL DE PRENHEZ — ESTAÇÃO {safra}", "Nº", "REFERÊNCIA"],
-                       "rows": [["Tentativas", tent, "100%"],
-                                ["Lavados (+)", lav, f"{lav/tent*100:.0f}%" if tent else "—"],
-                                ["Prenhez 15d", p15, ref(p15)], ["Prenhez 30d", p30, ref(p30)],
-                                ["Prenhez 45d", p45, ref(p45)], ["Prenhez 60d", p60, ref(p60)],
-                                ["(−) Abortos", ab, "> 60 dias confirmados"],
-                                ["Confirmados", conf, ref(conf)]]}}
+    curta = f"{safra[2:4]}/{safra[-2:]}"
+    taxa = f"{lav/tent*100:.0f}%" if tent else "—"
+    return {"t": "funil", "n": 16, "titulo": f"ESTAÇÃO DE MONTA {safra} — EMBRIÕES E PRENHEZES",
+            "sub": (f"{conf} embriões confirmados  ·  Taxa recuperação: {taxa}  ·  {tent} tentativas"
+                    if tent else "sem tentativas na safra"),
+            "kpis": [{"v": str(conf), "l": "EMBRIÕES CONF.", "s": f"Estação {curta}", "cor": "navy"},
+                     {"v": str(lav), "l": "LAVADOS +", "s": f"{taxa} de positivos", "cor": "azul"},
+                     {"v": taxa, "l": "TAXA RECUP.", "s": curta, "cor": "ouro"},
+                     {"v": str(ab), "l": "ABORTOS", "s": "Confirmados >60d", "cor": "vinho"}],
+            "cab": f"FUNIL DE PRENHEZ — ESTAÇÃO {curta}",
+            "rows": [["Tentativas", tent, "100%"],
+                     ["Lavados (+)", lav, taxa],
+                     ["Prenhez 15d", p15, ref(p15)], ["Prenhez 30d", p30, ref(p30)],
+                     ["Prenhez 45d", p45, ref(p45)], ["Prenhez 60d", p60, ref(p60)],
+                     ["(−) Abortos", ab, ">60 dias confirmados"],
+                     ["Confirmados", conf, ref(conf)]]}
 
 
 def garanhoes(wb, safra):
@@ -853,38 +1227,98 @@ def garanhoes(wb, safra):
     11 total confirmados."""
     ws = wb["GARANHOES"]
     # no fim da aba há um bloco de legenda com os tipos de sêmen — ele entrava na
-    # lista como se fosse garanhão ("Fresco", "Refrigerado", "Congelado")
+    # lista como se fosse garanhão ("Fresco", "Refrigerado", "Congelado"). O
+    # bloco guarda também a REFERÊNCIA de cada tipo (coluna D: 60% refrigerado,
+    # 69% fresco), que é o "ref.:" dos cartões do relatório.
     LEGENDA = {"FRESCO", "REFRIGERADO", "CONGELADO", "TIPO DE SEMEN", "TIPO DE SÊMEN"}
-    rows, sem_uso = [], []
+    aba = {}
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
         if i < 4 or len(r) < 11 or r[2] is None:
             continue
         nome = _s(r[2])
-        if not nome or _norm(r[2]).startswith("TOTAL") or _norm(r[2]) in LEGENDA:
+        n = _norm(r[2])
+        if not nome or n.startswith("TOTAL") or n in LEGENDA:
             continue
-        tot, conf = int(_to_num(r[4]) or 0), int(_to_num(r[10]) or 0)
-        linha_ = [nome.title(), (_s(r[3]) or "")[:1].upper(), tot,
-                  int(_to_num(r[5]) or 0), conf, f"{conf/tot*100:.0f}%" if tot else "—"]
-        # garanhão sem nenhum lavado só ocupa espaço na tabela; vira nota de rodapé
-        (rows if tot else sem_uso).append(linha_)
-    rows.sort(key=lambda x: (-x[4], -x[2]))
-    somas = [sum(r[i] for r in rows) for i in (2, 3, 4)]
+        aba[_chave_garanhao(n)] = {"nome": nome_animal(nome, curto=False), "t": (_s(r[3]) or "")[:1].upper(),
+                                   "lav": int(_to_num(r[4]) or 0), "pos": int(_to_num(r[5]) or 0),
+                                   "conf": int(_to_num(r[10]) or 0)}
+    # A aba é mantida à mão e esquece garanhão: em 25/26 faltavam Latino, Esteio
+    # e Invencível, que o relatório trouxe da aba ESTAÇÃO. Mesma regra aqui —
+    # quem teve tentativa na safra e não está na aba entra com a conta da ESTAÇÃO.
+    for k, d in _garanhoes_da_estacao(wb, safra).items():
+        if k not in aba or not aba[k]["lav"]:
+            if not d["lav"]:
+                continue
+            base = aba.get(k, {"nome": nome_animal(d["nome"], curto=False), "t": ""})
+            aba[k] = {**base, "lav": d["lav"], "pos": d["pos"], "conf": d["conf"]}
+    rows = [x for x in aba.values() if x["lav"]]
+    for x in rows:
+        if not x["t"]:
+            x["t"] = TIPO_SEMEN.get(_chave_garanhao(_norm(x["nome"])), "")
+    rows.sort(key=lambda x: (-x["conf"], -x["lav"]))
+    tent = sum(x["lav"] for x in rows)
+    pos = sum(x["pos"] for x in rows)
+    conf = sum(x["conf"] for x in rows)
     por_tipo = {}
-    for r in rows:
-        if not r[1]:
+    for x in rows:
+        if x["t"]:
+            a, b = por_tipo.get(x["t"], (0, 0))
+            por_tipo[x["t"]] = (a + x["pos"], b + x["lav"])
+    nome_tipo = {"R": "REFRIGERADO", "C": "CONGELADO", "F": "FRESCO"}
+    cores = {"R": "navy", "C": "azul", "F": "ardosia"}
+    kpis = [{"v": f"{p/t*100:.0f}%", "l": nome_tipo[k], "cor": cores[k], "s": REF_SEMEN[k]}
+            for k in ("R", "C", "F") if k in por_tipo and por_tipo[k][1]
+            for p, t in [por_tipo[k]]]
+    fun = funil(wb, safra)
+    tent_s, lav_s = fun["rows"][0][1], fun["rows"][1][1]
+    return {"t": "garanhoes", "n": 17, "titulo": f"ESTAÇÃO DE MONTA {safra} — GARANHÕES",
+            "sub": (f"{tent_s} tentativas  ·  {lav_s} lavados positivos "
+                    f"({lav_s/tent_s*100:.0f}%)  ·  {fun['rows'][-1][1]} embriões confirmados"
+                    if tent_s else f"{tent} lavados  ·  {conf} embriões confirmados"),
+            "kpis": kpis, "rows": rows}
+
+
+# Referência de aproveitamento por tipo de sêmen, como o relatório imprime em
+# cada cartão. Não sai de planilha: a coluna que a trazia na aba GARANHOES sumiu
+# na cópia de 01/08/2026 (ficou só a taxa realizada).
+REF_SEMEN = {"R": "ref.: 60%", "C": "ref.: 50-60%", "F": "ref.: 70%"}
+# Tipo de sêmen de garanhão que não está na aba GARANHOES da safra (a aba é
+# mantida à mão). Os tipos são os que o relatório de jul/2026 atribui a eles;
+# a aba 26/27 confirma Latino (fresco) e Xodó (congelado).
+TIPO_SEMEN = {"LATINO PAO GRANDE": "F", "XODO PORTEIRA AZUL": "C", "ESTEIO TRES CORACOES": "C",
+              "INVENCIVEL LUA PRATA": "C", "ENCANTADO AGROTEXAS": "C", "ATREVIDO MORADA NOVA": "R",
+              "FUTURO MYLA": "C"}
+
+
+def _chave_garanhao(n: str) -> str:
+    """Chave de nome de garanhão entre as abas: a mesma égua aparece como
+    'FAVACHO ALCATÉIA' numa e 'FAVACHO ALCATEIA' noutra, 'ESTEIO TRES CORAÇÕES'
+    e 'ESTEIO DE TRES CORACOES', 'MARADA'/'MORADA'. Tira acento e partícula."""
+    s = unicodedata.normalize("NFKD", str(n)).encode("ascii", "ignore").decode().upper()
+    s = s.replace("MARADA", "MORADA")
+    return " ".join(p for p in re.findall(r"[A-Z0-9]+", s) if p not in PARTICULAS)
+
+
+def _garanhoes_da_estacao(wb, safra: str) -> dict:
+    """Tentativas, lavados + e confirmados por garanhão, pela aba ESTAÇÃO — com o
+    mesmo funil encadeado do slide de prenhezes."""
+    out = {}
+    ws = wb["ESTAÇÃO"]
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 3 or r[0] is None or len(r) < 36 or _s(r[35]) != safra or not r[3]:
             continue
-        a, b = por_tipo.get(r[1], (0, 0))
-        por_tipo[r[1]] = (a + r[3], b + r[2])
-    nome_tipo = {"R": "Refrigerado", "C": "Congelado", "F": "Fresco"}
-    return {"t": "kpis_tabela", "n": 17, "titulo": f"ESTAÇÃO DE MONTA {safra} — GARANHÕES",
-            "sub": (f"{len(rows)} garanhões usados · {somas[0]} lavados · {somas[1]} positivos"
-                    f" · {somas[2]} embriões confirmados · fonte: aba GARANHOES"),
-            "kpis": [{"v": f"{p/t*100:.0f}%", "l": nome_tipo.get(k, k), "s": f"{p} de {t} lavados"}
-                     for k, (p, t) in sorted(por_tipo.items(), key=lambda kv: -kv[1][1]) if t],
-            "tabela": {"cols": ["GARANHÃO", "SÊMEN", "LAVADOS", "POSITIVOS", "CONFIRMADOS", "ÍND. %"],
-                       "rows": rows},
-            "obs": f"{len(sem_uso)} garanhões cadastrados sem lavado na safra ficaram fora da lista"
-                   if sem_uso else None}
+        k = _chave_garanhao(_norm(r[3]))
+        d = out.setdefault(k, {"nome": _s(r[3]), "lav": 0, "pos": 0, "conf": 0})
+        d["lav"] += 1
+        if _norm(r[10]) != "+":
+            continue
+        d["pos"] += 1
+        if _norm(r[12]) != "+" or any(_norm(r[j]) not in ("+", "") for j in (13, 14, 15)):
+            continue
+        if _norm(r[16]) == "SIM":
+            continue
+        d["conf"] += 1
+    return out
 
 
 # Mês da estação de monta: começa em agosto e fecha em julho.
