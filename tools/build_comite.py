@@ -381,11 +381,12 @@ def slide_investimentos(m, ano):
 # 'DA PAO GRANDE' ou 'OUTRO'; variação com percentual ficava fora porque o
 # animal dividido já aparece pela cota e contá-lo de novo o duplicaria.
 SUFIXOS_S11 = ("DA PAO GRANDE", "OUTRO")
-# Mudança pedida em 04/08/2026: o headcount passa a contar também o que é
-# **100% do Eduardo**. No sufixo, o "E nn%" é a fatia dele — então entra só o
-# `E 100%`, que é dele inteiro (cota 1,0, sem divisão). As fatias parciais
-# (E 50%, E 25%, …) continuam fora, pelo mesmo motivo de sempre.
-SUFIXOS_EXTRA_S11 = ("DA PAO GRANDE - E 100%",)
+# O `E 100%` (100% do Eduardo) NÃO entra aqui. A mudança de 04/08/2026 que o
+# incluiu vale só para o headcount da ATUALIZAÇÃO SEMANAL — confirmado pelo
+# Arthur em 23/09/2026 —, e trazê-la pro comitê descolou o slide do histórico
+# que o haras confere: julho saía 193 animais / R$ 18,44M contra os 189 /
+# R$ 16,0M do relatório oficial da Ana. Sem o E 100%, bate na vírgula.
+SUFIXOS_EXTRA_S11 = ()
 _base_bi_cache = None
 
 
@@ -411,10 +412,14 @@ def slide_estoque(m, ano):
                     f"a base vai até {ult}; sem o mês {alvo}. Rode scripts/PGDataExtractor.py + PGBaseBI.py")
     x = d[(d["mes"] == alvo) & (d["status_plantel"] == "PLANTEL")
           & (d["sufixo_grupo"].isin(SUFIXOS_S11) | d["sufixo"].isin(SUFIXOS_EXTRA_S11))]
-    n_eduardo = int((x["sufixo"].isin(SUFIXOS_EXTRA_S11)).sum())
+    n_eduardo = int((x["sufixo"].isin(SUFIXOS_EXTRA_S11)).sum()) if SUFIXOS_EXTRA_S11 else 0
     patrim = float(x["patrimonio_proporcional"].sum())
     aval = int(x["valor_100"].notna().sum())
-    medio = float(x["valor_100"].mean()) if aval else 0.0
+    # Média sobre TODOS os animais do slide, não só os avaliados — é como o
+    # relatório oficial calcula: julho dá R$ 366k (69,163M / 189), e dividindo
+    # pelos 187 avaliados daria R$ 370k. Animal sem valor entra no denominador
+    # porque ele existe no plantel; o que falta é a avaliação dele.
+    medio = float(x["valor_100"].sum()) / len(x) if len(x) else 0.0
     cat = x["categoria"].value_counts()
     return {"t": "kpis_tabela", "n": 11, "titulo": "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE",
             "sub": (f"Composição patrimonial do plantel · {MESES[m-1].upper()} {ano} · {len(x)} animais"
@@ -424,7 +429,9 @@ def slide_estoque(m, ano):
                       "s": (f"Da PG + Outros + {n_eduardo} do Eduardo" if n_eduardo
                             else "DA PAO GRANDE + OUTROS")},
                      {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "patrimônio proporcional"},
-                     {"v": brl_curto(medio), "l": "Valor Médio", "s": f"{aval} animais avaliados"}],
+                     {"v": brl_curto(medio), "l": "Valor Médio",
+                      "s": (f"{len(x)} animais · {len(x) - aval} sem avaliação" if aval < len(x)
+                            else f"{len(x)} animais avaliados")}],
             "tabela": {"cols": ["CATEGORIA", "Nº", "%"],
                        "rows": [[k.title(), int(v), f"{v/len(x)*100:.0f}%"] for k, v in cat.items()]}}
 
