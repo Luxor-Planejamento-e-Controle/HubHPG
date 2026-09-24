@@ -11,190 +11,25 @@
 'use strict';
 
 const SPEC = window.COMITE_SPEC;
-/* Paleta do PPTX = a do relatório que a Ana levava ao comitê: fundo branco,
-   faixa dourada no topo, cabeçalho de tabela navy com texto branco. O deck na
-   tela usa as mesmas cores (ver .slide em deck.css), então a prévia é fiel ao
-   arquivo que sai. */
-const C = {bg:'FFFFFF', bg2:'FAFAFA', card:'F4F6F8', line:'E0E0E0', ink:'1A1A1A',
-           ink2:'444444', ink3:'666666', amber:'C09200', pos:'1E7A46', neg:'C0392B',
-           head:'0D2035', headInk:'FFFFFF', dark:'12233F'};
-const LOGO = 'assets/pg-logo.png';
-/* área útil do slide: 1280×720 menos cabeçalho (96) e rodapé (44) */
-const BODY_H = 720 - 96 - 44;
-
-/* ---- formatação ---- */
-const nf = (v, d) => v.toLocaleString('pt-BR', {minimumFractionDigits:d, maximumFractionDigits:d});
-const rs = v => v == null ? '—' : (v < 0 ? '-' : '') + 'R$ ' + nf(Math.abs(v), 0);
-const dk = v => v == null ? '—' : (v >= 0 ? '+' : '−') + nf(Math.abs(v), 0) + 'k';
-const dpct = v => v == null ? 'N/A' : (v >= 0 ? '+' : '−') + nf(Math.abs(v) * 100, 0) + '%';
-const cls = v => v == null ? '' : v >= 0 ? 'pos' : 'neg';
+/* O desenho de cada slide mora em layout.js: ele devolve a lista de primitivas
+   (retângulo, texto, imagem) na geometria do relatório da Ana, e é a MESMA
+   lista que vira HTML aqui e PPTX na exportação. Este arquivo cuida do resto —
+   navegação, conteúdo ao vivo, editor, versões, vídeo e exportações. */
 const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const brdata = s => {
-  if (!s) return '—';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s));
-  return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : String(s);
-};
-/* R$ k, como no deck original: R$18.703k */
-function rsk(v){
-  if (v == null || v === 0) return '—';
-  const s = v < 0 ? '-' : '', a = Math.abs(v) / 1000;
-  return s + 'R$' + nf(a, a < 100 ? 1 : 0) + 'k';
-}
-/* Altura de linha e corpo de fonte que fazem N linhas caberem em `alt`.
-   Sem isso a tabela do DRE (40+ linhas) vazava por cima do rodapé — foi o que
-   obrigou a diminuir o zoom do navegador pra conseguir ler. */
-function ajusta(n, alt = BODY_H, maxH = 34){
-  // Piso de 12px/9pt cortava o fim do resumo financeiro: são 48 linhas mais o
-  // cabeçalho, e o relatório da Ana põe tudo num slide só. Com 9px/7,5pt cabe
-  // inteiro e continua legível na projeção.
-  const h = Math.max(9, Math.min(maxH, alt / Math.max(n, 1)));
-  return {h, fs: Math.max(7.5, Math.min(16, h * 0.58))};
-}
 
 /* ---- render HTML ---- */
-const head = s => `<div class="s-head"><h1>${esc(s.titulo)}</h1>${s.sub ? `<div class="sub">${esc(s.sub)}</div>` : ''}</div>
-  <img class="s-mark" src="${LOGO}" alt="">`;
-const foot = (s, i, n) => `<div class="s-foot"><span>${esc(SPEC.labels[mesAtual])}</span>
-  ${s.obs ? `<span class="obs">${esc(s.obs)}</span>` : ''}<span class="spacer"></span><span>${i + 1} / ${n}</span></div>`;
-const kpiRow = ks => `<div class="kpis" style="grid-template-columns:repeat(${ks.length},1fr)">` +
-  ks.map(k => `<div class="kpi"><div class="v">${esc(k.v)}</div><div class="l">${esc(k.l)}</div><div class="s">${esc(k.s)}</div></div>`).join('') + `</div>`;
-
-function tabelaHTML(cols, rows, fmtCel, alt, larguras){
-  const {h, fs} = ajusta(rows.length + 1, alt);
-  return `<table class="t" style="font-size:${fs.toFixed(1)}px">
-    ${larguras ? `<colgroup>${larguras.map(w => `<col style="width:${w}">`).join('')}</colgroup>` : ''}
-    <thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(r => {
-      const cel = r.cells || r;
-      const nv = r.nivel != null ? r.nivel : (r.total ? 0 : null);
-      return `<tr class="${nv === 0 ? 'tot' : nv === 1 ? 'sub' : ''}" style="height:${h.toFixed(1)}px">` +
-        cel.map((c, j) => fmtCel(c, j, r)).join('') + `</tr>`;
-    }).join('')}</tbody></table>`;
+function slideHTML(s){
+  let corpo = LAYOUT.html(LAYOUT.prims(s, {linkVideo}));
+  // slide sem conteúdo: o cartão (com o botão de escrever, pra quem edita) fica
+  // por cima do corpo — só na tela; no PPTX vai o texto da pendência
+  if (s.t === 'pendente') {
+    corpo += `<div class="vazio-sobre">${editorDe(s)
+      ? vazioEditavel(s)
+      : vazio('◇', 'slide em aberto', s.titulo, s.sub || '', s.fonte, s.motivo)}</div>`;
+  }
+  if (s.oculto) corpo += `<div class="selo-oculto" title="Existe no arquivo, mas não entra na apresentação — como slide oculto no PowerPoint">oculto na apresentação</div>`;
+  return corpo;
 }
-
-const R = {
-  capa: s => `<div class="capa"><img src="${LOGO}" alt="">
-    <h1>${esc(s.titulo)}</h1><div class="mes">${esc(s.mes)}</div><div class="org">${esc(s.org)}</div></div>`,
-
-  encerramento: s => `<div class="fim"><img src="${LOGO}" alt=""><h1>${esc(s.titulo)}</h1></div>`,
-
-  divisor: s => `<div class="divisor"><img class="dv-logo" src="${LOGO}" alt="">
-    <div class="n">0${s.n}</div>
-    <h1>${esc(s.titulo)}</h1><div class="sub">${esc(s.sub)}</div></div>`,
-
-  agenda: s => head(s) + `<div class="s-body"><div class="agenda">` +
-    s.itens.map(it => `<div class="it"><div class="n">${esc(it.n)}</div>
-      <h3>${esc(it.titulo)}</h3><p>${esc(it.sub)}</p></div>`).join('') + `</div></div>`,
-
-  /* S04–S07, S10, S13, S14 — Orçado | Realizado | ∆ R$ k | ∆ %
-     Três níveis: 0 grupo (dourado), 1 subgrupo (branco, recuado), 2 folha. */
-  dre: s => head(s) + `<div class="s-body">` + tabelaHTML(
-    ['NATUREZA', 'ORÇADO', 'REALIZADO', '∆ R$ k', '∆ %'],
-    s.linhas.map(l => ({nivel: l.nivel == null ? (l.total ? 0 : 2) : l.nivel, cells: [l.nome, ...l.v]})),
-    (c, j, r) => j === 0
-      ? `<td class="nome n${r.nivel}">${esc(c)}</td>`
-      : j === 3 ? `<td class="${cls(c)}">${dk(c)}</td>`
-      : j === 4 ? `<td class="${cls(c)}">${dpct(c)}</td>`
-      : `<td>${rs(c)}</td>`,
-    // -26: `ajusta` reparte a altura igualmente entre as linhas, mas o cabeçalho
-    // da tabela é mais alto que uma linha (padding + caixa alta). Sem descontar
-    // isso, o resumo de 48 linhas estourava a moldura e a última —
-    // "Resultado após Investimentos" — ficava fora do slide.
-    BODY_H - 26, ['40%', '', '', '12%', '10%']) + `</div>`,
-
-  /* KPIs + tabela (S11, S16–S20, S29, S37) */
-  kpis_tabela: s => head(s) + `<div class="s-body">${kpiRow(s.kpis)}` + tabelaHTML(
-    s.tabela.cols, s.tabela.rows,
-    (c, j) => `<td${j === 0 ? ' class="nome"' : ''}>${esc(c)}</td>`,
-    BODY_H - 108) + `</div>`,
-
-  /* tabela pura (S30, S32–S35) */
-  tabela: s => head(s) + `<div class="s-body">` + (s.rows.length
-    ? tabelaHTML(s.cols, s.rows, (c, j) => {
-        if ((s.moeda || []).includes(j)) return `<td>${rs(c)}</td>`;
-        if ((s.data || []).includes(j)) return `<td>${brdata(c)}</td>`;
-        return `<td${j === 0 ? ' class="nome"' : ''}>${esc(c)}</td>`;
-      }, BODY_H)
-    : vazio('○', 'nada neste recorte', 'Sem registro para o filtro deste slide',
-            'A base foi lida e respondeu vazio — não é falta de fonte.')) + `</div>`,
-
-  /* S12 — KPIs + matriz título × meses */
-  matriz: s => head(s) + `<div class="s-body">${kpiRow(s.kpis)}` + tabelaHTML(
-    s.cols, s.rows.map(r => ({total: /Saldo/.test(r[0]), cells: r})),
-    (c, j) => j === 0 ? `<td class="nome">${esc(c)}</td>`
-                      : `<td class="${typeof c === 'number' && c ? cls(c) : ''}">${c ? rsk(c) : '—'}</td>`,
-    BODY_H - 108) + `</div>`,
-
-  /* S09 — investimentos mês a mês */
-  lista_mes: s => {
-    const n = s.meses.reduce((a, m) => a + 1 + m.itens.length, 0);
-    const {fs} = ajusta(n, BODY_H, 28);
-    return head(s) + `<div class="s-body"><div class="lista" style="font-size:${fs.toFixed(1)}px">` +
-      s.meses.map(m => `<div class="m"><span class="mes">${esc(m.mes)}</span>
-          <span class="tag">Animais e produtos</span><span class="tot">${rs(m.total)}</span></div>` +
-        m.itens.map(it => `<div class="it"><span></span><span class="d">${esc(it.desc)}</span><span>${rs(it.valor)}</span></div>`).join('')
-      ).join('') + `</div></div>`;
-  },
-
-  /* S08 — comentários do DRE: categoria · texto · delta */
-  comentarios: s => {
-    const {h, fs} = ajusta(s.itens.length, BODY_H, 64);
-    return head(s) + `<div class="s-body"><div class="coment">` + s.itens.map(i =>
-      `<div class="li" style="min-height:${h.toFixed(0)}px;font-size:${Math.min(15, fs + 1.5).toFixed(1)}px">
-        <div class="cat">${esc(i.cat)}</div>
-        <div class="txt">${esc(i.txt)}</div>
-        <div class="d ${/^[-−]/.test(i.delta) ? 'neg' : 'pos'}">${esc(i.delta)}</div>
-      </div>`).join('') + `</div></div>`;
-  },
-
-  /* S24+ — resultados de exposição: animal e seus prêmios, em duas colunas.
-     Poucos animais deixavam metade do slide vazia (texto sempre no mesmo
-     tamanho fixo) — escala fonte/espaçamento pra preencher a altura do
-     corpo, igual ao ajusta() das tabelas, só que por linha de texto em vez
-     de linha de tabela. */
-  resultados: s => {
-    const linhas = s.animais.reduce((a, an) => a + 1 + an.premios.length, 0);
-    const porColuna = Math.max(1, Math.ceil(linhas / 2));
-    const h = Math.max(24, Math.min(54, BODY_H / porColuna));
-    const fsNome = Math.max(13, Math.min(21, h * 0.42));
-    const fsP = Math.max(12.5, Math.min(18, h * 0.36));
-    const gap = Math.max(14, Math.min(32, h * 0.55));
-    return head(s) + `<div class="s-body"><div class="premios" style="--rf-nome:${fsNome.toFixed(1)}px;--rf-p:${fsP.toFixed(1)}px;--rf-gap:${gap.toFixed(1)}px">` +
-      s.animais.map(a => `<div class="an"><div class="nome">${esc(a.nome)}</div>` +
-        a.premios.map(p => `<div class="p">${esc(p)}</div>`).join('') + `</div>`).join('') +
-      `</div></div>`;
-  },
-
-  /* S38 — histórico de manejo, mês a mês */
-  manejo: s => {
-    const {h, fs} = ajusta(s.itens.length, BODY_H, 86);
-    return head(s) + `<div class="s-body"><div class="manejo" style="font-size:${Math.min(15, fs + 1.5).toFixed(1)}px">` + s.itens.map(([m, t]) =>
-      `<div class="li" style="min-height:${h.toFixed(0)}px"><div class="m">${esc(m)}</div>
-        <div class="t">${esc(t)}</div></div>`).join('') + `</div></div>`;
-  },
-
-  /* S39+ — fotos do mês */
-  // a grade vem do spec (s.grade = [colunas, linhas]) para bater com a do PPTX; o
-  // último slide do mês raramente fecha com 6 fotos, e julho/26 tem uma só
-  fotos: s => head(s) + `<div class="s-body"><div class="fotos" style="grid-template-columns:repeat(${(s.grade||[3])[0]},1fr)">` +
-    // img ja vem como data URI: as fotos nao existem como arquivo no site (repo
-    // e site sao publicos), vem embutidas no spec, que sai do bucket privado.
-    // Video e um <a> de verdade, nao um <button>: no "Salvar como PDF" o Chrome
-    // preserva href e o frame no PDF fica clicavel, que e o combinado.
-    s.fotos.map(f => {
-      const o = itemFoto(f);
-      const bg = o.img ? ` style="background-image:url('${o.img}')"` : '';
-      return o.video
-        ? `<a class="f f-video${o.img ? '' : ' f-sem-capa'}" href="${escAttr(linkVideo(o.video))}"
-             data-video="${escAttr(o.video)}"${bg}><span class="play" aria-hidden="true"></span></a>`
-        : `<div class="f"${bg}></div>`;
-    }).join('') +
-    `</div></div>`,
-
-  pendente: s => head(s) + `<div class="s-body">` + (editorDe(s)
-    ? vazioEditavel(s)
-    : vazio('◇', 'slide em aberto', s.titulo, s.sub || '', s.fonte, s.motivo)) + `</div>`,
-};
 
 /* Slide de conteúdo humano ainda vazio. O cartão antigo dizia "base que vai
    alimentar: _docs/comite_conteudo.json → comentarios" e "por que ainda não tem:
@@ -206,6 +41,7 @@ const NOMES_EDITOR = {
   manejo: 'os pontos de manejo e decisões',
   exposicoes: 'as exposições',
   fotos: 'as fotos',
+  pendencias: 'as pendências da apresentação anterior',
 };
 
 function vazioEditavel(s){
@@ -278,10 +114,9 @@ const mb = n => (n / 1024 / 1024).toFixed(0);
 const itemFoto = f => (typeof f === 'string' ? {img: f, video: null} : (f || {img: null, video: null}));
 
 const FOTOS_POR_SLIDE = 6;
-const GRADE_FOTOS = {1:[1,1], 2:[2,1], 3:[3,1], 4:[2,2], 5:[3,2], 6:[3,2]};
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const ABR_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-const TIPOS_EDITAVEIS = new Set(['comentarios', 'manejo', 'fotos', 'resultados']);
+const TIPOS_EDITAVEIS = new Set(['comentarios', 'manejo', 'fotos', 'resultados', 'pendencias']);
 const ehExposicaoProg = s => s.t === 'tabela' && s.n === 23;
 
 /* Qual editor abre este slide, ou null se não é de conteúdo humano.
@@ -490,17 +325,35 @@ function capturaPoster(file){
 /* monta os slides sem fonte a partir do conteúdo ao vivo — mesma regra do
    Python. Devolve {comentarios:[...], exposicoes:[...], manejo:[...],
    fotos:[...]} só com as chaves que têm conteúdo; ausente = spec baked vale. */
+/* tamanho da imagem, pra o layout pôr a foto inteira na proporção dela */
+function medeImagem(uri){
+  return new Promise(resolve => {
+    if (!uri) return resolve({w: null, h: null});
+    const im = new Image();
+    im.onload = () => resolve({w: im.naturalWidth, h: im.naturalHeight});
+    im.onerror = () => resolve({w: null, h: null});
+    im.src = uri;
+  });
+}
+
 async function montaSlidesAoVivo(mes){
   const c = await buscaConteudoAoVivo(mes);
   if (!c) return null;
   const [ano, mNum] = mes.split('-').map(Number);
   const out = {};
+  const MES = MESES_PT[mNum - 1];
 
+  // mesmos títulos e subtítulos do build_comite.py — o slide ao vivo substitui
+  // o do spec e não pode trocar de cara no meio da apresentação
   if (c.comentarios && c.comentarios.length) {
-    out.comentarios = [{t:'comentarios', n:8,
-      titulo:`COMENTÁRIOS — VARIAÇÕES YTD JAN–${ABR_PT[mNum-1].toUpperCase()} ${ano}`,
-      sub:'DRE 2026 | HPG · principais destaques acumulados por categoria',
-      itens: c.comentarios}];
+    out.comentarios = [{t:'comentarios', n:8, titulo:`COMENTÁRIOS — ${MES.toUpperCase()} ${ano}`,
+      sub:'DRE 2026 | HPG  ·  Principais destaques do mês por categoria', itens: c.comentarios}];
+  }
+
+  const pend = (c.pendencias || []).filter(x => String(x || '').trim());
+  if (pend.length) {
+    out.pendencias = [{t:'pendencias', n:3,
+      titulo:`PENDÊNCIAS DA APRESENTAÇÃO DE ${MESES_PT[(mNum + 10) % 12].toUpperCase()}`, itens: pend}];
   }
 
   const exp = c.exposicoes || {}, prog = exp.programacao || [], res = exp.resultados || [];
@@ -513,7 +366,8 @@ async function montaSlidesAoVivo(mes){
   }
 
   if (c.manejo && c.manejo.length) {
-    out.manejo = [{t:'manejo', n:38, titulo:'MANEJO — PONTOS DE MELHORIA E DECISÕES', itens: c.manejo}];
+    out.manejo = [{t:'manejo', n:38, titulo:'MANEJO — PONTOS DE MELHORIA E DECISÕES',
+      sub:`Histórico de intervenções Jan–${ABR_PT[mNum-1]} ${ano}`, itens: c.manejo, atual: ABR_PT[mNum-1]}];
   }
 
   if (c.fotos && c.fotos.length) {
@@ -525,17 +379,17 @@ async function montaSlidesAoVivo(mes){
          e o clique busca uma URL assinada na hora. Vídeo sem poster entra
          assim mesmo, com a marca de play e sem capa. */
       const itens = (await Promise.all((g.arquivos || []).map(async a => {
-        if (!ehVideo(a)) { const img = await fotoDataUri(a); return img ? {img, video: null} : null; }
-        return {img: await fotoDataUri(posterDe(a)), video: a};
+        const img = await fotoDataUri(ehVideo(a) ? posterDe(a) : a);
+        if (!img && !ehVideo(a)) return null;
+        return Object.assign({img, video: ehVideo(a) ? a : null}, await medeImagem(img));
       }))).filter(Boolean);
       if (!itens.length) continue;
       const n = Math.ceil(itens.length / FOTOS_POR_SLIDE);
       for (let k = 0; k < n; k++) {
         const bloco = itens.slice(k * FOTOS_POR_SLIDE, (k + 1) * FOTOS_POR_SLIDE);
-        const [cols, rows] = GRADE_FOTOS[bloco.length];
-        let sub = g.tema ? `Obras e melhorias realizadas · ${g.tema}` : `Registros de ${MESES_PT[mNum-1]} ${ano}`;
+        let sub = g.tema ? `Obras e melhorias realizadas  ·  ${g.tema}` : `Registros de ${MES} ${ano}`;
         if (n > 1) sub += ` (${k+1}/${n})`;
-        s.push({t:'fotos', n:39, titulo:'MANEJO — FOTOS E REGISTROS', sub, grade:[cols, rows], fotos:bloco});
+        s.push({t:'fotos', n:39, titulo:'MANEJO — FOTOS E REGISTROS', sub, fotos:bloco});
       }
     }
     if (s.length) out.fotos = s;
@@ -641,6 +495,11 @@ async function abreEditor(s){
               resultados: JSON.parse(JSON.stringify(exp.resultados || []))};
     document.getElementById('edTitulo').textContent = `Exposições — ${SPEC.labels[mesAtual]}`;
     renderExposicoes();
+  } else if (alvo === 'pendencias') {
+    tipoAtual = 'pendencias';
+    estado = JSON.parse(JSON.stringify(c.pendencias || []));
+    document.getElementById('edTitulo').textContent = `Pendências da apresentação anterior — ${SPEC.labels[mesAtual]}`;
+    renderPendencias();
   } else if (alvo === 'fotos') {
     tipoAtual = 'fotos';
     const fotos = c.fotos || [];
@@ -665,6 +524,19 @@ function renderComentarios(){
     </div>`).join('') + `<button type="button" id="edAdd" class="ed-add">+ categoria</button>`;
   corpo.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { estado.splice(+b.dataset.rm, 1); renderComentarios(); });
   document.getElementById('edAdd').onclick = () => { estado.push({cat:'', txt:'', delta:''}); renderComentarios(); };
+}
+
+/* ---- pendências: uma frase por item, na ordem em que vão pro slide ---- */
+function renderPendencias(){
+  const corpo = document.getElementById('edCorpo');
+  corpo.innerHTML = estado.map((t, i) => `
+    <div class="ed-linha ed-linha2">
+      <textarea data-pi="${i}" rows="2" placeholder="O que ficou combinado na apresentação anterior">${esc(t || '')}</textarea>
+      <button type="button" class="ed-rm" data-rm="${i}">✕</button>
+    </div>`).join('') + `<button type="button" id="edAdd" class="ed-add">+ pendência</button>`;
+  corpo.querySelectorAll('[data-pi]').forEach(inp => inp.oninput = () => { estado[+inp.dataset.pi] = inp.value; });
+  corpo.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { estado.splice(+b.dataset.rm, 1); renderPendencias(); });
+  document.getElementById('edAdd').onclick = () => { estado.push(''); renderPendencias(); };
 }
 
 /* ---- manejo: linhas [mes, texto] ---- */
@@ -893,6 +765,7 @@ async function salvaEditor(){
   if (tipoAtual === 'comentarios') { coluna = 'comentarios'; valor = estado; }
   else if (tipoAtual === 'manejo') { coluna = 'manejo'; valor = estado; }
   else if (tipoAtual === 'fotos') { coluna = 'fotos'; valor = estado; }
+  else if (tipoAtual === 'pendencias') { coluna = 'pendencias'; valor = estado.map(x => String(x || '').trim()).filter(Boolean); }
   else if (tipoAtual === 'exposicoes') {
     coluna = 'exposicoes';
     valor = {
@@ -923,8 +796,7 @@ const stage = document.getElementById('stage');
 
 function render(){
   const s = slides[idx], n = slides.length;
-  const body = (R[s.t] || R.pendente)(s);
-  stage.innerHTML = `<div class="slide" id="slide">${body}${s.t === 'capa' || s.t === 'encerramento' ? '' : foot(s, idx, n)}</div>`;
+  stage.innerHTML = `<div class="slide" id="slide" style="background:#${LAYOUT.fundo(s)}">${slideHTML(s)}</div>`;
   fit();
   document.getElementById('pos').textContent = `${idx + 1} / ${n}`;
   document.getElementById('prev').disabled = idx === 0;
@@ -953,6 +825,13 @@ function fit(){
   el.style.transform = `translate(-50%,-50%) scale(${s})`;
 }
 const go = i => { idx = Math.max(0, Math.min(slides.length - 1, i)); render(); };
+/* anda um slide; na apresentação pula o oculto, fora dela mostra tudo */
+function anda(d){
+  let i = idx + d;
+  if (document.body.classList.contains('play'))
+    while (i > 0 && i < slides.length - 1 && slides[i].oculto) i += d;
+  go(i);
+}
 
 function trocaMes(mes){
   if (!SPEC.decks[mes]) return;
@@ -966,7 +845,7 @@ function trocaMes(mes){
 }
 function listaSlides(){
   document.getElementById('ir').innerHTML = slides
-    .map((s, i) => `<option value="${i}">${String(i + 1).padStart(2, '0')} · ${esc((s.titulo || s.t).slice(0, 52))}</option>`).join('');
+    .map((s, i) => `<option value="${i}">${String(i + 1).padStart(2, '0')} · ${esc((s.titulo || s.t).slice(0, 52))}${s.oculto ? ' (oculto)' : ''}</option>`).join('');
 }
 function atualizaAviso(){
   const p = slides.filter(s => s.t === 'pendente').length;
@@ -988,8 +867,8 @@ const _editorAberto = () => {
 };
 document.addEventListener('keydown', e => {
   if (_digitando(e.target) || _editorAberto()) return;
-  if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { go(idx + 1); e.preventDefault(); }
-  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { go(idx - 1); e.preventDefault(); }
+  if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { anda(1); e.preventDefault(); }
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { anda(-1); e.preventDefault(); }
   else if (e.key === 'Home') go(0);
   else if (e.key === 'End') go(slides.length - 1);
   else if (e.key === 'Escape' && document.body.classList.contains('play')) sairPlay();
@@ -1027,11 +906,8 @@ function exportarPdf(){
     caixa.id = 'impressao';
     document.body.appendChild(caixa);
   }
-  caixa.innerHTML = slides.map((s, i) => {
-    const corpo = (R[s.t] || R.pendente)(s);
-    const rodape = s.t === 'capa' || s.t === 'encerramento' ? '' : foot(s, i, slides.length);
-    return `<div class="slide">${corpo}${rodape}</div>`;
-  }).join('');
+  caixa.innerHTML = slides.filter(s => !s.oculto)
+    .map(s => `<div class="slide" style="background:#${LAYOUT.fundo(s)}">${slideHTML(s)}</div>`).join('');
   document.body.classList.add('imprimindo');
   /* afterprint dispara tanto no salvar quanto no cancelar; sem a limpeza o
      DOM ficaria com 70 slides pendurados atrás da tela. */
@@ -1052,16 +928,11 @@ async function exportarPptx(btn){
     p.defineLayout({name:'HPG', width:10, height:5.625});      // 16:9, igual ao deck original
     p.layout = 'HPG';
     p.title = `Relatório de Desempenho Estratégico — ${SPEC.labels[mesAtual]}`;
-    const logo = await dataURI(LOGO);
-    // fotos precisam virar base64 antes: o pptxgen não busca arquivo sozinho
-    // item JA carrega o data URI (fotos vem embutidas no spec, nao como
-    // arquivo). Video entra pelo poster + hyperlink, montados no pptSlide.
+    // logos viram base64 antes: o pptxgen não busca arquivo sozinho. As fotos
+    // já vêm como data URI no spec; vídeo entra pelo poster + hyperlink.
     const imgs = {};
-    for (const s of slides) for (const f of (s.fotos || [])) {
-      const img = itemFoto(f).img;
-      if (img && !(img in imgs)) imgs[img] = img;
-    }
-    slides.forEach((s, i) => pptSlide(p, s, i, logo, imgs));
+    for (const src of [LAYOUT.LOGO_OURO, LAYOUT.LOGO_NAVY]) imgs[src] = await dataURI(src);
+    slides.forEach(s => pptSlide(p, s, imgs));
     const rotulo = modo === 'trimestral' ? 'TRIMESTRAL' : 'MENSAL';
     await p.writeFile({fileName: `RELATORIO ${rotulo}_PG_${mesAtual}.pptx`});
     btn.textContent = 'Exportar PPTX';
@@ -1080,343 +951,25 @@ async function dataURI(url){
   } catch { return null; }
 }
 
-/* ---- métricas de texto do PPTX ----
-   O pptxgen não faz layout: ele só declara geometria e o PowerPoint
-   recalcula na hora de mostrar. Duas consequências que estouravam o slide:
-   linha de tabela CRESCE quando a célula quebra em várias linhas (rowH é
-   mínimo, não altura), e caixa de texto NÃO cresce — o texto vaza por cima
-   do que vier embaixo. Nos dois casos a altura precisa ser estimada aqui,
-   antes de escrever, e a fonte tem que caber no que sobra até o rodapé.
-   Segoe UI tem ~0,5em de largura média por caractere; conferido contra o
-   render do PowerPoint, a conta erra pouco e pra cima — o lado seguro. */
-const CHAR_EM = 0.5;
-const LINHA_EM = 1.25;          // entrelinha que o PowerPoint aplica
-const MARGEM_CEL = 0.08;        // polegadas comidas pelas laterais da célula de tabela
-const MARGEM_TXT = 0.22;        // idem numa caixa de texto (inset padrão ~0,1in de cada lado)
-const alturaLinha = fs => fs * LINHA_EM / 72;
-/* quantas linhas o texto ocupa numa caixa de `larguraIn` polegadas */
-function linhasTexto(txt, larguraIn, fs){
-  const s = String(txt == null ? '' : txt).trim();
-  if (!s) return 1;
-  const cap = Math.max(1, Math.floor(larguraIn / (fs * CHAR_EM / 72)));
-  let linhas = 1, usado = 0;
-  for (const palavra of s.split(/\s+/)) {
-    const espaco = usado ? 1 : 0;
-    if (usado + espaco + palavra.length <= cap) { usado += espaco + palavra.length; continue; }
-    if (usado) { linhas++; usado = 0; }                 // fecha a linha atual
-    usado = palavra.length;
-    while (usado > cap) { linhas++; usado -= cap; }     // palavra maior que a linha
-  }
-  return linhas;
-}
-/* altura de cada linha da tabela, respeitando fonte própria de célula (o
-   cabeçalho tem a sua) */
-function alturasTabela(rows, colW, fs){
-  return rows.map(r => Math.max(...r.map((c, j) => {
-    const f = (c && c.options && c.options.fontSize) || fs;
-    const txt = c && c.text != null ? c.text : c;
-    return linhasTexto(txt, (colW[j] || 9.2 / r.length) - MARGEM_CEL, f) * alturaLinha(f);
-  })));
-}
-const somaAlturas = a => a.reduce((x, v) => x + v, 0);
-
-function pptSlide(p, s, i, logo, imgs){
+/* ---- slide do PPTX ----
+   Fundo, primitivas do layout e, no slide oculto, a marca de oculto do
+   PowerPoint. Slide sem conteúdo leva o texto da pendência no lugar do cartão
+   da tela (o botão de escrever não tem o que fazer num arquivo). */
+function pptSlide(p, s, imgs){
   const sl = p.addSlide();
-  sl.background = {color: C.bg};
-  /* Capa, agenda, divisor e encerramento vão em NAVY; o miolo em branco. E a
-     faixa dourada muda de lugar: horizontal e grossa nos slides de abertura,
-     vertical na borda esquerda do divisor, fininha nos de tabela. É o desenho
-     do relatório dela. */
-  const escuro = ['capa', 'encerramento', 'divisor', 'agenda'].includes(s.t);
-  if (escuro) sl.background = {color: C.dark};
-  if (s.t === 'divisor') {
-    sl.addShape(p.ShapeType.rect, {x:0, y:0, w:0.33, h:5.625, fill:{color:C.amber}, line:{width:0}});
-  } else {
-    sl.addShape(p.ShapeType.rect, {x:0, y:0, w:10,
-      h: escuro ? 0.44 : 0.055, fill:{color:C.amber}, line:{width:0}});
-  }
-  // nos slides escuros o texto padrão é branco
-  const Ink = escuro ? 'FFFFFF' : C.ink;
-  let T = (t, o) => sl.addText(t, Object.assign({fontFace:'Segoe UI', color:C.ink}, o));
-
-  if (s.t === 'capa' || s.t === 'encerramento'){
-    // capa dela: tudo centrado — logo grande em cima, título dourado espaçado,
-    // mês em branco e grande, assinatura miúda embaixo
-    if (logo) sl.addImage({data:logo, x:4.15, y:0.78, w:1.7, h:1.7});
-    T(s.titulo, {x:0.6, y:2.72, w:8.8, h:0.4, fontSize:s.t === 'capa' ? 11 : 20,
-                 bold:true, align:'center', charSpacing:4, color:C.amber});
-    if (s.mes) T(s.mes, {x:0.6, y:3.22, w:8.8, h:0.7, fontSize:30, bold:true,
-                         align:'center', color:'FFFFFF'});
-    if (s.org) T(s.org, {x:0.6, y:4.08, w:8.8, h:0.3, fontSize:8, align:'center',
-                         charSpacing:2, color:C.amber});
-    return;
-  }
-  if (s.t === 'divisor'){
-    if (logo) sl.addImage({data:logo, x:0.72, y:0.52, w:0.62, h:0.62});
-    T('0' + s.n, {x:6.6, y:0.42, w:2.9, h:1.4, fontSize:72, bold:true,
-                  color:'6E5B14', align:'right'});
-    T(s.titulo, {x:0.72, y:2.35, w:6, h:0.8, fontSize:26, bold:true, color:'FFFFFF'});
-    T(s.sub, {x:0.72, y:3.12, w:8.8, h:0.4, fontSize:11, color:C.amber});
-    return;
-  }
-  if (escuro) T = (t, o) => sl.addText(t, Object.assign({fontFace:'Segoe UI', color:Ink}, o));
-
-  /* título comprido quebrava em duas linhas, cobria o subtítulo e a tabela — que
-     começa em y fixo — não recuava. Reduz a fonte quando é longo, em vez de deixar
-     quebrar. */
-  const tituloLongo = (s.titulo || '').length > 58;
-  // slide escuro tem faixa dourada grossa no topo: o cabeçalho desce pra não
-  // ficar debaixo dela, e o logo vai pra esquerda, antes do título
-  const yT = escuro ? 0.62 : 0.13, yS = escuro ? 1.02 : 0.52;
-  T(s.titulo, {x:escuro ? 1.06 : 0.41, y:yT, w:8.6, h:0.4,
-               fontSize:tituloLongo ? 12 : (escuro ? 22 : 15), bold:true, valign:'top'});
-  if (s.sub) T(s.sub, {x:escuro ? 1.06 : 0.41, y:yS, w:8.6, h:0.3, fontSize:9,
-                       color:escuro ? C.amber : C.ink3});
-  if (logo) sl.addImage(escuro ? {data:logo, x:0.44, y:0.62, w:0.5, h:0.5}
-                                : {data:logo, x:9.05, y:0.14, w:0.55, h:0.55});
-  T(`${SPEC.labels[mesAtual]}   ·   ${i + 1}/${slides.length}${s.obs ? '   ·   ' + s.obs : ''}`,
-    {x:0.41, y:5.25, w:9.2, h:0.25, fontSize:8, color:escuro ? 'C9D4E2' : C.ink3});
-
-  /* Altura de tabela: rowH no pptxgen é MÍNIMO, o PowerPoint estica a linha pra
-     caber o texto quebrado mais a margem interna da célula. Dividir a altura útil
-     pelo nº de linhas (o que se fazia aqui) só acerta quando toda célula é de uma
-     linha — com "25% FERNANDO SANTOS SILVEIRA / 25% YURI SEMANSKY ENGLER" numa
-     coluna de 1,3in a célula vira 5 linhas e a tabela passa por cima do rodapé;
-     era o estouro dos slides de vendas/embriões/DRE.
-     Agora a altura de cada linha é ESTIMADA (linhasTexto por célula) e a fonte
-     desce até o total caber em `alt` — o declarado bate com o renderizado.
-     `margin` é por CÉLULA e a UNIDADE depende do primeiro valor: o pptxgen lê
-     como PONTOS quando margin[0] >= 1 e como POLEGADAS quando é menor. Com
-     margem vertical 0 cai-se sempre no ramo de polegadas — daí [0,.03,0,.03]:
-     zero em cima e embaixo (era a margem vertical que fazia cada linha crescer
-     ~3pt além do rowH) e 0,03in nas laterais, pouco o bastante pra não
-     estrangular coluna estreita. Passar [0,2,0,2] achando que era ponto vira
-     2 POLEGADAS de margem: a coluna fica menor que um caractere, o PowerPoint
-     quebra a cada letra e a tabela explode pra 75in de altura. */
-  const tbl = (rows, opts) => {
-    const o = opts || {};
-    const y = o.y || 0.95;
-    const alt = 5.15 - y;
-    const colW = o.colW || new Array(rows[0].length).fill(9.2 / rows[0].length);
-    let fs = Math.min(9, o.fontSize || 9), alturas = alturasTabela(rows, colW, fs);
-    while (fs > 5 && somaAlturas(alturas) > alt) {
-      fs -= 0.25;
-      alturas = alturasTabela(rows, colW, fs);
+  sl.background = {color: LAYOUT.fundo(s)};
+  if (s.oculto) sl.hidden = true;
+  LAYOUT.pptx(p, sl, LAYOUT.prims(s, {linkVideo}), imgs);
+  if (s.t === 'pendente') {
+    const T = (t, o) => sl.addText(String(t || ''), Object.assign({fontFace:'Calibri', color:'666666', margin:[0,0,0,0]}, o));
+    T('SEM CONTEÚDO AINDA', {x:0.5, y:1.6, w:9, h:0.3, fontSize:9, bold:true, color:'C09200', charSpacing:2});
+    if (s.fonte) {
+      T('BASE QUE VAI ALIMENTAR', {x:0.5, y:2.1, w:9, h:0.22, fontSize:8, charSpacing:1});
+      T(s.fonte, {x:0.5, y:2.34, w:9, h:0.4, fontSize:10, color:'1A1A1A'});
+      T('POR QUE AINDA NÃO TEM', {x:0.5, y:2.9, w:9, h:0.22, fontSize:8, charSpacing:1});
+      T(s.motivo, {x:0.5, y:3.14, w:9, h:0.5, fontSize:10, color:'1A1A1A'});
     }
-    return sl.addTable(rows, Object.assign({
-      x:0.41, y, w:9.2, border:{type:'solid', pt:0.4, color:C.line},
-      fontFace:'Segoe UI', color:C.ink, valign:'middle',
-    }, o, {fontSize:fs, rowH:alturas, margin:[0, 0.03, 0, 0.03]}));
-  };
-  const th = t => ({text:String(t), options:{bold:true, fontSize:8, color:C.headInk,
-                                             fill:{color:C.head}, align:'right'}});
-  const kpis = () => {
-    const w = 9.2 / s.kpis.length;
-    s.kpis.forEach((k, j) => {
-      const x = 0.41 + j * w;
-      sl.addShape(p.ShapeType.roundRect, {x, y:0.95, w:w - 0.14, h:0.82,
-        fill:{color:C.card}, line:{color:C.line, width:0.5}, rectRadius:0.05});
-      T(k.v, {x:x + 0.13, y:1.0, w:w - 0.4, h:0.34, fontSize:17, bold:true, color:C.amber});
-      T(k.l, {x:x + 0.13, y:1.34, w:w - 0.4, h:0.22, fontSize:8, color:C.ink2});
-      T(k.s, {x:x + 0.13, y:1.53, w:w - 0.4, h:0.2, fontSize:7, color:C.ink3});
-    });
-  };
-
-  if (s.t === 'agenda'){
-    // agenda dela: número dentro de um círculo dourado, separador vertical entre
-    // as colunas, título dourado e descrição branca — não o filete horizontal
-    // o cabeçalho (título, subtítulo, logo) já foi escrito acima pelo trecho
-    // comum — aqui entram só os cinco blocos da agenda
-    s.itens.forEach((it, k) => {
-      const x = 0.41 + k * 1.83, cx = x + 0.85 - 0.33;
-      if (k) sl.addShape(p.ShapeType.rect, {x: x - 0.07, y:1.5, w:0.02, h:1.5,
-                                            fill:{color:'3A5478'}, line:{width:0}});
-      sl.addShape(p.ShapeType.ellipse, {x:cx, y:1.54, w:0.66, h:0.66,
-                                        fill:{color:C.amber}, line:{width:0}});
-      T(it.n, {x:cx, y:1.68, w:0.66, h:0.38, fontSize:15, bold:true,
-               align:'center', color:C.dark});
-      T(it.titulo, {x, y:2.42, w:1.7, h:0.32, fontSize:9, bold:true,
-                    align:'center', color:C.amber});
-      T(it.sub, {x, y:2.78, w:1.7, h:0.7, fontSize:8, align:'center', color:'C9D4E2'});
-    });
-    return;
   }
-  if (s.t === 'dre'){
-    /* Mesma hierarquia do relatório dela, que o HTML já usa: subtotal em navy
-       sobre faixa azul-clara (não em dourado, que deixava quase toda linha em
-       destaque), detalhe recuado em cinza, e a ÚLTIMA linha do bloco invertida
-       — fundo navy, texto branco. */
-    const rows = [[th('NATUREZA'), th('ORÇADO'), th('REALIZADO'), th('∆ R$ k'), th('∆ %')]];
-    const ult = s.linhas.length - 1;
-    s.linhas.forEach((l, li) => {
-      const fim = l.total && li === ult;            // "Resultado após Investimentos"
-      const fundo = fim ? C.head : (l.total ? 'EAF0F6' : 'FFFFFF');
-      const cor = fim ? 'FFFFFF' : (l.total ? C.head : C.ink3);
-      const recuo = l.nivel === 2 ? '      ' : l.total ? '' : '   ';
-      const cel = (t, extra) => ({text:t, options:Object.assign(
-        {align:'right', bold:!!l.total, color:cor, fill:{color:fundo}}, extra)});
-      const dcor = v => fim ? 'FFFFFF' : (v == null ? C.ink3 : v >= 0 ? C.pos : C.neg);
-      rows.push([
-        cel(recuo + l.nome, {align:'left'}),
-        cel(rs(l.v[0])), cel(rs(l.v[1])),
-        cel(dk(l.v[2]), {color:dcor(l.v[2])}),
-        cel(dpct(l.v[3]), {color:dcor(l.v[3])}),
-      ]);
-    });
-    tbl(rows, {colW:[3.7, 1.7, 1.7, 1.1, 1.0]});
-    return;
-  }
-  if (s.t === 'tabela'){
-    if (!s.rows.length){ T('Nenhum registro nesse recorte.', {x:0.41, y:2.4, w:8, h:0.4, fontSize:12, color:C.ink3}); return; }
-    const rows = [s.cols.map(th)];
-    s.rows.forEach(r => rows.push(r.map((c, j) => ({
-      text:(s.moeda || []).includes(j) ? rs(c) : (s.data || []).includes(j) ? brdata(c) : String(c == null ? '—' : c),
-      options:{align:j === 0 ? 'left' : 'right'}}))));
-    const w0 = 9.2 / s.cols.length;
-    tbl(rows, {colW:[w0 * 1.6].concat(new Array(s.cols.length - 1).fill((9.2 - w0 * 1.6) / (s.cols.length - 1)))});
-    return;
-  }
-  if (s.t === 'kpis_tabela' || s.t === 'matriz'){
-    kpis();
-    if (s.t === 'kpis_tabela'){
-      const rows = [s.tabela.cols.map(th)];
-      s.tabela.rows.forEach(r => rows.push(r.map((c, j) =>
-        ({text:String(c), options:{align:j === 0 ? 'left' : 'right'}}))));
-      const w0 = 9.2 / s.tabela.cols.length;
-      tbl(rows, {y:1.95, colW:[w0 * 1.7].concat(new Array(s.tabela.cols.length - 1)
-        .fill((9.2 - w0 * 1.7) / (s.tabela.cols.length - 1)))});
-    } else {
-      const rows = [s.cols.map(th)];
-      s.rows.forEach(r => rows.push(r.map((c, j) => j === 0
-        ? {text:String(c), options:{align:'left', bold:/Saldo/.test(c), color:/Saldo/.test(c) ? C.amber : C.ink2}}
-        : {text:c ? rsk(c) : '—', options:{align:'right', color:typeof c === 'number' && c < 0 ? C.neg : C.ink}})));
-      tbl(rows, {y:1.95, colW:[1.9].concat(new Array(s.cols.length - 1).fill((9.2 - 1.9) / (s.cols.length - 1)))});
-    }
-    return;
-  }
-  if (s.t === 'lista_mes'){
-    /* passo fixo por item não serve: descrição comprida quebra em 2+ linhas,
-       a caixa de texto não cresce e o texto invade o item seguinte — no fim
-       da lista o acumulado ia por cima do rodapé. Cada item anda a altura
-       que ele realmente ocupa, e a fonte desce se o total não couber. */
-    const alt = 5.15 - 0.95, largDesc = 6.1;
-    const planeja = fs => {
-      const lh = alturaLinha(fs), itens = [];
-      s.meses.forEach((m, k) => {
-        itens.push({m, gap: k ? lh * 0.55 : 0, h: lh * 1.5});   // respiro entre grupos de mês
-        m.itens.forEach(it => itens.push({it, gap: 0, h: linhasTexto(it.desc, largDesc - MARGEM_TXT, fs) * lh}));
-      });
-      return {itens, total: somaAlturas(itens.map(x => x.h + x.gap))};
-    };
-    let fs = 9, plano = planeja(fs);
-    while (fs > 5 && plano.total > alt) { fs -= 0.25; plano = planeja(fs); }
-    let y = 0.95;
-    plano.itens.forEach(l => {
-      y += l.gap;
-      if (l.m) {
-        T(l.m.mes, {x:0.41, y, w:0.9, h:l.h, fontSize:fs, bold:true, color:C.amber, valign:'top'});
-        T('ANIMAIS E PRODUTOS', {x:1.35, y, w:3, h:l.h, fontSize:fs - 1.5, color:C.ink3, valign:'top'});
-        T(rs(l.m.total), {x:7.6, y, w:2.0, h:l.h, fontSize:fs + 1, bold:true, align:'right', valign:'top'});
-      } else {
-        T(l.it.desc, {x:1.35, y, w:largDesc, h:l.h, fontSize:fs - 1, color:C.ink2, valign:'top'});
-        T(rs(l.it.valor), {x:7.6, y, w:2.0, h:l.h, fontSize:fs - 1, align:'right', color:C.ink2, valign:'top'});
-      }
-      y += l.h;
-    });
-    return;
-  }
-  if (s.t === 'comentarios'){
-    const rows = [[th('CATEGORIA'), th('DESTAQUE DO ACUMULADO'), th('∆')]];
-    s.itens.forEach(it => rows.push([
-      {text:it.cat, options:{align:'left', bold:true, color:C.amber}},
-      {text:it.txt, options:{align:'left', color:C.ink2}},
-      {text:it.delta, options:{align:'right', bold:true, color:/^[-−]/.test(it.delta) ? C.neg : C.pos}},
-    ]));
-    tbl(rows, {colW:[1.9, 6.3, 1.0], fontSize:8, valign:'top'});
-    return;
-  }
-  if (s.t === 'resultados'){
-    /* duas colunas. Passo fixo de 0,24in por prêmio ignorava que prêmio
-       comprido quebra em 2 linhas numa coluna de 4,3in, e o corte entre as
-       colunas era por altura estimada errada (0,24 fixo) — a segunda metade
-       descia por cima do rodapé. Altura real por bloco, corte pelo meio
-       dessa altura, e fonte que desce se a coluna mais alta não couber. */
-    const alt = 5.15 - 0.95, largCol = 4.4;
-    const planeja = fs => {
-      const lh = alturaLinha(fs);
-      const blocos = s.animais.map(a => {
-        const premios = a.premios.map(pr => ({txt:pr, h: linhasTexto('🏆  ' + pr, largCol - 0.14 - MARGEM_TXT, fs) * lh}));
-        const nomeH = lh * 1.3;
-        return {nome:a.nome, nomeH, premios, h: nomeH + somaAlturas(premios.map(x => x.h)) + lh * 0.35};
-      });
-      return {blocos, total: somaAlturas(blocos.map(b => b.h))};
-    };
-    const reparte = plano => {
-      const meta = plano.total / 2, cols = [[], []];
-      let acc = 0;
-      plano.blocos.forEach(b => { if (acc < meta) { cols[0].push(b); acc += b.h; } else cols[1].push(b); });
-      return cols;
-    };
-    const maiorCol = cols => Math.max(...cols.map(c => somaAlturas(c.map(b => b.h))));
-    let fs = 10, plano = planeja(fs), cols = reparte(plano);
-    while (fs > 6 && maiorCol(cols) > alt) { fs -= 0.5; plano = planeja(fs); cols = reparte(plano); }
-    cols.forEach((lista, k) => {
-      let y = 0.95;
-      lista.forEach(b => {
-        T(b.nome, {x:0.41 + k * 4.7, y, w:largCol, h:b.nomeH, fontSize:fs + 1, bold:true, color:C.amber, valign:'top'});
-        y += b.nomeH;
-        b.premios.forEach(pr => {
-          T('🏆  ' + pr.txt, {x:0.55 + k * 4.7, y, w:largCol - 0.14, h:pr.h, fontSize:fs, color:C.ink, valign:'top'});
-          y += pr.h;
-        });
-        y += alturaLinha(fs) * 0.35;
-      });
-    });
-    return;
-  }
-  if (s.t === 'manejo'){
-    const rows = [[th('MÊS'), th('INTERVENÇÕES E DECISÕES')]];
-    s.itens.forEach(([m, t]) => rows.push([
-      {text:m, options:{align:'left', bold:true, color:C.amber}},
-      {text:t, options:{align:'left', color:C.ink}},
-    ]));
-    tbl(rows, {colW:[0.9, 8.3], fontSize:8.5, valign:'top'});
-    return;
-  }
-  if (s.t === 'fotos'){
-    // mesma grade do HTML, vinda do spec — não recalcular aqui, senão as duas saídas
-    // divergem quando o mês fecha com menos de 6 fotos
-    const [cols, linhas] = s.grade || [3, 2];
-    const gap = 0.12;
-    const w = (9.2 - gap * (cols - 1)) / cols;
-    const alt = (4.15 - gap * (linhas - 1)) / linhas;
-    s.fotos.forEach((f, k) => {
-      const o = itemFoto(f);
-      const x = 0.41 + (k % cols) * (w + gap), y = 0.95 + Math.floor(k / cols) * (alt + gap);
-      /* Video vira o frame com hyperlink pro hub — o arquivo NAO e embutido:
-         um .pptx com os videos dentro passa de 100 MB e nao sai por e-mail.
-         Sem poster (formato que o navegador de quem subiu nao decodificou)
-         entra um retangulo com o rotulo, pra ninguem achar que sumiu. */
-      const link = o.video ? {hyperlink:{url: linkVideo(o.video), tooltip:'Abrir o vídeo no hub'}} : {};
-      const d = o.img && imgs ? imgs[o.img] : null;
-      if (d) {
-        sl.addImage({data:d, x, y, w, h:alt, sizing:{type:'cover', w, h:alt}, ...link});
-      } else if (o.video) {
-        sl.addShape(p.ShapeType.roundRect, {x, y, w, h:alt, fill:{color:C.card}, line:{color:C.line, width:1}, rectRadius:0.06});
-        T('▶ VÍDEO', {x, y: y + alt / 2 - 0.15, w, h:0.3, fontSize:11, bold:true, color:C.amber, align:'center', ...link});
-      }
-      if (o.video && d) {
-        T('▶', {x, y, w:0.34, h:0.28, fontSize:12, bold:true, color:'FFFFFF', align:'center', ...link});
-      }
-    });
-    return;
-  }
-  // pendente
-  T('SEM DADO AINDA', {x:0.41, y:1.6, w:3, h:0.3, fontSize:9, bold:true, color:C.amber, charSpacing:2});
-  T('BASE QUE VAI ALIMENTAR', {x:0.41, y:2.2, w:8.6, h:0.22, fontSize:8, color:C.ink3, charSpacing:1});
-  T(s.fonte, {x:0.41, y:2.44, w:8.6, h:0.5, fontSize:10});
-  T('POR QUE AINDA NÃO TEM', {x:0.41, y:3.1, w:8.6, h:0.22, fontSize:8, color:C.ink3, charSpacing:1});
-  T(s.motivo, {x:0.41, y:3.34, w:8.6, h:0.5, fontSize:10});
 }
 
 /* ---- boot ---- */
@@ -1428,8 +981,8 @@ document.getElementById('modo').onchange = e => {
   idx = 0;                       // a numeração muda; voltar ao início evita cair fora
   trocaMes(mesAtual);
 };
-document.getElementById('prev').onclick = () => go(idx - 1);
-document.getElementById('next').onclick = () => go(idx + 1);
+document.getElementById('prev').onclick = () => anda(-1);
+document.getElementById('next').onclick = () => anda(1);
 document.getElementById('ir').onchange = e => go(+e.target.value);
 document.getElementById('play').onclick = play;
 /* ---- versões do conteúdo ----
