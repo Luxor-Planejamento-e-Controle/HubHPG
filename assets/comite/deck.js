@@ -353,7 +353,7 @@ function slidesManejo(hist, mNum, ano){
     const ks = Object.keys(hist).map(Number).filter(k => k >= a && k <= fim).sort((x, y) => x - y);
     if (!ks.length) return;
     out.push({t:'manejo', n:38, titulo:'MANEJO — PONTOS DE MELHORIA E DECISÕES',
-      sub:`Histórico de intervenções ${ABR_PT[a-1]}–${ABR_PT[fim-1]} ${ano}  ·  ${j + 1}º semestre`,
+      sub:`Histórico de intervenções ${a === fim ? ABR_PT[a-1] : ABR_PT[a-1] + '–' + ABR_PT[fim-1]} ${ano}  ·  ${j + 1}º semestre`,
       itens: ks.map(k => [ABR_PT[k-1], hist[k]]), atual: mNum >= a && mNum <= b ? ABR_PT[mNum-1] : ''});
   });
   return out;

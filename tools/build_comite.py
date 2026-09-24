@@ -2537,7 +2537,8 @@ def slides_manejo(todos, m, ano):
         if not ks:
             continue
         out.append({"t": "manejo", "n": 38, "titulo": "MANEJO — PONTOS DE MELHORIA E DECISÕES",
-                    "sub": f"Histórico de intervenções {ABR[a-1]}–{ABR[fim-1]} {ano}  ·  {sem}º semestre",
+                    "sub": f"Histórico de intervenções {ABR[a-1] if a == fim else ABR[a-1] + '–' + ABR[fim-1]} {ano}"
+                           f"  ·  {sem}º semestre",
                     "itens": [[ABR[k - 1], hist[k]] for k in ks],
                     "atual": ABR[m - 1] if a <= m <= b else ""})
     return out
