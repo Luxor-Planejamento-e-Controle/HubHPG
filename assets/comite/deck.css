@@ -127,6 +127,8 @@ body.play .slide{box-shadow:none;border:0}
 .s-head h1{margin:0;font-size:26px;font-weight:600;letter-spacing:.01em;color:var(--ink)}
 .s-head .sub{margin-top:7px;font-size:14px;color:var(--ink-3)}
 .s-body{position:absolute;left:52px;right:52px;top:96px;bottom:44px}
+/* o slide de DRE usa a faixa do rodapé: é o mais denso do deck */
+.slide:has(table.t) .s-body{bottom:20px}
 .s-mark{position:absolute;right:34px;top:24px;height:40px;opacity:.9}
 .s-foot{position:absolute;left:52px;right:52px;bottom:16px;display:flex;gap:14px;font-size:11px;color:var(--ink-3)}
 .s-foot .spacer{flex:1}

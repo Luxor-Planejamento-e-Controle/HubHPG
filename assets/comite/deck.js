@@ -95,7 +95,11 @@ const R = {
       : j === 3 ? `<td class="${cls(c)}">${dk(c)}</td>`
       : j === 4 ? `<td class="${cls(c)}">${dpct(c)}</td>`
       : `<td>${rs(c)}</td>`,
-    BODY_H, ['40%', '', '', '12%', '10%']) + `</div>`,
+    // +26: o resumo do relatório dela tem 48 linhas e é o slide mais cheio do
+    // deck. A moldura reserva 44px embaixo pro rodapé, e a tabela pode invadir
+    // parte disso sem encostar no número da página — sem esses pixels, a última
+    // linha (Resultado após Investimentos) ficava de fora.
+    BODY_H + 26, ['40%', '', '', '12%', '10%']) + `</div>`,
 
   /* KPIs + tabela (S11, S16–S20, S29, S37) */
   kpis_tabela: s => head(s) + `<div class="s-body">${kpiRow(s.kpis)}` + tabelaHTML(
