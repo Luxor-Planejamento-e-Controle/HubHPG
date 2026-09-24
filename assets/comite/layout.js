@@ -735,6 +735,15 @@
     const todos = itens.map((_, i) => i);
     let melhor = fileira(todos, Y0, Y1 - Y0);
     melhor = melhor.map(r => Object.assign(r, {y: Y0 + (Y1 - Y0 - r.h) / 2}));
+    /* três paisagens numa fileira ficam baixinhas no meio do slide; o relatório
+       as põe grandes, ocupando a altura. Mosaico: a primeira à esquerda, as
+       outras duas empilhadas, com recorte leve para fechar as caixas */
+    if (itens.length === 3 && melhor[0].h < 400) {
+      const wa = (X1 - X0 - GAP) * 0.6, wb = X1 - X0 - GAP - wa, hb = (Y1 - Y0 - GAP) / 2;
+      return [{i: 0, x: X0, y: Y0, w: wa, h: Y1 - Y0, corta: 1},
+              {i: 1, x: X0 + wa + GAP, y: Y0, w: wb, h: hb, corta: 1},
+              {i: 2, x: X0 + wa + GAP, y: Y0 + hb + GAP, w: wb, h: hb, corta: 1}];
+    }
     if (itens.length >= 3) {
       for (let corte = 1; corte < itens.length; corte++) {
         const hRow = (Y1 - Y0 - GAP) / 2;
@@ -752,7 +761,8 @@
     const itens = (s.fotos || []).map(f => typeof f === 'string' ? {img: f} : f);
     arrumaFotos(itens).forEach(r => {
       const f = itens[r.i];
-      if (f.img) P.push(I(r.x, r.y, r.w, r.h, f.img, {link: f.video && ctx && ctx.linkVideo ? ctx.linkVideo(f.video) : null, video: f.video || null}));
+      if (f.img) P.push(I(r.x, r.y, r.w, r.h, f.img, {link: f.video && ctx && ctx.linkVideo ? ctx.linkVideo(f.video) : null,
+        video: f.video || null, corta: r.corta ? 1 : 0, ar: (f.w && f.h) ? f.w / f.h : null}));
       else P.push(R(r.x, r.y, r.w, r.h, {fill: 'F4F6F8', line: COR.linha}));
       if (f.video) {
         const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
@@ -824,7 +834,7 @@
                       : `<div class="pr" style="${st}"></div>`;
       }
       if (p.k === 'i') {
-        const img = `<img class="pi${p.logo ? ' logo' : ''}" src="${escH(p.src)}" alt="" style="${box}">`;
+        const img = `<img class="pi${p.logo ? ' logo' : ''}${p.corta ? ' corta' : ''}" src="${escH(p.src)}" alt="" style="${box}">`;
         return p.link ? `<a href="${escH(p.link)}" data-video="${escH(p.video || '')}">${img}</a>` : img;
       }
       const st = `${box};font-size:${(p.pt * PT).toFixed(2)}px;color:${rgba(p.c || COR.tinta, p.alfa)};` +
@@ -862,6 +872,13 @@
         const data = imagens && imagens[p.src] ? imagens[p.src] : (String(p.src).startsWith('data:') ? p.src : null);
         if (!data) continue;
         const o = Object.assign({data}, g);
+        if (p.corta && p.ar) {
+          /* recorte: o pptxgen quer o tamanho da IMAGEM inteira em w/h e a
+             janela visível em sizing — a imagem cobre a caixa e sobra dos lados */
+          let iw = p.w, ih = p.w / p.ar;
+          if (ih < p.h) { ih = p.h; iw = p.h * p.ar; }
+          Object.assign(o, {w: pol(iw), h: pol(ih), sizing: {type: 'cover', w: g.w, h: g.h}});
+        }
         if (p.link) o.hyperlink = {url: p.link, tooltip: 'Abrir o vídeo no hub'};
         sl.addImage(o);
         continue;

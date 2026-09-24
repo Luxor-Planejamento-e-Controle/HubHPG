@@ -906,6 +906,12 @@ def slide_estoque(m, ano):
     # pelos 187 avaliados daria R$ 370k. Animal sem valor entra no denominador
     # porque ele existe no plantel; o que falta é a avaliação dele.
     medio = float(x["valor_100"].sum()) / len(x) if len(x) else 0.0
+    # O patrimônio do cartão é o saldo do Resumo Contábil liberado — o mesmo
+    # número do slide de movimentação (jul/26: R$ 15.970.552,61, "R$ 16,0M").
+    # A soma do parquet (15,94M) sai do cálculo por cota e não do divulgado.
+    rc = resumo_contabil(ano, m).get(m, {})
+    if rc.get("saldo_fim"):
+        patrim = rc["saldo_fim"]
     cat = x["categoria"].value_counts()
     # Cartões como os dela: só valor e rótulo, e o de animais com a regra do
     # sufixo embaixo. Quantos estão sem avaliação não aparece no slide — o valor

@@ -44,6 +44,7 @@ body{display:flex;flex-direction:column}
 .slide .pt.quebra{white-space:pre-wrap}
 .slide .pt.quebra span{white-space:pre-wrap;overflow-wrap:break-word}
 .slide .pi{display:block;object-fit:fill}
+.slide .pi.corta{object-fit:cover}
 .slide .parcos{position:absolute;left:0;top:0;pointer-events:none}
 .slide a .pi,.slide a.pr{cursor:pointer}
 /* slide que existe no arquivo mas não entra na apresentação */
