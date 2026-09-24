@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comitê Mensal — Haras Pao Grande</title>
+<link rel="icon" href="assets/pg-logo.png">
+<link rel="stylesheet" href="assets/comite/deck.css?v=202609241345">
+</head>
+<body>
+<div class="stage" id="stage"></div>
+<div class="bar">
+  <select id="mes" title="Mês de referência"></select>
+  <select id="modo" title="Mensal mostra o mês e o acumulado; trimestral, só o acumulado (YTD)">
+    <option value="mensal">Mensal</option>
+    <option value="trimestral">Trimestral</option>
+  </select>
+  <button type="button" id="prev" title="Slide anterior (←)">←</button>
+  <span class="pos" id="pos">1 / 1</span>
+  <button type="button" id="next" title="Próximo slide (→)">→</button>
+  <select id="ir" title="Ir para o slide"></select>
+  <button type="button" id="play" title="Apresentar (P · Esc para sair)">Apresentar</button>
+  <button type="button" id="editar" hidden title="Editar este slide (comentários, exposições, manejo, fotos)">✎ Editar</button>
+  <button type="button" id="versoes" hidden title="Histórico do conteúdo deste mês">⏱ Versões</button>
+  <span id="barraJob" class="hj-slot"></span>
+  <span class="spacer"></span>
+  <span class="aviso" id="aviso"></span>
+  <!-- os dois exports andam juntos: mesmo peso visual e sem quebrar a linha no
+       meio do par quando o aviso é comprido -->
+  <span class="acoes">
+    <button type="button" class="primary" id="pdf" title="Salvar como PDF (uma página por slide, pela impressão do navegador)">Exportar PDF</button>
+    <button type="button" class="primary" id="pptx" title="Baixar como PowerPoint">Exportar PPTX</button>
+  </span>
+</div>
+<script src="assets/vendor/pptxgen.bundle.js"></script>
+<!-- barra de "Atualizar dados": o pedido vai pra fila e quem executa é o agente
+     na máquina que tem o Drive (tools/agente_hub.py) -->
+<script src="assets/hubjob.js?v=202609231200"></script>
+<!-- spec.js e gerado e gitignored: existe na maquina (demo offline), nao no
+     site publico. Em producao o deck le o spec que o porteiro do hub baixou
+     do bucket privado — iframe de mesmo origin, entao window.parent resolve. -->
+<script src="assets/comite/spec.js?v=202609241345" onerror="void 0"></script>
+<script>
+  if(!window.COMITE_SPEC){
+    try { window.COMITE_SPEC = window.parent.HUB && window.parent.HUB.comiteSpec; }
+    catch(e) { console.warn("[deck] sem spec: nem local nem do hub", e); }
+  }
+</script>
+<script src="assets/comite/deck.js?v=202609241345"></script>
+<script>
+// pagina temporaria de QA: dispara o export assim que o deck monta
+setTimeout(()=>{ document.getElementById('pptx').click(); }, 4000);
+</script>
+</body>
+</html>
