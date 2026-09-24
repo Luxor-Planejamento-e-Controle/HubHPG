@@ -537,6 +537,38 @@ def base_bi():
     return _base_bi_cache
 
 
+# A base guarda a categoria no singular e sem acento (EMBRIAO, GARANHAO); o
+# relatório da Ana imprime no plural acentuado. E ela não lista a cauda inteira:
+# o que fica abaixo das principais vira uma linha "Outros", senão o slide ganha
+# oito linhas de uma unidade cada.
+CATEGORIA_PLURAL = {
+    "EMBRIAO": "Embriões", "POTRA": "Potras", "POTRO": "Potros",
+    "GARANHAO": "Garanhões", "DOADORA": "Doadoras", "CASTRADO": "Castrados",
+    "EGUA DE PISTA": "Éguas de Pista", "CAVALO DE PISTA": "Cavalos de Pista",
+    "CAVALO": "Cavalos", "RECEPTORA": "Receptoras", "MATRIZ": "Matrizes",
+    "APOSENTADO": "Aposentados", "POTRA DE PISTA": "Potras de Pista",
+    "POTRO DE PISTA": "Potros de Pista",
+}
+CATEGORIAS_NA_FACE = 7
+
+
+def _linhas_categoria(cat, total):
+    """Linhas da tabela de categorias, no formato do relatório."""
+    itens = list(cat.items())
+    principais, cauda = itens[:CATEGORIAS_NA_FACE], itens[CATEGORIAS_NA_FACE:]
+    linhas = [[CATEGORIA_PLURAL.get(_norm_nome_cat(k), str(k).title()), int(v),
+               f"{v / total * 100:.0f}%"] for k, v in principais]
+    resto = sum(int(v) for _, v in cauda)
+    if resto:
+        linhas.append(["Outros", resto, f"{resto / total * 100:.0f}%"])
+    return linhas
+
+
+def _norm_nome_cat(k):
+    import unicodedata as _u
+    return _u.normalize("NFKD", str(k)).encode("ascii", "ignore").decode().upper().strip()
+
+
 def slide_estoque(m, ano):
     d = base_bi()
     if d is None:
@@ -571,7 +603,7 @@ def slide_estoque(m, ano):
                       "s": (f"{len(x)} animais · {len(x) - aval} sem avaliação" if aval < len(x)
                             else f"{len(x)} animais avaliados")}],
             "tabela": {"cols": ["CATEGORIA", "Nº", "%"],
-                       "rows": [[k.title(), int(v), f"{v/len(x)*100:.0f}%"] for k, v in cat.items()]}}
+                       "rows": _linhas_categoria(cat, len(x))}}
 
 
 MOV_LINHAS = [("saldo_ini", "Saldo Inicial"), ("compra", "(+) Compras"), ("producao", "(+) Prod. Emb."),
