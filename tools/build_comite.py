@@ -959,9 +959,9 @@ def base_bi():
 
 
 # A base guarda a categoria no singular e sem acento (EMBRIAO, GARANHAO); o
-# relatório da Ana imprime no plural acentuado. E ela não lista a cauda inteira:
-# o que fica abaixo das principais vira uma linha "Outros", senão o slide ganha
-# oito linhas de uma unidade cada.
+# relatório imprime no plural acentuado. Até julho/2026 a cauda virava uma linha
+# "Outros"; o de agosto abre todas as categorias (onze linhas) e o haras pediu
+# assim. "Outros" só sobra se passar do que a tabela comporta.
 CATEGORIA_PLURAL = {
     "EMBRIAO": "Embriões", "POTRA": "Potras", "POTRO": "Potros",
     "GARANHAO": "Garanhões", "DOADORA": "Doadoras", "CASTRADO": "Castrados",
@@ -970,7 +970,11 @@ CATEGORIA_PLURAL = {
     "APOSENTADO": "Aposentados", "POTRA DE PISTA": "Potras de Pista",
     "POTRO DE PISTA": "Potros de Pista",
 }
-CATEGORIAS_NA_FACE = 7
+CATEGORIAS_NA_FACE = 12
+# A partir de agosto/2026 o relatório tira o valor médio só dos AVALIADOS
+# ("166 animais avaliados": 68,57M / 166 = R$ 413k). Julho foi apresentado com
+# a média sobre todos (69,163M / 189 = R$ 366k) e fica como foi apresentado.
+MEDIO_AVALIADOS_DESDE = (2026, 8)
 
 
 def _linhas_categoria(cat, total):
@@ -1009,6 +1013,11 @@ def slide_estoque(m, ano):
     # pelos 187 avaliados daria R$ 370k. Animal sem valor entra no denominador
     # porque ele existe no plantel; o que falta é a avaliação dele.
     medio = float(x["valor_100"].sum()) / len(x) if len(x) else 0.0
+    avaliados = int((x["valor_100"].fillna(0) > 0).sum())
+    sub_medio = ""
+    if (ano, m) >= MEDIO_AVALIADOS_DESDE and avaliados:
+        medio = float(x["valor_100"].sum()) / avaliados
+        sub_medio = f"{avaliados} animais avaliados"
     # O patrimônio do cartão é o saldo do Resumo Contábil liberado — o mesmo
     # número do slide de movimentação (jul/26: R$ 15.970.552,61, "R$ 16,0M").
     # A soma do parquet (15,94M) sai do cálculo por cota e não do divulgado.
@@ -1025,7 +1034,7 @@ def slide_estoque(m, ano):
             "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "DA PAO GRANDE + OUTROS",
                       "cor": "navy", "pt": 28},
                      {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "", "cor": "ouro", "pt": 20},
-                     {"v": brl_curto(medio), "l": "Valor Médio", "s": "", "cor": "azul", "pt": 24}],
+                     {"v": brl_curto(medio), "l": "Valor Médio", "s": sub_medio, "cor": "azul", "pt": 24}],
             "rows": _linhas_categoria(cat, len(x))}
 
 
