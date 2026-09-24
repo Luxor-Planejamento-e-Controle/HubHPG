@@ -1218,12 +1218,21 @@ function pptSlide(p, s, i, logo, imgs){
   };
 
   if (s.t === 'agenda'){
+    // agenda dela: número dentro de um círculo dourado, separador vertical entre
+    // as colunas, título dourado e descrição branca — não o filete horizontal
+    // o cabeçalho (título, subtítulo, logo) já foi escrito acima pelo trecho
+    // comum — aqui entram só os cinco blocos da agenda
     s.itens.forEach((it, k) => {
-      const x = 0.41 + k * 1.83;
-      sl.addShape(p.ShapeType.rect, {x, y:1.15, w:1.7, h:0.04, fill:{color:C.amber}});
-      T(it.n, {x, y:1.3, w:1.7, h:0.4, fontSize:18, bold:true, color:C.amber});
-      T(it.titulo, {x, y:1.8, w:1.7, h:0.35, fontSize:10, bold:true});
-      T(it.sub, {x, y:2.2, w:1.7, h:0.7, fontSize:8, color:C.ink3});
+      const x = 0.41 + k * 1.83, cx = x + 0.85 - 0.33;
+      if (k) sl.addShape(p.ShapeType.rect, {x: x - 0.07, y:1.5, w:0.02, h:1.5,
+                                            fill:{color:'3A5478'}, line:{width:0}});
+      sl.addShape(p.ShapeType.ellipse, {x:cx, y:1.54, w:0.66, h:0.66,
+                                        fill:{color:C.amber}, line:{width:0}});
+      T(it.n, {x:cx, y:1.68, w:0.66, h:0.38, fontSize:15, bold:true,
+               align:'center', color:C.dark});
+      T(it.titulo, {x, y:2.42, w:1.7, h:0.32, fontSize:9, bold:true,
+                    align:'center', color:C.amber});
+      T(it.sub, {x, y:2.78, w:1.7, h:0.7, fontSize:8, align:'center', color:'C9D4E2'});
     });
     return;
   }
