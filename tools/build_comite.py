@@ -187,6 +187,7 @@ ACENTOS = {
     "CAMPEA": "CAMPEÃ", "CAMPEAO": "CAMPEÃO", "COBERTURA": "COBERTURA",
     "SEMEN": "SÊMEN", "ALCATEIA": "ALCATEIA", "ALCATÉIA": "ALCATEIA",
     "CANCELAMENTO": "CANCELAMENTO", "REPOSICAO": "REPOSIÇÃO", "CONFIRMACAO": "CONFIRMAÇÃO",
+    "GARANHAO": "GARANHÃO", "MEAIPE": "MEAÍPE", "NACIONAL": "NACIONAL", "EXPOSICAO": "EXPOSIÇÃO",
 }
 PARTICULAS = {"DA", "DE", "DO", "DAS", "DOS", "E", "COM", "PARA", "EM", "A", "O", "AS", "OS",
               "NA", "NO", "NAS", "NOS", "À", "AO", "POR"}
@@ -217,7 +218,7 @@ def titulo_pt(txt: str) -> str:
         elif i and p in PARTICULAS:
             out.append(p.lower())
         else:
-            out.append(p[:1] + p[1:].lower())
+            out.append("-".join(x[:1] + x[1:].lower() for x in p.split("-")))
     return " ".join(out)
 
 
@@ -1564,25 +1565,25 @@ def slide_coberturas(safra):
     ws = wb["Planilha2"]
     rows = []
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
-        if i < 3 or r[1] is None:
+        if i < 3 or len(r) < 5 or r[1] is None:
             continue
-        nome = _s(r[1])
-        if not nome or _norm(r[1]).startswith("TOTAL") or _norm(r[1]) in COBERTURAS_FORA:
+        n = _norm(r[1])
+        # abaixo de 'ARQUIVO MORTO' a aba guarda os garanhões encerrados, com o
+        # próprio cabeçalho repetido — entravam no slide como se fossem linhas
+        if n.startswith("ARQUIVO MORTO"):
+            break
+        if not n or n.startswith("TOTAL") or n in COBERTURAS_FORA or n in ("GARANHAO", "GARANHÃO"):
             continue
-        qtd, usa, saldo = (int(_to_num(r[j]) or 0) for j in (2, 3, 4))
-        rows.append([nome.title(), qtd, usa, saldo])
+        saldo = int(_to_num(r[4]) or 0)
+        if saldo > 0:
+            rows.append({"nome": titulo_pt(r[1]), "saldo": saldo})
     wb.close()
-    rows.sort(key=lambda x: -x[3])
-    com_saldo = [r for r in rows if r[3] > 0]
-    return {"t": "kpis_tabela", "n": 21,
+    # do maior saldo pro menor; no empate, a ordem da planilha (sort estável)
+    rows.sort(key=lambda x: -x["saldo"])
+    return {"t": "coberturas", "n": 21,
             "titulo": f"ESTAÇÃO DE MONTA {safra} — COBERTURAS DISPONÍVEIS",
-            "sub": (f"Coberturas de garanhões de fora · {len(com_saldo)} garanhões com saldo"
-                    f" · exclui {', '.join(x.title() for x in COBERTURAS_FORA)}"),
-            "kpis": [{"v": str(sum(r[3] for r in rows)), "l": "Saldo Total", "s": "coberturas a usar"},
-                     {"v": str(sum(r[1] for r in rows)), "l": "Compradas", "s": "no acumulado"},
-                     {"v": str(sum(r[2] for r in rows)), "l": "Utilizadas", "s": "aceites"},
-                     {"v": str(len(com_saldo)), "l": "Garanhões", "s": "com saldo disponível"}],
-            "tabela": {"cols": ["GARANHÃO", "COMPRADAS", "UTILIZADAS", "SALDO"], "rows": rows}}
+            "sub": "Coberturas de garanhões de fora com saldo disponível  ·  Fonte: planilha de controle de coberturas",
+            "rows": rows}
 
 
 # ====================================================== Inadimplência (S31)
@@ -1674,14 +1675,50 @@ def slide_inadimplencia(m, ano):
 VENDEDOR_COMITE = "CARLA"
 
 
+def _mapa_vendas_do_mes(ano: int, m: int):
+    """Mapa de vendas do FECHAMENTO do mês: a primeira versão gerada depois do fim
+    do mês (o prefixo do nome é a data). O mais novo pode ter revisado o passado
+    — foi o caso de março/26, que caiu de 749.050 para 670.050 na Semana entre as
+    versões de julho e de agosto —, e o deck de um mês fechado não muda por isso.
+    Sem versão posterior ao mês (mês corrente), vale a mais nova."""
+    raiz = Path(MAPA_VENDAS_DIR).parent
+    fim = date(ano + m // 12, m % 12 + 1, 1)
+    cands = []
+    for f in raiz.rglob("*_PG_Mapa Vendas*.xlsx"):
+        mm = RE_PREFIXO_DATA.match(f.name)
+        if f.name.startswith("~$") or not mm:
+            continue
+        try:
+            d = datetime.strptime(mm.group(1), "%y%m%d").date()
+        except ValueError:
+            continue
+        cands.append((d, f.stat().st_mtime, f))
+    depois = sorted(c for c in cands if c[0] >= fim)
+    if depois:
+        return depois[0][2]
+    return max(cands)[2] if cands else None
+
+
+def _evento_vendas(tipo, nome) -> str:
+    """Rótulo da origem como o relatório: 'Venda Direta' ou o NOME do evento
+    ('XVI Semana de Negócios PG'). O tipo ('LEILAO PROPRIO') não serve de rótulo,
+    e a planilha grafa a mesma Semana com um e com dois espaços."""
+    if "DIRETA" in _norm(tipo or "") or not _s(nome):
+        return "Venda Direta"
+    n = " ".join(_norm(nome).split())
+    n = re.sub(r"NEGOCIO", "NEGOCIOS", n)
+    return titulo_pt(n)
+
+
 def slides_vendas(m, ano, meta_anual=4_500_000):
-    """S29 KPI e S30 detalhamento. Filtro obrigatório: VENDEDOR = CARLA, sem
-    CANCELADO (regra do guia). Colunas do MAPA VENDAS (1-based): 7 valor produto,
-    8 valor da venda, 11 tipo de evento, 12 nome do evento, 15 vendedor,
-    19 status contrato, 22 ano, 23 mês."""
+    """S29 resultado acumulado e S30 detalhamento. Filtro obrigatório: VENDEDOR =
+    CARLA, sem CANCELADO (regra do guia). Colunas do MAPA VENDAS (1-based): 8
+    valor da venda, 11 tipo de evento, 12 nome do evento, 15 vendedor, 19 status
+    contrato, 22 ano, 23 mês."""
     try:
-        src = _latest_by_yymmdd(MAPA_VENDAS_DIR, "*_PG_Mapa Vendas.xlsx", "mapa de vendas")
-        wb = _load(src)
+        src = _mapa_vendas_do_mes(ano, m) or _latest_by_yymmdd(MAPA_VENDAS_DIR, "*_PG_Mapa Vendas.xlsx",
+                                                                "mapa de vendas")
+        wb = _load(_registra("mapa de vendas", src))
     except Exception as e:
         p = pend(29, "VENDAS — RESULTADO ACUMULADO", "", "PG_Mapa Vendas.xlsx, aba MAPA VENDAS",
                  f"não consegui abrir: {e}")
@@ -1701,33 +1738,32 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
         if a != ano or not mm or mm > m:
             continue
         v = _to_num(r[7]) or 0
-        ev = _s(r[10]) or _s(r[11]) or "—"
-        por_mes.setdefault(int(mm), {}).setdefault(ev.title(), 0)
-        por_mes[int(mm)][ev.title()] += v
+        ev = _evento_vendas(r[10], r[11])
+        por_mes.setdefault(int(mm), {}).setdefault(ev, 0)
+        por_mes[int(mm)][ev] += v
     wb.close()
     ytd = sum(sum(d.values()) for d in por_mes.values())
     mes_v = sum(por_mes.get(m, {}).values())
-    rows = []
-    for mm in sorted(por_mes):
-        tot = sum(por_mes[mm].values())
-        rows.append([MESES[mm - 1].upper(), "", tot])
-        for ev, v in sorted(por_mes[mm].items(), key=lambda kv: -kv[1]):
-            rows.append(["", ev, v])
+    pct = ytd / meta_anual if meta_anual else 0
+    mes_nome = MESES[m - 1]
+    meses = [{"mes": MESES[mm - 1].upper(), "abr": ABR[mm - 1], "total": sum(por_mes[mm].values()),
+              "eventos": [[ev, v] for ev, v in sorted(por_mes[mm].items(), key=lambda kv: -kv[1])]}
+             for mm in sorted(por_mes)]
     return [
-        {"t": "kpis_tabela", "n": 29, "titulo": f"VENDAS {ano} — RESULTADO ACUMULADO — {VENDEDOR_COMITE.title()}",
-         "sub": f"Meta anual {brl_curto(meta_anual)} · acumulado Jan–{ABR[m-1]} {brl_curto(ytd)}",
-         "kpis": [{"v": brl_curto(mes_v), "l": f"Vendas {ABR[m-1]}", "s": "realizado no mês"},
-                  {"v": brl_curto(ytd), "l": "Acumulado YTD", "s": f"Jan–{ABR[m-1]}"},
-                  {"v": brl_curto(meta_anual), "l": "Meta Anual", "s": "parâmetro do comitê"},
-                  {"v": brl_curto(meta_anual - ytd), "l": "Saldo para Meta",
-                   "s": f"{ytd/meta_anual*100:.0f}% atingido"}],
-         "tabela": {"cols": ["MÊS", "TOTAL"],
-                    "rows": [[MESES[mm - 1].title(), brl_curto(sum(por_mes[mm].values()))]
-                             for mm in sorted(por_mes)]}},
-        {"t": "tabela", "n": 30, "titulo": f"VENDAS — JANEIRO A {MESES[m-1].upper()}/{str(ano)[2:]} — {VENDEDOR_COMITE.title()}",
-         "sub": f"Detalhamento por mês e evento · filtro: vendedor = {VENDEDOR_COMITE}, sem cancelados",
-         "cols": ["MÊS", "EVENTO / ORIGEM", "VALOR"], "moeda": [2],
-         "rows": rows},
+        {"t": "vendas_acum", "n": 29, "titulo": f"VENDAS {ano} — RESULTADO ACUMULADO — {VENDEDOR_COMITE}",
+         "sub": (f"Meta anual: {brl_cheio(meta_anual)}  ·  Acumulado Jan–{ABR[m-1]}: {brl_curto(ytd)}"
+                 f"  ·  Vendedor: {VENDEDOR_COMITE.title()}"),
+         "kpis": [{"v": brl_cheio(mes_v), "l": f"Vendas {mes_nome}", "s": "Realizado no mês", "cor": "ouro"},
+                  {"v": brl_curto(ytd), "l": "Acumulado YTD", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "navy"},
+                  {"v": brl_curto(meta_anual), "l": "Meta Anual", "s": f"Objetivo {ano}", "cor": "ardosia"},
+                  {"v": brl_curto(max(meta_anual - ytd, 0)), "l": "Saldo para Meta", "s": "Ainda a realizar",
+                   "cor": "azul"}],
+         "pct": pct, "barra": f"{pct*100:.0f}% da meta atingida",
+         "colunas": [{"rot": x["abr"], "v": x["total"]} for x in meses]},
+        {"t": "vendas_mes", "n": 30,
+         "titulo": f"VENDAS — JANEIRO A {mes_nome.upper()}/{str(ano)[2:]} — {VENDEDOR_COMITE}",
+         "sub": f"Detalhamento por mês e evento  ·  Filtro: Vendedor = {VENDEDOR_COMITE.title()}",
+         "meses": meses},
     ]
 
 
