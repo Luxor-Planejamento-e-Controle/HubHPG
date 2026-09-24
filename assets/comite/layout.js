@@ -588,7 +588,9 @@
     s.colunas.forEach((c, j) => {
       const x = x0 + j * slot + (slot - bw) / 2, h = Math.max(2, 280 * c.v / max);
       P.push(R(x, 631.6 - h, bw, h, {fill: COR.azul}));
-      P.push(T(x - 28.8, 631.6 - h - 32, bw + 57.6, 28.2, milhoes(c.v), {pt: 8, b: 1, c: COR.azul, al: 'c', va: 'm'}));
+      // rótulo em milhar: 'R$ 0,0M' escondia os R$ 22 mil de agosto
+      const rot = c.v >= 1e6 ? milhoes(c.v) : 'R$ ' + nf(arred(c.v / 1000), 0) + 'k';
+      P.push(T(x - 28.8, 631.6 - h - 32, bw + 57.6, 28.2, rot, {pt: 8, b: 1, c: COR.azul, al: 'c', va: 'm'}));
       P.push(T(x, 638, bw, 28.2, c.rot, {pt: 9, b: 1, c: COR.tinta, al: 'c', va: 'm'}));
     });
     return P;
@@ -709,10 +711,13 @@
       P.push(T(64, 200, 1100, 40, 'Nenhum contrato neste recorte.', {pt: 11, c: COR.cinza, va: 'm'}));
       return P;
     }
-    const p = passo(s.rows.length, 158.7, 712, 34.45);
+    /* o relatório distribui as linhas na altura toda (8 contratos: passo 69;
+       16: passo 34,5), em faixas alternadas, e pinta o pagamento pelo status */
+    const p = (712 - 158.7) / s.rows.length;
     s.rows.forEach((r, i) => {
-      const y = 158.7 + i * p, hh = p - 1.3;
-      const cores = [COR.tinta, COR.tinta, COR.cinza, COR.cinza, COR.cinza, COR.tinta, COR.verde];
+      const y = 158.7 + i * p, hh = p - 2.6;
+      P.push(R(44.8, y, 1187.8, hh, {fill: i % 2 ? COR.zebra : 'FFFFFF'}));
+      const cores = [COR.tinta, COR.tinta, COR.cinza, COR.cinza, COR.cinza, COR.tinta, corPgto(r[6])];
       r.forEach((v, j) => {
         const [x, w, al] = cols[j];
         const ins = al === 'l' ? 12.8 : 0, insR = al === 'r' ? 12.8 : 0;
@@ -722,6 +727,14 @@
     });
     return P;
   };
+  function corPgto(t) {
+    const u = semAcento(String(t || '')).toUpperCase();
+    if (/QUITAD/.test(u)) return COR.verde;
+    if (/PAGANDO/.test(u)) return COR.ouro;
+    if (/PAUSAD/.test(u)) return COR.neg;
+    if (/TROCA|DIREITO/.test(u)) return COR.azul;
+    return COR.cinza;
+  }
 
   /* ---------------- manejo, mês a mês ---------------- */
   L.manejo = s => {

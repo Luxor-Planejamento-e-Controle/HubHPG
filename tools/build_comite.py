@@ -1811,7 +1811,13 @@ INAD_DIR = Path(r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi")
 
 
 INAD_HIST = INAD_DIR / "historico"
-INAD_CARTEIRA = "Carla"      # o painel que o relatório mostra é o da carteira da Carla
+# Até julho/2026 o print do relatório era o painel filtrado na carteira da
+# Carla (jul/26 bate na vírgula com ele). O de agosto é o painel como o dash do
+# hub P&C mostra — a carteira CAR inteira, que é o que o ControleInadimplencia
+# grava em indicadores_kpi_historico.xlsx (31/08: R$ 5.494.012,80).
+INAD_CARTEIRA = "Carla"
+INAD_CARTEIRA_ATE = (2026, 7)
+INAD_KPI_HIST = INAD_HIST / "indicadores_kpi_historico.xlsx"
 STATUS_VENCIDO = ("Aberto vencido", "Aberto parcialmente")
 
 
@@ -1821,13 +1827,15 @@ def _inad_foto(data_ref: date):
     return f if f.exists() else None
 
 
-def _inad_kpis(f: Path) -> dict:
+def _inad_kpis(f: Path, carteira=None) -> dict:
     """Os seis cartões e a quebra por ano, com a MESMA regra do dashboard de
     conferência (ControleInadimplencia.py, computeKPIs/aggregateByYear): título
     vencido = status vencido/parcial E mais de 7 dias; Ação Judicial, Não
     Entregues e Inadimplentes são a quebra dos vencidos; o resto é A Vencer."""
     d = pd.read_parquet(f)
-    d = d[(d["tipo_conta"] == "CAR") & (d["carteira"] == INAD_CARTEIRA)]
+    d = d[d["tipo_conta"] == "CAR"]
+    if carteira:
+        d = d[d["carteira"] == carteira]
     venc = d["status_vencimento"].astype(str).str.strip().isin(STATUS_VENCIDO) & (d["dias_atraso"] > 7)
     cat = d["categoria"].astype(str)
     k = {"total": float(d["vl_em_aberto"].sum()),
@@ -1854,6 +1862,28 @@ def _inad_kpis(f: Path) -> dict:
     return k
 
 
+def _confere_kpi_dash(dia: date, k: dict):
+    """O cartão tem de ser o número do dash: o histórico de KPIs que o próprio
+    ControleInadimplencia grava. Diferença aqui é regra divergindo — avisa."""
+    if not INAD_KPI_HIST.exists():
+        return
+    try:
+        h = pd.read_excel(INAD_KPI_HIST)
+        h = h[pd.to_datetime(h["data_referencia"]).dt.date == dia]
+        if h.empty:
+            return
+        r = h.iloc[0]
+        pares = [("total", "total_em_aberto"), ("venc", "total_vencido_apos_7_dias"),
+                 ("avencer", "total_a_vencer"), ("aj", "acao_judicial"), ("ne", "nao_entregues"),
+                 ("inad", "inadimplentes_liquido"), ("clientes", "qtd_clientes_total"),
+                 ("clientes_venc", "qtd_clientes_vencidos")]
+        fora = [f"{a}: {k[a]:,.2f} × dash {float(r[b]):,.2f}" for a, b in pares if abs(k[a] - float(r[b])) > 0.5]
+        if fora:
+            aviso(f"inadimplência {dia:%d/%m/%Y} não bate com o dash: " + "; ".join(fora))
+    except Exception as exc:
+        aviso(f"não deu pra conferir a inadimplência com o histórico do dash: {exc!r}")
+
+
 def slide_inadimplencia(m, ano):
     """S31 — o painel de cobrança na posição do FIM do mês do deck, comparado com
     o fim do mês anterior. O relatório colava o print do dashboard; aqui o painel
@@ -1864,10 +1894,14 @@ def slide_inadimplencia(m, ano):
     f = _inad_foto(fim_mes)
     if f is not None:
         _registra("inadimplência (foto do mês)", f)
-        k = _inad_kpis(f)
+        carteira = INAD_CARTEIRA if (ano, m) <= INAD_CARTEIRA_ATE else None
+        k = _inad_kpis(f, carteira)
+        if carteira is None:
+            _confere_kpi_dash(fim_mes, k)
         ini = date(fim_mes.year, fim_mes.month, 1) - timedelta(days=1)
         fa = _inad_foto(ini)
-        ka = _inad_kpis(fa) if fa is not None else None
+        # a variação compara com o mês anterior NA MESMA regra — é o que o dash faz
+        ka = _inad_kpis(fa, carteira) if fa is not None else None
         return {"t": "inadimplencia", "n": 31, "titulo": "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS",
                 "sub": f"Posição {MESES[m-1].upper()}/{ano}  ·  Fonte: Dashboard de Gestão de Cobrança",
                 "k": {x: k[x] for x in ("total", "venc", "aj", "ne", "inad", "avencer",
@@ -1968,9 +2002,12 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
                  f"  ·  Vendedor: {VENDEDOR_COMITE.title()}"),
          "kpis": [{"v": brl_cheio(mes_v), "l": f"Vendas {mes_nome}", "s": "Realizado no mês", "cor": "ouro"},
                   {"v": brl_curto(ytd), "l": "Acumulado YTD", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "navy"},
+                  # o relatório de agosto/2026 passou a trazer a média do ano
+                  # (acumulado ÷ meses decorridos: 2.043.606 / 8 = R$ 255k)
+                  {"v": brl_curto(ytd / m), "l": "Média Mensal", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "azul"},
                   {"v": brl_curto(meta_anual), "l": "Meta Anual", "s": f"Objetivo {ano}", "cor": "ardosia"},
                   {"v": brl_curto(max(meta_anual - ytd, 0)), "l": "Saldo para Meta", "s": "Ainda a realizar",
-                   "cor": "azul"}],
+                   "cor": "navy"}],
          "pct": pct, "barra": f"{pct*100:.0f}% da meta atingida",
          "colunas": [{"rot": x["abr"], "v": x["total"]} for x in meses]},
         {"t": "vendas_mes", "n": 30,
@@ -2005,6 +2042,16 @@ def _cota_txt(c):
     return f"{c:g}"
 
 
+def garanhao_contrato(txt) -> str:
+    """Garanhão do contrato. 'PAO GRANDE ESCOLHE' não é animal — é o haras que
+    escolhe o garanhão — e abreviado ('PG Escolhe') lia como nome."""
+    if not _s(txt):
+        return "—"
+    if _chave_dre(txt) == "PAOGRANDEESCOLHE":
+        return "Pao Grande Escolhe"
+    return titulo_pt(txt)
+
+
 def slides_embrioes(m, ano):
     """S32–S35 — contratos de embrião, na ordem da planilha (que já vem por
     doadora) e com a altura de linha padrão que o haras pediu em junho. Contrato
@@ -2028,7 +2075,7 @@ def slides_embrioes(m, ano):
             if d and d > fim_mes:
                 continue
             out.append({"doadora": nome_animal(r[1], curto=False),
-                        "garanhao": titulo_pt(r[2]) if _s(r[2]) else "—",
+                        "garanhao": garanhao_contrato(r[2]),
                         "data": dtxt, "contraparte": pessoa_curta(r[5]),
                         "cota": _cota_txt(_to_num(r[6])), "valor": brl_k(_to_num(r[10])),
                         "pgto": _s(r[11]) or "", "status": _s(r[12]) or ""})
@@ -2056,12 +2103,11 @@ def slides_embrioes(m, ano):
         slide(33, "VENDAS — EMBRIÕES VENDIDOS A FAZER (PGTO PAUSADO / APÓS CONF.)",
               "Status: A fazer  ·  Pgto: Pausado" + (", Após confirmação ou A pagar" if tem_a_pagar
                                                     else " ou Após confirmação"), s33),
-        # na reposição o que importa é o status do embrião ('Reposição'); no
-        # contrato de direito, o 'Direito' — é o que a coluna mostra no relatório
+        # Até julho/2026 a coluna repetia o status do embrião ('Reposição'); o
+        # relatório de agosto mostra nela o PAGAMENTO, como nos outros três
+        # slides de contrato (Quitado, Troca/Direito)
         slide(34, "VENDAS — EMBRIÕES DE DIREITO / REPOSIÇÃO",
-              "Status: Reposição ou A fazer  ·  Pgto: Direito / Troca", s34,
-              pgto=lambda x: ("Reposição" if _norm(x["status"]).startswith("REPOSI")
-                              else ("Direito" if "DIREITO" in _norm(x["pgto"]) else x["pgto"]))),
+              "Status: Reposição ou A fazer com Direito/Troca", s34),
         slide(35, "ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER",
               'Status "A Fazer" — ainda não produzidos  ·  Fonte: aba RECEBER', [x for x in rec if af(x)],
               "VENDEDOR", "DOADORA (ORIGEM)"),
