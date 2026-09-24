@@ -1165,7 +1165,7 @@ def slides_estacao(safra: str):
                 dict(p, n=18, titulo="ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES"),
                 dict(p, n=19, titulo="ESTAÇÃO DE MONTA — DOADORAS TIME A"),
                 dict(p, n=20, titulo="ESTAÇÃO DE MONTA — DOADORAS TIME B")]
-    out = [funil(wb, safra), garanhoes(wb, safra), comparativo(wb)] + doadoras(wb, safra)
+    out = [funil(wb, safra), garanhoes(wb, safra), comparativo(wb, safra)] + doadoras(wb, safra)
     wb.close()
     return out
 
@@ -1323,139 +1323,217 @@ def _garanhoes_da_estacao(wb, safra: str) -> dict:
 
 # Mês da estação de monta: começa em agosto e fecha em julho.
 MESES_ESTACAO = [8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7]
+# Meta atingida das safras já fechadas, como o relatório oficial de jul/2026
+# publicou. A meta de uma safra vive no PLANEJAMENTO do master DELA, e os
+# masters antigos (formato CONTROLE_DOADORAS) não têm essa aba — então o número
+# não é recalculável e fica registrado aqui, com a fonte.
+META_PCT_OFICIAL = {"2022/2023": 0.71, "2023/2024": 0.75, "2024/2025": 0.89}
 
 
-def comparativo(wb):
-    """S18 — comparativo entre estações, CALCULADO da aba ESTAÇÃO linha a linha.
-
-    A aba `COMPARATIVO` da planilha não serve: está congelada em 20/21–23/24 e o
-    haras parou de manter. Como a aba ESTAÇÃO guarda a safra de cada embrião
-    (coluna 36) e as datas, o comparativo sai da mesma base do funil (S16) — e
-    então nunca fica velho, nem depende de alguém atualizar um resumo à mão.
-
-    Mês de referência do embrião = IA + 60 dias, que é quando a prenhez é
-    confirmada (mesma conta do fechamento semanal).
-    """
-    ws = wb["ESTAÇÃO"]
-    por_safra = {}
+def _stats_safra_estacao(ws, safra_alvo=None) -> dict:
+    """Por safra, da aba ESTAÇÃO (formato novo): confirmados por MÊS DA IA —
+    que é como o relatório data o embrião (24/25 bate mês a mês) —, total e
+    doadoras distintas com embrião confirmado."""
+    por = {}
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
         if i < 3 or r[0] is None or len(r) < 36:
             continue
-        safra = _s(r[35])
-        if not safra or "/" not in safra:
+        sf = _s(r[35])
+        if not sf or "/" not in sf or (safra_alvo and sf != safra_alvo):
             continue
-        d = por_safra.setdefault(safra, {"conf": {}, "aborto": 0, "absorcao": 0,
-                                         "obito": 0, "lavados": 0, "tent": 0})
-        d["tent"] += 1
-        if _norm(r[10]) != "+":
+        d = por.setdefault(sf, {"meses": {}, "conf": 0, "doad": set()})
+        if _norm(r[10]) != "+" or _norm(r[12]) != "+":
             continue
-        d["lavados"] += 1
-        if _norm(r[12]) != "+":
-            d["absorcao"] += 1        # perdeu antes da confirmação de 60 dias
+        if any(_norm(r[j]) not in ("+", "") for j in (13, 14, 15)) or _norm(r[16]) == "SIM":
             continue
-        passou = all(_norm(r[j]) in ("+", "") for j in (13, 14, 15))
-        if not passou:
-            d["absorcao"] += 1
-            continue
-        if _norm(r[16]) == "SIM":
-            d["aborto"] += 1          # confirmado > 60d que não nasceu
-            continue
-        if r[28] is not None:
-            d["obito"] += 1           # nasceu e morreu — conta como confirmado
+        d["conf"] += 1
+        d["doad"].add(_norm(r[2]))
         ia = r[7]
-        if not hasattr(ia, "month"):
-            continue
-        conf = ia + timedelta(days=60)
-        d["conf"][conf.month] = d["conf"].get(conf.month, 0) + 1
+        if hasattr(ia, "month"):
+            d["meses"][ia.month] = d["meses"].get(ia.month, 0) + 1
+    return por
 
-    safras = sorted(por_safra, key=lambda s: s.split("/")[0])[-4:]
-    if not safras:
+
+def _stats_safra_antiga(safra: str):
+    """Safra anterior à reorganização da planilha: o master da pasta DELA, aba
+    CONTROLE_DOADORAS (10 lavado, 15 15D, 16-18 30/45/60D, 23 data do aborto,
+    45 safra)."""
+    a, b = safra.split("/")
+    pasta = ESTACAO_MONTA_BASE / f"Estação {a}-{b}"
+    if not pasta.is_dir():
+        return None
+    cands = [f for f in pasta.glob("*ESTACAO DE MONTA*.xlsx")
+             if not f.name.startswith("~$") and "PBI" not in f.name.upper()]
+    if not cands:
+        return None
+    f = max(cands, key=lambda x: (RE_PREFIXO_DATA.match(x.name).group(1)
+                                  if RE_PREFIXO_DATA.match(x.name) else "", x.stat().st_mtime))
+    try:
+        wb = _load(_registra(f"estação {safra}", f))
+    except Exception:
+        return None
+    if "CONTROLE_DOADORAS" not in wb.sheetnames:
+        wb.close()
+        return None
+    d = {"meses": {}, "conf": 0, "doad": set()}
+    for i, r in enumerate(wb["CONTROLE_DOADORAS"].iter_rows(values_only=True), 1):
+        if i < 6 or r[0] is None or len(r) < 46 or _s(r[45]) != safra:
+            continue
+        if _norm(r[10]) != "+" or _norm(r[15]) != "+":
+            continue
+        if any(_norm(r[j]) not in ("+", "") for j in (16, 17, 18)) or r[23] is not None:
+            continue
+        d["conf"] += 1
+        d["doad"].add(_norm(r[2]))
+        if hasattr(r[7], "month"):
+            d["meses"][r[7].month] = d["meses"].get(r[7].month, 0) + 1
+    wb.close()
+    return d
+
+
+def _meta_safra(safra: str):
+    """Meta total de embriões do PLANEJAMENTO do master da safra (a célula B1 diz
+    de que safra é a aba). None quando não há."""
+    try:
+        wb = _load(_master_da_safra(safra))
+    except Exception:
+        return None
+    try:
+        ws = wb["PLANEJAMENTO"]
+        if _s(next(ws.iter_rows(min_row=1, max_row=1, values_only=True))[1]) != safra:
+            return None
+        cab = [_norm(x or "") for x in next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
+        c_nome = next((j for j, h in enumerate(cab) if h == "NOME"), None)
+        c_meta = next((j for j, h in enumerate(cab) if h.replace(" ", "") == "METATOTAL"), None)
+        if c_nome is None or c_meta is None:
+            return None
+        tot = 0
+        for r in ws.iter_rows(min_row=4, values_only=True):
+            if c_nome < len(r) and r[c_nome] and _s(r[c_nome]) and c_meta < len(r):
+                tot += _to_num(r[c_meta]) or 0
+        return tot or None
+    finally:
+        wb.close()
+
+
+def comparativo(wb, safra: str):
+    """S18 — as quatro últimas safras, confirmados por mês da IA, com a meta
+    atingida embaixo de cada uma. A aba COMPARATIVO da planilha está congelada em
+    20/21–23/24 e não serve; a aba ESTAÇÃO tem a safra de cada embrião."""
+    ini = int(safra[:4])
+    safras = [f"{a}/{a + 1}" for a in range(ini - 3, ini + 1)]
+    novas = _stats_safra_estacao(wb["ESTAÇÃO"])
+    blocos = []
+    for sf in safras:
+        d = novas.get(sf) or _stats_safra_antiga(sf)
+        if not d:
+            continue
+        meta = _meta_safra(sf)
+        pct_meta = (d["conf"] / meta) if meta else META_PCT_OFICIAL.get(sf)
+        curta = f"{sf[2:4]}/{sf[-2:]}"
+        blocos.append({"rotulo": f"{curta}  ({d['conf']} emb / {len(d['doad'])} doad)",
+                       "curta": curta, "atual": sf == safra, "total": d["conf"],
+                       "meses": [d["meses"].get(mm) for mm in MESES_ESTACAO],
+                       "meta": f"Meta: {pct_meta*100:.0f}%" if pct_meta is not None else "Meta: —"})
+    if not blocos:
         return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES", "",
                     "ESTACAO DE MONTA.xlsx, aba ESTAÇÃO", "nenhuma safra encontrada na coluna ESTAÇÃO")
-    curto = [f"{s[2:4]}/{s[-2:]}" for s in safras]
-    rows = []
-    for m in MESES_ESTACAO:
-        rows.append([ABR[m - 1]] + [por_safra[s]["conf"].get(m, 0) for s in safras])
-    tot = {s: sum(por_safra[s]["conf"].values()) for s in safras}
-    rows.append(["Confirmados", *[tot[s] for s in safras]])
-    rows.append(["Abortos", *[por_safra[s]["aborto"] for s in safras]])
-    rows.append(["Absorções", *[por_safra[s]["absorcao"] for s in safras]])
-    rows.append(["Lavados (+)", *[por_safra[s]["lavados"] for s in safras]])
-    rows.append(["Tentativas", *[por_safra[s]["tent"] for s in safras]])
-    return {"t": "kpis_tabela", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES",
-            "sub": ("Embriões confirmados por mês (IA + 60 dias) · calculado da aba ESTAÇÃO, "
-                    "não da aba COMPARATIVO"),
-            "kpis": [{"v": str(tot[s]), "l": f"Estação {c}", "s": f"{por_safra[s]['lavados']} lavados (+)"}
-                     for s, c in zip(safras, curto)],
-            "tabela": {"cols": ["MÊS"] + curto, "rows": rows}}
+    curtas = [b["curta"] for b in blocos]
+    lista = (", ".join(curtas[:-1]) + f" e {curtas[-1]}") if len(curtas) > 1 else curtas[0]
+    return {"t": "comparativo", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES",
+            "sub": f"Embriões confirmados por mês  ·  Estações {lista}",
+            "meses": [ABR[mm - 1] for mm in MESES_ESTACAO], "safras": blocos}
 
 
 def doadoras(wb, safra):
-    """S19/S20 — meta × realizado por doadora. Meta e Time vêm do PLANEJAMENTO
-    (7 TIME, 8 META TOTAL, 9 TOTAL EMBRIÕES); REC. EMBR. traz os lavados+."""
+    """S19/S20 — meta × realizado por doadora, do PLANEJAMENTO (NOME, TIME, META
+    TOTAL, TOTAL EMBRIÕES). Colunas pelo CABEÇALHO (linha 3): na safra 2026/2027 o
+    haras reorganizou a aba — saíram CATEGORIA, LOCAL e TIME, e META/TOTAL
+    EMBRIÕES andaram duas colunas. Com índice fixo o slide de agosto saía vazio.
+
+    Time: o do PLANEJAMENTO; doadora sem time lá (Música, em 25/26) usa o da aba
+    REC. EMBR., que é como o relatório a classificou. A META do time soma só quem
+    tem o time no PLANEJAMENTO — é o número que o relatório imprime (Time B: 42).
+    Sem coluna TIME na safra, sai um slide só, sem inventar divisão."""
     ws = wb["PLANEJAMENTO"]
-    # Colunas pelo CABEÇALHO (linha 3), não por posição. Na safra 2026/2027 o
-    # haras reorganizou a aba: saíram CATEGORIA, LOCAL e — o que importa — TIME,
-    # e META/TOTAL EMBRIÕES andaram duas colunas pra esquerda. Com índice fixo
-    # toda linha caía no filtro do time e o slide de agosto saía com 0 doadoras.
     cab = [_norm(x or "") for x in next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
+
     def _col(*nomes):
         for j, h in enumerate(cab):
             if any(h.replace(" ", "") == n.replace(" ", "") for n in nomes):
                 return j
         return None
-    c_nome = _col("NOME")
-    c_time = _col("TIME")
+    c_nome, c_time = _col("NOME"), _col("TIME")
     c_meta = _col("META TOTAL", "META  TOTAL")
     c_real = _col("TOTAL EMBRIOES", "TOTAL EMBRIÕES")
     if c_nome is None or c_meta is None or c_real is None:
         aviso(f"PLANEJAMENTO sem NOME/META/TOTAL EMBRIÕES no cabeçalho ({safra}) — S19/S20 pendentes")
         return [pend(19, f"ESTAÇÃO DE MONTA {safra} — DOADORAS", "", "ESTACAO DE MONTA.xlsx",
                      "a aba PLANEJAMENTO mudou de layout e não achei as colunas")]
-    # sem TIME na safra, as doadoras saem num slide só (não se inventa divisão)
-    por_time = {"A": [], "B": []} if c_time is not None else {"": []}
+    time_rec = {}
+    for i, r in enumerate(wb["REC. EMBR."].iter_rows(values_only=True), 1):
+        if i >= 3 and len(r) > 3 and r[2] and c_time is not None:
+            t = _norm(r[3])
+            if t in ("A", "B"):
+                time_rec[_norm(r[2])] = t
+    vistos, linhas = set(), []
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
         if i < 4 or c_nome >= len(r) or r[c_nome] is None:
             continue
         nome = _s(r[c_nome])
-        if not nome or _norm(r[c_nome]).startswith("TOTAL"):
+        if not nome or _norm(nome).startswith("TOTAL"):
             continue
-        time = _norm(r[c_time]) if c_time is not None else ""
-        if time not in por_time:
+        meta = int(_to_num(r[c_meta]) or 0) if c_meta < len(r) else 0
+        real = int(_to_num(r[c_real]) or 0) if c_real < len(r) else 0
+        # a planilha repete doadora (Charmosa aparece como PG e como sócio) e traz
+        # linha sem meta nem embrião — nenhuma das duas é doadora a acompanhar
+        if _norm(nome) in vistos or (not meta and not real):
             continue
-        meta = _to_num(r[c_meta]) if c_meta < len(r) else None
-        real = _to_num(r[c_real]) if c_real < len(r) else None
-        meta, real = meta or 0, real or 0
-        por_time[time].append([nome.title(), int(meta), int(real),
-                               f"{real/meta*100:.0f}%" if meta else "—"])
-    lav = {}
-    ws2 = wb["REC. EMBR."]
-    for i, r in enumerate(ws2.iter_rows(values_only=True), 1):
-        if i < 3 or r[2] is None:
+        vistos.add(_norm(nome))
+        t_plan = _norm(r[c_time]) if c_time is not None and c_time < len(r) and r[c_time] else ""
+        t = t_plan or time_rec.get(_norm(nome), "")
+        linhas.append({"nome": nome_animal(nome), "chave": _norm(nome), "meta": meta, "real": real,
+                       "time": t if c_time is not None else "",
+                       "conta_meta": bool(t_plan) or c_time is None, "ordem": i})
+    # taxa de recuperação e prenhez do time, pela aba ESTAÇÃO (mesmo funil do S16)
+    taxas = {}
+    grupo_de = {l["chave"]: l["time"] for l in linhas}
+    for i, r in enumerate(wb["ESTAÇÃO"].iter_rows(values_only=True), 1):
+        if i < 3 or r[0] is None or len(r) < 36 or _s(r[35]) != safra:
             continue
-        # linha às vezes é curta (só as colunas preenchidas) — a nova cópia do
-        # master (pasta da safra 26/27, achada em 28/08/2026) tem rows assim
-        lav[_norm(r[2])] = (_to_num(r[5]) or 0) if len(r) > 5 else 0
+        t = grupo_de.get(_norm(r[2]))
+        if t is None:
+            continue
+        x = taxas.setdefault(t, [0, 0, 0])
+        x[0] += 1
+        if _norm(r[10]) == "+":
+            x[1] += 1
+            if _norm(r[12]) == "+":
+                x[2] += 1
+    times = ["A", "B"] if c_time is not None else [""]
     out = []
-    for time in por_time:
-        rows = por_time[time]
-        for row in rows:
-            row.insert(3, int(lav.get(_norm(row[0]), 0)))
-        meta = sum(r[1] for r in rows)
-        real = sum(r[2] for r in rows)
-        lavp = sum(r[3] for r in rows)
-        rows.sort(key=lambda x: -x[2])
-        out.append({"t": "kpis_tabela", "n": 20 if time == "B" else 19,
-                    "titulo": (f"ESTAÇÃO DE MONTA {safra} — DOADORAS TIME {time}" if time
+    for t in times:
+        rows = [l for l in linhas if l["time"] == t]
+        if not rows:
+            continue
+        # com embrião primeiro, do maior realizado pro menor; os zerados depois,
+        # na ordem da planilha
+        rows.sort(key=lambda l: (0, -l["real"], l["ordem"]) if l["real"] else (1, 0, l["ordem"]))
+        meta = sum(l["meta"] for l in rows if l["conta_meta"])
+        real = sum(l["real"] for l in rows)
+        tent, lav, p15 = taxas.get(t, [0, 0, 0])
+        partes = [f"Meta: {meta} embriões", f"Realizado: {real} embriões"]
+        if tent:
+            partes.append(f"Rec. Embrionária: {lav/tent*100:.0f}%")
+        if lav:
+            partes.append(f"Prenhez: {p15/lav*100:.0f}%")
+        out.append({"t": "doadoras", "n": 20 if t == "B" else 19,
+                    "titulo": (f"ESTAÇÃO DE MONTA {safra} — DOADORAS TIME {t}" if t
                                else f"ESTAÇÃO DE MONTA {safra} — DOADORAS"),
-                    "sub": f"{len(rows)} doadoras · meta {meta} embriões · realizado {real}",
-                    "kpis": [{"v": str(meta), "l": "Meta", "s": f"Time {time}" if time else "todas as doadoras"},
-                             {"v": str(real), "l": "Realizado", "s": "embriões confirmados"},
-                             {"v": f"{real/meta*100:.0f}%" if meta else "—", "l": "Atingimento", "s": "real ÷ meta"},
-                             {"v": str(lavp), "l": "Lavados (+)", "s": "aba REC. EMBR."}],
-                    "tabela": {"cols": ["DOADORA", "META", "REAL", "LAV +", "%"],
-                               "rows": [[r[0], r[1], r[2], r[3], r[4]] for r in rows]}})
-    return out
+                    "sub": "  ·  ".join(partes),
+                    "rows": [{"nome": l["nome"], "meta": l["meta"], "real": l["real"]} for l in rows]})
+    return out or [pend(19, f"ESTAÇÃO DE MONTA {safra} — DOADORAS", "", "ESTACAO DE MONTA.xlsx",
+                        "o PLANEJAMENTO da safra não tem doadora com meta")]
 
 
 # ========================================================= Coberturas (S21)
