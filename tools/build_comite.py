@@ -2357,21 +2357,68 @@ def itens_trello(texto: str, face_cx: list) -> list:
     return out
 
 
+# Largura de avanço da Calibri (unidades de 2048/em) — a MESMA tabela do
+# layout.js, para o build repartir o texto nos slides com a conta que o
+# desenho vai fazer.
+_LARG_CALIBRI = {
+    ' ': 463, '!': 544, '"': 821, '#': 1038, '$': 1038, '%': 1464, '&': 1397, "'": 452, '(': 621, ')': 621,
+    '*': 1038, '+': 1038, ',': 511, '-': 627, '.': 517, '/': 791, ':': 548, ';': 548, '<': 1038, '=': 1038,
+    '>': 1038, '?': 950, '@': 1823, 'A': 1185, 'B': 1114, 'C': 1092, 'D': 1260, 'E': 1000, 'F': 941,
+    'G': 1292, 'H': 1276, 'I': 516, 'J': 653, 'K': 1064, 'L': 861, 'M': 1751, 'N': 1322, 'O': 1356,
+    'P': 1058, 'Q': 1378, 'R': 1112, 'S': 941, 'T': 998, 'U': 1314, 'V': 1162, 'W': 1822, 'X': 1063,
+    'Y': 998, 'Z': 959, 'a': 981, 'b': 1076, 'c': 866, 'd': 1076, 'e': 1019, 'f': 625, 'g': 964, 'h': 1076,
+    'i': 470, 'j': 490, 'k': 931, 'l': 470, 'm': 1636, 'n': 1076, 'o': 1080, 'p': 1076, 'q': 1076, 'r': 714,
+    's': 801, 't': 686, 'u': 1076, 'v': 925, 'w': 1464, 'x': 887, 'y': 927, 'z': 809, '—': 1843, '–': 1024,
+    '·': 517, '×': 1038, '∆': 1170, '…': 1400, 'º': 700, 'ª': 700, '|': 940, '_': 1024, '[': 621, ']': 621}
+_PT_PX = 128 / 72
+
+
+def _largura(txt: str, pt: float) -> float:
+    u = 0
+    for ch in str(txt or ""):
+        w = _LARG_CALIBRI.get(ch)
+        if w is None:
+            w = _LARG_CALIBRI.get(unicodedata.normalize("NFD", ch)[0])
+        if w is None:
+            w = 1038 if ch.isdigit() else (2048 if ord(ch) > 0x2000 else 1000)
+        u += w
+    return u / 2048 * pt * _PT_PX
+
+
+def _n_linhas(txt: str, pt: float, w: float) -> int:
+    """Quantas linhas o texto ocupa em `w` px quebrando por palavra (nLinhas do layout.js)."""
+    n = 0
+    for par in str(txt or "").split("\n"):
+        pal = par.split()
+        if not pal:
+            n += 1
+            continue
+        esp, k, usado = _largura(" ", pt), 1, 0.0
+        for p in pal:
+            lp = _largura(p, pt)
+            if not usado:
+                usado = lp
+            elif usado + esp + lp <= w * 0.97:
+                usado += esp + lp
+            else:
+                k, usado = k + 1, lp
+        n += k
+    return n
+
+
 def _paginas_comentarios(itens: list) -> list:
-    """Reparte as categorias em slides pela altura que o texto vai ocupar
-    (estimativa do layout: ~160 caracteres por linha de 7,6 pt na largura do
-    texto; se a conta passar, o layout ainda desce o corpo)."""
-    def altura(it):
-        linhas = sum(max(1, -(-len(x) // 160)) for x in it["txt"].split("\n"))
-        return max(63.9, linhas * 16.3 + 10) + 1.2
-    pags, atual, usado = [], [], 0.0
+    """Reparte as categorias em slides pela altura que o texto vai ocupar no
+    layout (faixa de 966 px; linha = 1,2 × corpo). Enche a página contando com o
+    corpo de 7 pt — o layout começa em 7,63 e desce até caber."""
+    def altura(it, pt):
+        return max(63.9, _n_linhas(it["txt"], pt, 966.4) * pt * _PT_PX * 1.2 + 10.4) + 1.2
+    util = 712 - 124.2
+    pags, atual = [], []
     for it in itens:
-        h = altura(it)
-        if atual and usado + h > 712 - 124.2:
+        if atual and sum(altura(x, 7.0) for x in atual + [it]) > util:
             pags.append(atual)
-            atual, usado = [], 0.0
+            atual = []
         atual.append(it)
-        usado += h
     if atual:
         pags.append(atual)
     return pags
@@ -2471,7 +2518,7 @@ def manejo_historico(todos, m, ano) -> dict:
     return por_mes
 
 
-def slides_manejo(todos, c, m, ano):
+def slides_manejo(todos, m, ano):
     """S38 — um slide por semestre, com o histórico inteiro (o haras pediu em
     set/2026: agosto só mostrava jul e ago). O mês do deck vai na faixa dourada.
     O deck.js remonta com a mesma regra quando o conteúdo muda ao vivo."""
@@ -2885,7 +2932,7 @@ def monta_deck(m, ano, ctx):
     s.append(divisor(5, "DECISÕES E MANEJO", f"Plantel  ·  Obras  ·  Casa  |  {MES} {ano}"))
     # a contagem por local não está no relatório dela; fica no arquivo, oculta
     s.append(oculto(slide_contagem(m, ano)))
-    s += slides_manejo(ctx["conteudo"], cont, m, ano)
+    s += slides_manejo(ctx["conteudo"], m, ano)
     s += slides_fotos(cont, m, ano)
     s.append({"t": "encerramento", "titulo": "HARAS PAO GRANDE",
               "sub": f"Relatório de Desempenho Estratégico  ·  {MES} {ano}"})
