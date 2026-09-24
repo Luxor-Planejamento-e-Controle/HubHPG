@@ -960,17 +960,38 @@ def doadoras(wb, safra):
     """S19/S20 — meta × realizado por doadora. Meta e Time vêm do PLANEJAMENTO
     (7 TIME, 8 META TOTAL, 9 TOTAL EMBRIÕES); REC. EMBR. traz os lavados+."""
     ws = wb["PLANEJAMENTO"]
-    por_time = {"A": [], "B": []}
+    # Colunas pelo CABEÇALHO (linha 3), não por posição. Na safra 2026/2027 o
+    # haras reorganizou a aba: saíram CATEGORIA, LOCAL e — o que importa — TIME,
+    # e META/TOTAL EMBRIÕES andaram duas colunas pra esquerda. Com índice fixo
+    # toda linha caía no filtro do time e o slide de agosto saía com 0 doadoras.
+    cab = [_norm(x or "") for x in next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
+    def _col(*nomes):
+        for j, h in enumerate(cab):
+            if any(h.replace(" ", "") == n.replace(" ", "") for n in nomes):
+                return j
+        return None
+    c_nome = _col("NOME")
+    c_time = _col("TIME")
+    c_meta = _col("META TOTAL", "META  TOTAL")
+    c_real = _col("TOTAL EMBRIOES", "TOTAL EMBRIÕES")
+    if c_nome is None or c_meta is None or c_real is None:
+        aviso(f"PLANEJAMENTO sem NOME/META/TOTAL EMBRIÕES no cabeçalho ({safra}) — S19/S20 pendentes")
+        return [pend(19, f"ESTAÇÃO DE MONTA {safra} — DOADORAS", "", "ESTACAO DE MONTA.xlsx",
+                     "a aba PLANEJAMENTO mudou de layout e não achei as colunas")]
+    # sem TIME na safra, as doadoras saem num slide só (não se inventa divisão)
+    por_time = {"A": [], "B": []} if c_time is not None else {"": []}
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
-        if i < 4 or r[1] is None:
+        if i < 4 or c_nome >= len(r) or r[c_nome] is None:
             continue
-        nome = _s(r[1])
-        if not nome or _norm(r[1]).startswith("TOTAL"):
+        nome = _s(r[c_nome])
+        if not nome or _norm(r[c_nome]).startswith("TOTAL"):
             continue
-        time = _norm(r[6])
-        if time not in ("A", "B"):
+        time = _norm(r[c_time]) if c_time is not None else ""
+        if time not in por_time:
             continue
-        meta, real = _to_num(r[7]) or 0, _to_num(r[8]) or 0
+        meta = _to_num(r[c_meta]) if c_meta < len(r) else None
+        real = _to_num(r[c_real]) if c_real < len(r) else None
+        meta, real = meta or 0, real or 0
         por_time[time].append([nome.title(), int(meta), int(real),
                                f"{real/meta*100:.0f}%" if meta else "—"])
     lav = {}
@@ -982,7 +1003,7 @@ def doadoras(wb, safra):
         # master (pasta da safra 26/27, achada em 28/08/2026) tem rows assim
         lav[_norm(r[2])] = (_to_num(r[5]) or 0) if len(r) > 5 else 0
     out = []
-    for time in ("A", "B"):
+    for time in por_time:
         rows = por_time[time]
         for row in rows:
             row.insert(3, int(lav.get(_norm(row[0]), 0)))
@@ -990,10 +1011,11 @@ def doadoras(wb, safra):
         real = sum(r[2] for r in rows)
         lavp = sum(r[3] for r in rows)
         rows.sort(key=lambda x: -x[2])
-        out.append({"t": "kpis_tabela", "n": 19 if time == "A" else 20,
-                    "titulo": f"ESTAÇÃO DE MONTA {safra} — DOADORAS TIME {time}",
+        out.append({"t": "kpis_tabela", "n": 20 if time == "B" else 19,
+                    "titulo": (f"ESTAÇÃO DE MONTA {safra} — DOADORAS TIME {time}" if time
+                               else f"ESTAÇÃO DE MONTA {safra} — DOADORAS"),
                     "sub": f"{len(rows)} doadoras · meta {meta} embriões · realizado {real}",
-                    "kpis": [{"v": str(meta), "l": "Meta", "s": f"Time {time}"},
+                    "kpis": [{"v": str(meta), "l": "Meta", "s": f"Time {time}" if time else "todas as doadoras"},
                              {"v": str(real), "l": "Realizado", "s": "embriões confirmados"},
                              {"v": f"{real/meta*100:.0f}%" if meta else "—", "l": "Atingimento", "s": "real ÷ meta"},
                              {"v": str(lavp), "l": "Lavados (+)", "s": "aba REC. EMBR."}],
