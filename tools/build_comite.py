@@ -23,6 +23,7 @@ import hashlib
 import io
 import re
 import sys
+import unicodedata
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -298,6 +299,143 @@ def _linhas_dre(df, col_orc, col_real, so_subtotal=False, so_com_valor=False):
         l["total"] = l["nivel"] == 0        # compat: o render antigo lia `total`
         del l["grupo"]
     return linhas
+
+
+# ---------------------------------------------------------------- gabarito oficial
+# As abas "Real x Orçado" das planilhas anuais são a FACE do relatório: a mesma
+# lista de linhas, na mesma ordem, que a Ana levava ao comitê. O slide era montado
+# com `so_subtotal=True` sobre a base long-format, e isso derrubava 12 linhas do
+# resumo do Haras — entre elas "Baixa de Estoque por Venda" (-81.500) e "por
+# Mortes e Doações" (-241.250), que o haras confere todo mês e que são naturezas,
+# não subtotais.
+#
+# Agora a aba oficial dá a ORDEM e o RÓTULO, e a base long-format dá o VALOR (é
+# ela que tem o histórico; a aba só traz o mês corrente e o YTD). Linha do
+# gabarito que não existir na base sai do slide em vez de sair zerada, senão o
+# deck inventaria uma linha que o relatório não tem.
+_GABARITO_CACHE: dict = {}
+
+# A aba escreve alguns rótulos de um jeito e a base de outro. Chave = rótulo
+# oficial normalizado; valor = rótulo na base.
+SINONIMOS_DRE = {
+    "RECEITABRUTA": "RECEITA OPERACIONAL BRUTA",
+    "RECEITAOPERACIONALLIQUIDA": "RECEITA OPERACIONAL LIQUIDA",
+    "CUSTOSDEVENDA": "CUSTOS DE VENDAS",
+    "CUSTOSEDESPESAS": "CUSTOS E DESPESAS OPERACIONAIS",
+    "CUSTOS": "CUSTOS INDIRETOS DE PRODUÇÃO",
+    "CLETADESEMEN": "COLETA DE SEMEN",
+    "RESULTADOAPOSINVESTIMENTOS": "RESULTADO APÓS OS INVESTIMENTOS",
+    "ARRENDAMENTODEPASTODLUDIA": "DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS",
+    "ARRENDAMENTOVASSOURAS": "DESPESAS - ARRENDAMENTO Vassouras - HARAS",
+    # Casa/FPG: a face e a base batizam as receitas de formas diferentes
+    "CASA": "RECEITAS - CASA",
+    "RECEITASCOMLOCACAO": "LOCAÇÃO DA CASA",
+    "RECEITASFINANCEIRAS": "RECEITAS ADM/FINANCEIRAS",
+    "RECEITALIQUIDALOCACAO": "RECEITA LIQUIDA - LOCAÇÃO",
+    "DESPESAS": "DESPESAS - GERAIS",
+    # No modelo CAIXA a face chama de "Resultado" o que a base chama de "Fluxo
+    # de Caixa" — mesma linha, nome diferente. Como alternativa (o Competência
+    # tem "Resultado Operacional" de verdade), entra na lista de fallback.
+}
+
+# Alternativas testadas em ordem quando o rótulo da face não existe na base.
+ALTERNATIVAS_DRE = {
+    "RESULTADOOPERACIONAL": ["FLUXO DE CAIXA ANTES DOS INVESTIMENTOS"],
+    "RESULTADOAPOSINVESTIMENTOS": ["FLUXO DE CAIXA APÓS OS INVESTIMENTOS",
+                                   "FLUXO DE CAIXA LÍQUIDO APÓS INVESTIMENTOS"],
+}
+
+# Subtotais que a FACE imprime e a base não tem como linha própria: somam-se os
+# componentes, que é o que a planilha faz na célula.
+SOMAS_DRE = {
+    "DEDUCOESECANCELAMENTOS": ["Cancelamentos", "Custos de Venda"],
+    "DESPESASARRENDAMENTOS": ["Arrendamento de Pasto - D. Lúdia", "Arrendamento Vassouras"],
+}
+
+
+def _chave_dre(x) -> str:
+    x = unicodedata.normalize("NFKD", str(x)).encode("ascii", "ignore").decode().upper()
+    return re.sub(r"[^A-Z0-9]", "", x)
+
+
+def gabarito(arquivo: Path, aba: str) -> list[str]:
+    """Rótulos do resumo oficial, na ordem em que ele os imprime."""
+    chave = (str(arquivo), aba)
+    if chave in _GABARITO_CACHE:
+        return _GABARITO_CACHE[chave]
+    fora: list[str] = []
+    try:
+        d = pd.read_excel(arquivo, sheet_name=aba, header=None)
+        for i in range(len(d)):
+            nome = str(d.iat[i, 0]).strip()
+            # as duas primeiras linhas são título e cabeçalho das colunas
+            if i < 2 or nome in ("nan", "") or nome.lower().startswith("dre "):
+                continue
+            if nome not in fora:
+                fora.append(nome)
+    except Exception as exc:
+        aviso(f"não deu pra ler o gabarito {arquivo.name}/{aba}: {exc!r} — "
+              f"o resumo sai na ordem da base")
+    _GABARITO_CACHE[chave] = fora
+    return fora
+
+
+def _na_ordem_oficial(linhas: list[dict], rotulos: list[str]) -> list[dict]:
+    """Reordena e renomeia as linhas da base conforme o gabarito."""
+    if not rotulos:
+        return linhas
+    por_chave: dict[str, dict] = {}
+    # `_linhas_dre` desambigua nome repetido pondo o grupo entre parênteses
+    # ("Sanidade (Despesas)" e "Sanidade (Custos E Despesas Operacionais)"). O
+    # relatório oficial imprime só uma "Sanidade", a do bloco de Custos — então
+    # o nome-base também vira chave, e quando há mais de um candidato vence o de
+    # maior valor absoluto, que é o do bloco principal (Sanidade -23.143 contra
+    # -5.249; Manutenção -84.875 contra -10).
+    # Desempate entre "Sanidade (Despesas)" e "Sanidade (Custos ...)": vence o
+    # SUBTOTAL, que é a linha que a face imprime. Só no empate entre dois
+    # subtotais (ou dois detalhes) o maior valor decide — escolher pelo valor
+    # sozinho elegia a natureza errada assim que o YTD trouxe mais linhas.
+    def _peso(l):
+        return (1 if l.get("nivel", 2) <= 1 else 0,
+                max(abs(l["v"][0] or 0), abs(l["v"][1] or 0)))
+    for l in linhas:
+        por_chave.setdefault(_chave_dre(l["nome"]), l)
+        base = re.sub(r"\s*\(.*\)\s*$", "", l["nome"])
+        if base != l["nome"]:
+            ch_base = _chave_dre(base)
+            se_ja = por_chave.get(ch_base)
+            if se_ja is None or _peso(l) > _peso(se_ja):
+                por_chave[ch_base] = l
+    fora = []
+    for rot in rotulos:
+        ch = _chave_dre(rot)
+        l = por_chave.get(ch) or por_chave.get(_chave_dre(SINONIMOS_DRE.get(ch, "")))
+        for alt in ALTERNATIVAS_DRE.get(ch, []):
+            if l is not None:
+                break
+            l = por_chave.get(_chave_dre(alt))
+        if l is None and ch in SOMAS_DRE:
+            partes = [por_chave.get(_chave_dre(x)) or
+                      por_chave.get(_chave_dre(SINONIMOS_DRE.get(_chave_dre(x), "")))
+                      for x in SOMAS_DRE[ch]]
+            partes = [x for x in partes if x]
+            if partes:
+                o = sum(x["v"][0] or 0 for x in partes)
+                r = sum(x["v"][1] or 0 for x in partes)
+                fora.append({"nome": rot, "nivel": 0, "total": True,
+                             "v": [o, r, (r - o) / 1000.0, pct(o, r)]})
+                continue
+        if l is None:
+            # O relatório imprime a linha mesmo zerada (ÓVULOS, REAVALIAÇÃO DO
+            # PLANTEL e FORMAÇÃO DE PASTAGEM não tiveram movimento em agosto). A
+            # base só guarda linha com valor, então a linha sai daqui com zero —
+            # some do slide era pior: quem confere procura a linha e não acha.
+            fora.append({"nome": rot, "nivel": 2, "total": False,
+                         "v": [0.0, 0.0, 0.0, None]})
+            continue
+        # o rótulo que vale é o do relatório oficial, não o da base
+        fora.append({**l, "nome": rot})
+    return fora
 
 
 def dre_mes(cc, modelo, ano, m, **kw):
@@ -1568,7 +1706,8 @@ def monta_deck(m, ano, ctx):
 
     s += so_mensal(divide(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
                     "DRE 2026 | HPG · competência mensal",
-                    dre_mes("HPG", "Competência", ano, m, so_subtotal=True))))
+                    _na_ordem_oficial(dre_mes("HPG", "Competência", ano, m),
+                                      gabarito(DRE_HARAS, "Real x Orçado (Comp)")))))
     s += so_mensal(divide(dre(5, f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
                     "Custos indiretos de produção · linhas zeradas no mês omitidas",
                     dre_grupo("HPG", "Competência", ano, m, "CUSTOS E DESPESAS OPERACIONAIS"))))
@@ -1578,18 +1717,24 @@ def monta_deck(m, ano, ctx):
     s.append(slide_comentarios(cont, m, ano))
     s += divide(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
                     "DRE 2026 | HPG · acumulado no ano",
-                    dre_ytd("HPG", "Competência", ano, m, so_subtotal=True),
+                    _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
+                                      gabarito(DRE_HARAS, "Real x Orçado (Comp)")),
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
     s += divide_lista_mes(slide_investimentos(m, ano))
     s += so_mensal(divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}",
                     "FC 2026 | HPG · caixa mensal",
-                    dre_mes("HPG", "Caixa", ano, m, so_subtotal=True))))
+                    _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m),
+                                      gabarito(DRE_HARAS, "Real x Orçado (Caixa)")))))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
     s += so_mensal(divide(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano}",
-                    "FPG | Casa · caixa mensal", dre_mes("FPG", "Caixa", ano, m, so_com_valor=True))))
+                    "FPG | Casa · caixa mensal",
+                    _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m),
+                                      gabarito(DRE_CASA, "Real x Orçado")))))
     s += divide(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
-                    "FPG | Casa · acumulado no ano", dre_ytd("FPG", "Caixa", ano, m, so_com_valor=True),
+                    "FPG | Casa · acumulado no ano",
+                    _na_ordem_oficial(dre_ytd("FPG", "Caixa", ano, m),
+                                      gabarito(DRE_CASA, "Real x Orçado")),
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", "Embriões · Doadoras · Garanhões"))
