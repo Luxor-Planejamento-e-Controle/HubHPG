@@ -177,12 +177,12 @@ body.play .slide{box-shadow:none;border:0}
    dos 1280 disponíveis, então tudo cabe inteiro. A reticência do `td` continua
    como último recurso, para a tabela que realmente não couber. */
 table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;table-layout:auto}
-table.t th{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:#FFFFFF;
-  text-align:right;padding:7px 10px;font-weight:700;background:#0D2035;white-space:nowrap}
+table.t th{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#FFFFFF;
+  text-align:right;padding:5px 10px;font-weight:700;background:#0D2035;white-space:nowrap}
 table.t th:first-child{border-radius:3px 0 0 3px}
 table.t th:last-child{border-radius:0 3px 3px 0}
 table.t th:first-child,table.t td:first-child{text-align:left}
-table.t td{padding:0 10px;border-bottom:1px solid var(--line);color:var(--ink);text-align:right;
+table.t td{padding:0 10px;line-height:1.05;border-bottom:1px solid var(--line);color:var(--ink);text-align:right;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* hierarquia do DRE em três níveis — sem isso toda linha saía dourada e
    negrito, e a lista virava um paredão sem leitura */

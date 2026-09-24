@@ -44,8 +44,11 @@ function rsk(v){
    Sem isso a tabela do DRE (40+ linhas) vazava por cima do rodapé — foi o que
    obrigou a diminuir o zoom do navegador pra conseguir ler. */
 function ajusta(n, alt = BODY_H, maxH = 34){
-  const h = Math.max(12, Math.min(maxH, alt / Math.max(n, 1)));
-  return {h, fs: Math.max(9, Math.min(16, h * 0.58))};
+  // Piso de 12px/9pt cortava o fim do resumo financeiro: são 48 linhas mais o
+  // cabeçalho, e o relatório da Ana põe tudo num slide só. Com 9px/7,5pt cabe
+  // inteiro e continua legível na projeção.
+  const h = Math.max(9, Math.min(maxH, alt / Math.max(n, 1)));
+  return {h, fs: Math.max(7.5, Math.min(16, h * 0.58))};
 }
 
 /* ---- render HTML ---- */
