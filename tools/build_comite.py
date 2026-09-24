@@ -770,7 +770,8 @@ def linhas_analise(ano: int, m: int, pagina: list) -> list[dict]:
 # =========================================================== Investimentos (S09)
 def slide_investimentos(m, ano):
     if not DRE_HARAS.exists():
-        return pend(9, f"INVESTIMENTOS — COMENTÁRIOS {ano}", "", DRE_HARAS.name, "arquivo não encontrado")
+        return pend(9, f"INVESTIMENTOS — COMENTÁRIOS {MESES[m-1].upper()} {ano}", "", DRE_HARAS.name,
+                    "arquivo não encontrado")
     import openpyxl
     # único slide que não sai do DRE_Historico; sem registrar, o caminho dele não
     # aparecia na auditoria — e foi por isso que a cópia de março passou meses despercebida
@@ -880,25 +881,6 @@ def quem_investimento(quem: str) -> str:
     q = re.sub(r"(?i)\s+(LTDA|ME|EIRELI|S/?A)\.?$", "", q)
     t = " ".join(ACENTOS_OBRA.get(p, p) for p in q.upper().split())
     return titulo_pt(t)
-
-
-def _slide_investimentos_acumulado_antigo():
-    """(histórico) Até julho/2026 o slide era o acumulado do ano, só de Animais e
-    Produtos, mês a mês — layout `lista_mes`. Mantido o layout no layout.js para
-    os decks antigos já publicados; o build não monta mais esse formato."""
-    meses = []
-    # o slide é acumulado do ano: mostra de janeiro até o mês do deck
-    idx = {nm.lower(): i + 1 for i, nm in enumerate(MESES)}
-    meses = [x for x in meses if idx.get(x["mes"].lower(), 99) <= m]
-    for x in meses:
-        k = idx.get(x["mes"].lower(), 0)
-        # rótulo do relatório: 'Jan/26'; o mês do deck vai na faixa dourada
-        x["rotulo"] = f"{ABR[k-1]}/{str(ano)[2:]}" if k else x["mes"]
-        x["atual"] = k == m
-        if not x["itens"]:
-            x["itens"] = [{"desc": "Sem compra de animais e produtos registrada no mês", "valor": 0.0}]
-    return {"t": "lista_mes", "n": 9, "titulo": f"INVESTIMENTOS — COMENTÁRIOS {ano}",
-            "sub": f"Compra de Animais e Produtos  ·  Janeiro a {MESES[m-1]}", "meses": meses}
 
 
 def desc_investimento(desc: str, quem: str) -> str:

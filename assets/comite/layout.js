@@ -291,6 +291,46 @@
     return P;
   };
 
+  /* ---------------- investimentos do mês, por bloco ----------------
+     A geometria do slide de agosto/2026 do relatório: faixa azul por bloco
+     (nome e total em dourado), linhas favorecido | descrição | valor e a faixa
+     navy do total. Mês com muito lançamento: o passo encolhe junto. */
+  L.investimentos = s => {
+    const P = claro(s, []);
+    const Y0 = 115.2, HB = 34.6, HI = 35.8, PI = 38.4, GB = 6.4, GT = 9, HT = 43.5;
+    const ni = s.blocos.reduce((a, b) => a + b.itens.length, 0), nb = s.blocos.length;
+    const natural = nb * HB + ni * PI + (nb - 1) * GB - (PI - HI) + GT + HT;
+    const f = Math.min(1, (712 - Y0) / natural), esc = Math.max(0.8, f);
+    let y = Y0;
+    s.blocos.forEach((b, k) => {
+      if (k) y += GB * f;
+      P.push(R(44.8, y, 1187.8, HB * f, {fill: COR.azul}));
+      P.push(C(53.8, y + 3.8 * f, 768, 26.9 * f, b.nome, {pt: 8.5 * esc, b: 1, c: 'FFFFFF', va: 'm'}));
+      P.push(C(896, y + 3.8 * f, 332.8, 26.9 * f, reais(b.total), {pt: 8.5 * esc, b: 1, c: COR.ouro, al: 'r', va: 'm'}));
+      y += HB * f;
+      b.itens.forEach((it, j) => {
+        const h = HI * f;
+        P.push(R(44.8, y, 1187.8, h, {fill: j % 2 ? COR.zebra : 'FFFFFF'}));
+        P.push(C(53.8, y + 3.8 * f, 358.4, h - 7.6 * f, it.quem, {pt: 8 * esc, c: COR.tinta, va: 'm', min: 6.5}));
+        // descrição comprida quebra em duas linhas antes de ser abreviada
+        const d = it.desc || '';
+        let pd = 8 * esc;
+        if (nLinhas(d, pd, 537.6) > 1) pd = 7.25 * esc;
+        if (nLinhas(d, pd, 537.6) > 1 && nLinhas(d, pd, 537.6) <= 2 && h >= 2 * altLinha(pd) + 2)
+          P.push(T(416, y + 1, 537.6, h - 2, d, {pt: pd, c: COR.cinza, va: 'm', wrap: 1}));
+        else
+          P.push(C(416, y + 3.8 * f, 537.6, h - 7.6 * f, d, {pt: pd, c: COR.cinza, va: 'm', min: 6}));
+        P.push(C(957.4, y + 3.8 * f, 268.8, h - 7.6 * f, reais(it.valor), {pt: 8 * esc, b: 1, c: COR.navy, al: 'r', va: 'm'}));
+        y += PI * f;
+      });
+    });
+    y += (GT - (PI - HI)) * f;
+    P.push(R(44.8, y, 1187.8, HT * f, {fill: COR.navy}));
+    P.push(C(53.8, y + 7.7 * f, 768, 28.2 * f, s.rotulo_total, {pt: 9 * esc, b: 1, c: 'FFFFFF', va: 'm'}));
+    P.push(C(896, y + 7.7 * f, 332.8, 28.2 * f, reais(s.total), {pt: 11 * esc, b: 1, c: COR.ouro, al: 'r', va: 'm'}));
+    return P;
+  };
+
   /* ---------------- estoque em equinos ---------------- */
   const CORES_BARRA = [COR.navy, COR.azul, COR.azul2, COR.ouro, COR.ouro2, '4A7FC0', '6A9FD0', 'AABBCC'];
   L.estoque = s => {
