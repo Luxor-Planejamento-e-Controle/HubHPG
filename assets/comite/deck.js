@@ -1165,12 +1165,17 @@ function pptSlide(p, s, i, logo, imgs){
      começa em y fixo — não recuava. Reduz a fonte quando é longo, em vez de deixar
      quebrar. */
   const tituloLongo = (s.titulo || '').length > 58;
-  T(s.titulo, {x:0.41, y:0.13, w:8.6, h:0.4, fontSize:tituloLongo ? 12 : 15,
-               bold:true, valign:'top'});
-  if (s.sub) T(s.sub, {x:0.41, y:0.52, w:8.6, h:0.3, fontSize:9, color:C.ink3});
-  if (logo) sl.addImage({data:logo, x:9.05, y:0.14, w:0.55, h:0.55});
+  // slide escuro tem faixa dourada grossa no topo: o cabeçalho desce pra não
+  // ficar debaixo dela, e o logo vai pra esquerda, antes do título
+  const yT = escuro ? 0.62 : 0.13, yS = escuro ? 1.02 : 0.52;
+  T(s.titulo, {x:escuro ? 1.06 : 0.41, y:yT, w:8.6, h:0.4,
+               fontSize:tituloLongo ? 12 : (escuro ? 22 : 15), bold:true, valign:'top'});
+  if (s.sub) T(s.sub, {x:escuro ? 1.06 : 0.41, y:yS, w:8.6, h:0.3, fontSize:9,
+                       color:escuro ? C.amber : C.ink3});
+  if (logo) sl.addImage(escuro ? {data:logo, x:0.44, y:0.62, w:0.5, h:0.5}
+                                : {data:logo, x:9.05, y:0.14, w:0.55, h:0.55});
   T(`${SPEC.labels[mesAtual]}   ·   ${i + 1}/${slides.length}${s.obs ? '   ·   ' + s.obs : ''}`,
-    {x:0.41, y:5.25, w:9.2, h:0.25, fontSize:8, color:C.ink3});
+    {x:0.41, y:5.25, w:9.2, h:0.25, fontSize:8, color:escuro ? 'C9D4E2' : C.ink3});
 
   /* Altura de tabela: rowH no pptxgen é MÍNIMO, o PowerPoint estica a linha pra
      caber o texto quebrado mais a margem interna da célula. Dividir a altura útil
