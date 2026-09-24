@@ -1021,7 +1021,7 @@ def slide_estoque(m, ano):
     # O patrimônio do cartão é o saldo do Resumo Contábil liberado — o mesmo
     # número do slide de movimentação (jul/26: R$ 15.970.552,61, "R$ 16,0M").
     # A soma do parquet (15,94M) sai do cálculo por cota e não do divulgado.
-    rc = resumo_contabil(ano, m).get(m, {})
+    rc = resumo_movimentacao(ano, m)[0].get(m, {})
     if rc.get("saldo_fim"):
         patrim = rc["saldo_fim"]
     cat = x["categoria"].value_counts()
@@ -1110,16 +1110,81 @@ def resumo_contabil(ano: int, m: int) -> dict:
     return out
 
 
+# ------------------------------------------------ resumo do plantel: a aba do hub
+# O fechamento do plantel é feito na aba Plantel do hub (importa o controle do
+# mês, classifica cada movimentação, fecha o mês). O slide usa o que ELA apura:
+# tools/resumo_plantel_hub.js roda o mesmo motor da aba sobre os dados do
+# Supabase. De jan a jul/2026 o resultado é o Resumo Contábil divulgado na
+# vírgula; o mapa da Controladoria fica de reserva para mês que o hub ainda não
+# fechou (ou se o motor não rodar).
+PLANTEL_HUB_CACHE = REPO / "_cache" / "plantel_hub"
+_plantel_hub_memo: dict = {}
+
+
+def resumo_plantel_hub(ano: int, m: int) -> dict:
+    """{mês: {saldo_ini, compras, producao, vendas, mortes, reaval, saldo_fim}},
+    só dos meses que o hub já fechou (ou classificou por inteiro)."""
+    if (ano, m) in _plantel_hub_memo:
+        return _plantel_hub_memo[(ano, m)]
+    import subprocess
+    cache = PLANTEL_HUB_CACHE / f"resumo_{ano}-{m:02d}.json"
+    bruto = None
+    try:
+        p = subprocess.run(["node", str(REPO / "tools" / "resumo_plantel_hub.js"), f"{ano}-{m:02d}"],
+                           capture_output=True, text=True, encoding="utf-8", timeout=300)
+        if p.returncode == 0 and p.stdout.strip():
+            bruto = json.loads(p.stdout)
+            PLANTEL_HUB_CACHE.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps(bruto, ensure_ascii=False), encoding="utf-8")
+        else:
+            print(f"  [plantel] motor do hub falhou: {(p.stderr or '').strip()[-300:]}")
+    except Exception as exc:
+        print(f"  [plantel] motor do hub indisponível ({exc!r}) — usando o último apurado")
+    if bruto is None and cache.exists():
+        bruto = json.loads(cache.read_text(encoding="utf-8"))
+    out = {}
+    if bruto:
+        _registra("resumo do plantel (aba Plantel do hub)", cache)
+        for mes, v in bruto.get("meses", {}).items():
+            if int(mes[:4]) != ano:
+                continue
+            if not (v.get("fechado") or (v.get("total") and v.get("classificado") == v.get("total"))):
+                continue
+            c = v.get("causas") or {}
+            out[int(mes[5:])] = {"saldo_ini": v["ini"], "compras": c.get("compra", 0.0),
+                                 "producao": c.get("embriao", 0.0), "vendas": c.get("venda", 0.0),
+                                 "mortes": c.get("morte", 0.0) + c.get("doacao", 0.0),
+                                 "reaval": c.get("reavaliacao", 0.0), "saldo_fim": v["fim"]}
+    _plantel_hub_memo[(ano, m)] = out
+    return out
+
+
+def resumo_movimentacao(ano: int, m: int):
+    """O resumo mês a mês: do hub; o mês que ele não tem sai do mapa. Devolve
+    também de onde veio cada mês, para o subtítulo dizer a fonte."""
+    hub = resumo_plantel_hub(ano, m)
+    faltam = [k for k in range(1, m + 1) if k not in hub]
+    mapa = resumo_contabil(ano, m) if faltam else {}
+    rc = {k: hub[k] if k in hub else mapa[k] for k in range(1, m + 1) if k in hub or k in mapa}
+    return rc, sorted(k for k in rc if k not in hub)
+
+
 def slide_movimentacao(m, ano):
-    rc = resumo_contabil(ano, m)
+    rc, do_mapa = resumo_movimentacao(ano, m)
     meses = [k for k in range(1, m + 1) if k in rc]
     if meses:
         u = rc[meses[-1]]
         mes_nome = MESES[meses[-1] - 1]
         rows = [[rot] + [rc[k].get(campo, 0.0) for k in meses] for campo, rot in MOV_LINHAS_ANA]
         ab = ABR[meses[-1] - 1]
+        if not do_mapa:
+            fonte = "aba Plantel do hub"
+        elif len(do_mapa) == len(meses):
+            fonte = "aba Resumo Contábil"
+        else:
+            fonte = f"aba Plantel do hub ({', '.join(ABR[k - 1] for k in do_mapa)}: aba Resumo Contábil)"
         return {"t": "movimentacao", "n": 12, "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}",
-                "sub": "Saldo mensal · Compras, produções, vendas e baixas",
+                "sub": f"Movimentação contábil Jan–{ab} {ano}  ·  Fonte: {fonte}",
                 "kpis": [{"v": ("+" if u.get("producao", 0) > 0 else "") + brl_curto(u.get("producao", 0)),
                           "l": f"Produção Emb. {ab}", "s": f"{mes_nome} {ano}", "cor": "navy"},
                          {"v": brl_curto(u.get("vendas", 0)), "l": f"Baixa Vendas {ab}",
@@ -1128,7 +1193,7 @@ def slide_movimentacao(m, ano):
                           "s": f"{mes_nome} {ano}", "cor": "vermelho"},
                          {"v": brl_curto(u.get("saldo_fim", 0)), "l": f"Saldo Final {ab}",
                           "s": "Haras PG", "cor": "azul"}],
-                "cols": ["TÍTULO"] + [ABR[k - 1].upper() for k in meses], "rows": rows}
+                "cols": ["MOVIMENTO"] + [ABR[k - 1] for k in meses], "rows": rows}
     f = PLANTEL_DIR / "mov_cascata.parquet"
     if not f.exists():
         return pend(12, f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}", "", f.name,

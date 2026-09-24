@@ -371,7 +371,9 @@
       P.push(R(44.8, y, 1190.4, hh, {fill: fim ? COR.navy : ini ? COR.banda : (i % 2 ? COR.zebra : 'FFFFFF'), line: COR.linha}));
       const o = {pt: 8, b: ini || fim ? 1 : 0, c: fim ? 'FFFFFF' : COR.tinta, va: 'm'};
       P.push(C(53.8, y, 236.8, hh, r[0], o));
-      r.slice(1).forEach((v, j) => P.push(C(291.8 + j * cw, y, cw, hh, reaisK(v), Object.assign({}, o, {al: 'c'}))));
+      // entre os saldos, o relatório pinta o que entrou de verde e o que saiu de vermelho
+      r.slice(1).forEach((v, j) => P.push(C(291.8 + j * cw, y, cw, hh, reaisK(v), Object.assign({}, o, {al: 'c'},
+        ini || fim || !v ? {} : {c: v > 0 ? COR.verde : COR.neg}))));
     });
     return P;
   };
