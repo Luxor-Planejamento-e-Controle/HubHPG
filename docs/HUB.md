@@ -66,7 +66,9 @@ hub/
 │   ├── config.js              # offline hoje; SUPABASE_URL + anon key na fase gold
 │   ├── pg-logo.png            # GERADO por tools/build_logo.py
 │   ├── comite/
-│   │   ├── deck.css · deck.js # renderer do deck + export PPTX
+│   │   ├── layout.js          # desenho dos slides (geometria do relatório da Ana) → HTML e PPTX
+│   │   ├── deck.css · deck.js # navegação, conteúdo ao vivo, editor, versões, exportações
+│   │   ├── logo-ouro.png · logo-navy.png  # logo nas duas cores do relatório
 │   │   ├── spec.js            # GERADO — gitignored (número de DRE)
 │   │   └── fotos/             # GERADO — gitignored (12 MB)
 │   ├── semanal/               # GERADO — gitignored (dado do plantel)

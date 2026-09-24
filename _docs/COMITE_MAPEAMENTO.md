@@ -52,8 +52,8 @@ fotos (S39).
 | **08** | Comentários das variações YTD | `_docs/comite_conteudo.json` → `comentarios` | categoria · destaque · ∆ | manual **estruturado** — semeado do deck de junho por `hub/tools/extrair_conteudo.py`; daí em diante é editar o JSON |
 | **09** | Investimentos — compra de animais e produtos, mês a mês com descrição | `DRE_2026_HPG_HARAS.xlsx` aba `Investimentos` | blocos `INVESTIMENTOS - <MÊS>` → `COMPRA DE ANIMAIS E PRODUTOS` → A=fornecedor, B=descrição, C=valor | semi — a lista sai automática; **a conferir:** no deck de junho, fev/26 traz R$ 7,5k de estorno de cancelamento que não aparece sob esse cabeçalho na planilha |
 | **10** | Haras **caixa** — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, `Modelo = Caixa` | auto |
-| **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO`, **mais o sufixo `DA PAO GRANDE - E 100%`** (o que é 100% do Eduardo); patrimônio = soma `patrimonio_proporcional`; valor médio = média `valor_100` | auto |
-| **12** | Resumo da movimentação do plantel — saldo mensal e cascata | `LuxorMonthlyP-CRoutines/PlantelHPG/mov_cascata.parquet` | saldo_ini, compra, producao, venda, morte, doacao, reaval, saldo_fim | auto |
+| **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) + aba `Resumo Contabil` do mapa de movimentações | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO` (o `E 100%` do Eduardo NÃO entra — vale só pro semanal); **patrimônio = saldo final do Resumo Contábil do mês** (o mesmo número do S12; jul/26 R$ 15.970.552,61), valor médio = soma `valor_100` ÷ todos os animais | auto |
+| **12** | Resumo da movimentação do plantel — saldo mensal | `Posição Equinos/PLANTEL - Movimentações/<ano>/… (Mmm AAAA).xlsx`, aba **`Resumo Contabil`** (o arquivo DO MÊS; sem ele, o mais novo) | Saldo inicial, (+) Compras, (+) Produção embriões, (−) Baixa vendas, (−) Baixa mortes e doações, (+/−) Reavaliações, Saldo final — é o número liberado, só Carla (bate na vírgula com o relatório de jul/26). `mov_cascata.parquet` ficou só de reserva | auto |
 | **13** | Resumo financeiro Casa/FPG — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, **CC=FPG**, `Modelo = Caixa` | auto |
 | **14** | Casa/FPG — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, CC=FPG | auto |
 
@@ -92,11 +92,11 @@ do arquivo do ano, porque a descrição de cada compra não existe no histórico
 | Slide | Conteúdo | Fonte | Aba / campos | Status |
 |---|---|---|---|---|
 | **16** | Embriões e prenhezes — funil (tentativas → lavados+ → 15/30/45/60d → abortos → confirmados) | `ESTACAO_DE_MONTA.xlsx` | aba `ESTAÇÃO`: K=lavado, M=15d, N=30d, O=45d, P=60d, Q=aborto, AJ=estação | auto |
-| **17** | Garanhões — lavados, confirmados e índice, por tipo de sêmen | `ESTACAO_DE_MONTA.xlsx` | aba `GARANHOES`: garanhão, tipo de sêmen, total de lavados, lavados positivos, %, embriões confirmados, prenhez confirmada, aborto/absorção | auto |
-| **18** | Comparativo entre estações — confirmados por mês, abortos, absorções, lavados e tentativas | `ESTACAO_DE_MONTA.xlsx` aba **`ESTAÇÃO`** (não a aba COMPARATIVO) | agrupado por coluna 36 (safra); mês do embrião = IA + 60 dias | auto — **calculado da base bruta**. A aba `COMPARATIVO` está congelada em 20/21–23/24 e foi descartada; calculando da mesma base do funil, o comparativo nunca fica velho |
-| **19** | Doadoras **Time A** — meta × realizado por doadora | `ESTACAO_DE_MONTA.xlsx` | aba `REC. EMBR.` (doadora, TIME, nº de embriões, lavados+) + aba `PLANEJAMENTO` col 7=Meta, 8=Real, 6=Time | auto |
+| **17** | Garanhões — lavados, confirmados e índice, por tipo de sêmen | `ESTACAO_DE_MONTA.xlsx` | aba `GARANHOES` (lavados, positivos, total confirmados, tipo); garanhão com tentativa na safra que a aba esquece entra com a conta da aba `ESTAÇÃO` (como o relatório fez com Latino/Esteio/Invencível). Cartões = positivos ÷ lavados por tipo; "ref." é referência fixa (60% / 50-60% / 70%) | auto |
+| **18** | Comparativo entre estações — as 4 últimas safras, confirmados por mês | `ESTACAO_DE_MONTA.xlsx` aba **`ESTAÇÃO`**; safra anterior a 23/24 sai do master da pasta dela (aba `CONTROLE_DOADORAS`) | mês do embrião = **mês da IA/cobrição** (24/25 bate mês a mês com o relatório); "doad" = doadoras com embrião confirmado; "Meta" = confirmados ÷ META TOTAL do PLANEJAMENTO da safra — safras fechadas sem PLANEJAMENTO usam o % publicado em jul/26 (`META_PCT_OFICIAL`) | auto — a aba `COMPARATIVO` está congelada em 20/21–23/24 |
+| **19** | Doadoras **Time A** — meta × realizado por doadora | `ESTACAO_DE_MONTA.xlsx` | aba `PLANEJAMENTO`, colunas **pelo cabeçalho** (NOME, TIME, META TOTAL, TOTAL EMBRIÕES — em 26/27 não há TIME e sai um slide só); time vazio usa o da `REC. EMBR.`; meta do time soma só quem tem o time no PLANEJAMENTO; Rec. Embrionária = lavados+ ÷ tentativas e Prenhez = 15d ÷ lavados+, pela aba `ESTAÇÃO` | auto |
 | **20** | Doadoras **Time B** — mesma estrutura de S19 | idem S19, `TIME = B` | idem | auto |
-| **21** | Coberturas disponíveis de garanhões de fora | **`REPRODUÇÃO/COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx`** no Drive (o guia chama de `COBERTURAS_CAVALOS_FORA.xlsx`) | aba `Planilha2`: 2 garanhão, 3 compradas, 4 utilizadas, 5 saldo; excluir *Trilho da Zizica* e *Quantum de Alcateia* | auto |
+| **21** | Coberturas disponíveis de garanhões de fora | **`REPRODUÇÃO/COBERTURAS - CAVALOS DE FORA NÃO USADAS.xlsx`** no Drive | aba `Planilha2`: só **saldo > 0**, do maior pro menor; a leitura para em `ARQUIVO MORTO` (abaixo dele a aba repete o cabeçalho e guarda os encerrados); excluir *Trilho da Zizica* e *Quantum de Alcateia* | auto |
 
 **Definições que o guia fixa e o dashboard tem que respeitar:**
 
@@ -134,10 +134,10 @@ como slide em aberto, dizendo exatamente isso — nunca repete o mês anterior.
 
 | Slide | Conteúdo | Fonte | Aba / campos | Status |
 |---|---|---|---|---|
-| **29** | KPI de vendas — mês, YTD, meta anual, saldo para meta | `PG_MAPA_VENDAS.xlsx` + meta anual | aba `MAPA VENDAS`, col 7=valor, 14=vendedor, 21=ano, 22=mês | semi — a **meta anual** (R$ 4,5M) é parâmetro, não sai de planilha |
-| **30** | Detalhamento de vendas por mês e evento/origem | idem S29 | idem | auto |
-| **31** | Inadimplências e recebíveis | `controle-de-inadimplencia` → `output_pbi/indicadores_kpi.xlsx` + `resumo_por_faixa.xlsx` | KPIs (em aberto, vencido, a vencer, ação judicial, clientes) + aging por faixa | auto — **agregados, sem PII**. Deixou de ser print: os dois xlsx que o `ControleInadimplencia.py` já grava dão um slide de verdade, que também sai no PPTX (o `dashboard_conferencia.html` não sairia) |
-| **32** | Embriões vendidos a fazer — quitado / pagando | `EMBRIOES_ENTREGAR_RECEBER.xlsx` | aba `ENTREGAR`, col 11=status pgto, 12=status embrião; filtro `status_embrião="A fazer"` **e** pgto `Pagando`/`Quitado` | auto |
+| **29** | KPI de vendas — mês, YTD, meta anual, saldo para meta, colunas por mês | `PG_Mapa Vendas.xlsx` **do fechamento do mês** (1ª versão gerada depois do fim do mês) + meta anual | aba `MAPA VENDAS`, col 8=valor da venda, 15=vendedor (contém CARLA), 19=status (sem CANCELADO), 22=ano, 23=mês | semi — a **meta anual** (R$ 4,5M) é parâmetro |
+| **30** | Detalhamento de vendas por mês e evento/origem — **um slide só** | idem S29 | origem = `Venda Direta` ou o **NOME** do evento (col 12), espaço duplo normalizado (a Semana vinha em duas grafias) | auto |
+| **31** | Inadimplências e recebíveis — o painel de cobrança | `controle-de-inadimplencia` → `output_pbi/historico/fato_titulos_<fim do mês>.parquet` (e o do mês anterior, pra variação) | carteira **Carla**, CAR; mesma regra do `dashboard_conferencia.html` (vencido = status vencido/parcial e > 7 dias; AJ/NE/Inadimplentes = quebra dos vencidos); 6 cartões + rosca + índice por ano de emissão. Jul/26 bate na vírgula com o print do relatório | auto — **agregados, sem PII**; sem foto do fim do mês o slide fica pendente |
+| **32** | Embriões vendidos a fazer — quitado / pagando | `EMBRIOES_ENTREGAR_RECEBER.xlsx` | aba `ENTREGAR`, col 11=status pgto, 12=status embrião; filtro `status_embrião="A fazer"` **e** pgto `Pagando`/`Quitado`; **ordem da planilha**, venda posterior ao mês do deck fica fora, altura de linha padrão (16 por slide) | auto |
 | **33** | Embriões vendidos a fazer — pgto pausado / após confirmação | idem | `status_embrião="A fazer"` **e** pgto `Pgto pausado`/`Pgto após conf` | auto |
 | **34** | Embriões de direito / reposição | idem | `status_embrião="Reposição"` **ou** (`"A fazer"` **e** pgto `Direito`/`Troca/Direito`) | auto |
 | **35** | Embriões comprados a receber | idem, aba `RECEBER` | filtrar `status_embrião="A fazer"` | auto |
@@ -152,7 +152,7 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
 
 | Slide | Conteúdo | Fonte | Status |
 |---|---|---|---|
-| **37** | Plantel — Pao Grande / Arrendamento / Sócios, com total | `CONTROLE PLANTEL.xlsx` aba `CONTAGEM` (o `PGSemanalReport.py` já lê isso) | auto |
+| **37** | Plantel — Pao Grande / Arrendamento / Sócios, com total | `CONTROLE_DE_PLANTEL` do fechamento do mês (`headcount_de`) | auto — **oculto**: o relatório de jul/26 não tem esse slide; ele fica no arquivo, fora da apresentação |
 | **38** | Manejo — histórico de intervenções e decisões, mês a mês | `_docs/comite_conteudo.json` → `manejo` | manual estruturado |
 | **39+** | Fotos e registros do mês | `_docs/comite_conteudo.json` → `fotos` + `hub/assets/comite/fotos/` | manual — 6 fotos por slide, quantos slides forem precisos |
 
@@ -212,3 +212,22 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
    sair dos agregados (`indicadores_kpi.xlsx` + `resumo_por_faixa.xlsx`), que não
    têm nome de devedor. Embutir o `dashboard_conferencia.html` foi descartado: são
    2,7 MB de HTML que não viram slide de PPTX e carregariam PII pra dentro do deck.
+
+## Formato (desde 24/09/2026)
+
+O desenho de cada slide é o do relatório da Ana (`RELATORIO_MENSAL_PG_JULHO26`),
+na geometria dela — posições, corpos de fonte e cores tirados do próprio PPTX —,
+em `assets/comite/layout.js`. A mesma lista de primitivas vira o HTML do hub e o
+PPTX exportado; o PDF é a impressão do HTML. Sem rodapé. Três slides saem
+**ocultos** (existem no arquivo, fora da apresentação, como no dela): Haras YTD,
+Casa YTD e a contagem por local (S37); os comentários ficam ocultos só quando
+estão vazios.
+
+- **S03 Pendências da apresentação anterior** — novo, conteúdo manual em
+  `comite_conteudo.pendencias` (migration 20260924150000), editável pelo hub.
+- **Resumo (S04), Caixa (S10), Casa (S13)** — as linhas do relatório dela (19, 6
+  e 15), com os três pesos de linha; o valor vem da face oficial (`Real x Orçado`).
+  Na Casa, Marketing e Hospedagem Família entram quando têm valor (senão os
+  detalhes não fecham com Despesas Gerais).
+- **Análise de custos e de despesas** — duas páginas cada, com a lista de naturezas
+  que ela acompanha (`ANALISE_CUSTOS` / `ANALISE_DESPESAS` no build), TOTAL no topo.

@@ -554,16 +554,6 @@ def dre_ytd(cc, modelo, ano, m, **kw):
     return _linhas_dre(df, "Orçado YTD", "Realizado YTD", **kw)
 
 
-def dre_grupo(cc, modelo, ano, m, grupo):
-    h = le_historico()
-    if not h:
-        return []
-    g = h["geral"]
-    df = g[(g["Centro de Custo"] == cc) & (g["Modelo"] == modelo) & (g["ano"] == ano)
-           & (g["mes"] == m) & (g["Grupo"] == grupo)]
-    return _linhas_dre(df, "Orçado", "Realizado", so_com_valor=True)
-
-
 # ------------------------------------------------ face do relatório (as linhas dela)
 # O resumo do relatório da Ana não é a aba oficial inteira (48 linhas): é um
 # recorte de 19, com três pesos de linha — grupo (preto), detalhe (cinza recuado)
@@ -898,9 +888,7 @@ def slide_estoque(m, ano):
                     f"a base vai até {ult}; sem o mês {alvo}. Rode scripts/PGDataExtractor.py + PGBaseBI.py")
     x = d[(d["mes"] == alvo) & (d["status_plantel"] == "PLANTEL")
           & (d["sufixo_grupo"].isin(SUFIXOS_S11) | d["sufixo"].isin(SUFIXOS_EXTRA_S11))]
-    n_eduardo = int((x["sufixo"].isin(SUFIXOS_EXTRA_S11)).sum()) if SUFIXOS_EXTRA_S11 else 0
     patrim = float(x["patrimonio_proporcional"].sum())
-    aval = int(x["valor_100"].notna().sum())
     # Média sobre TODOS os animais do slide, não só os avaliados — é como o
     # relatório oficial calcula: julho dá R$ 366k (69,163M / 189), e dividindo
     # pelos 187 avaliados daria R$ 370k. Animal sem valor entra no denominador
@@ -1625,45 +1613,12 @@ def slide_coberturas(safra):
 
 
 # ====================================================== Inadimplência (S31)
-# O ControleInadimplencia.py já grava os agregados; não é preciso print do
-# dashboard nem tocar em linha identificável — aqui só entram KPI e faixa etária,
-# que não têm nome de devedor.
-# Mesmo caso do DRE_Historico: saída derivada que existia em dois lugares. O
-# `ControleInadimplencia.py` grava em output_pbi ao lado do próprio script — é o que o
-# hub do P&C lê, e é a única cópia daqui em diante. A do Drive ficava em
-# `Ambiente de testes`, deprecated, e envelhecia calada (20/07 contra 13/08 do repo).
+# Fonte: as fotos mensais que o ControleInadimplencia.py arquiva em
+# output_pbi/historico (uma por data de referência, com a carteira inteira).
+# A saída "viva" (indicadores_kpi.xlsx) é sobrescrita a cada rodada e não serve
+# pra mês fechado: regerar o deck de agosto em 18/09 trocava a posição de 31/08
+# pela de setembro. O slide só mostra agregados — nenhum nome de devedor sai daqui.
 INAD_DIR = Path(r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi")
-
-
-def _inad_dir():
-    """A pasta de saída do repo, se o par de arquivos estiver lá."""
-    if not ((INAD_DIR / "indicadores_kpi.xlsx").exists()
-            and (INAD_DIR / "resumo_por_faixa.xlsx").exists()):
-        return None
-    quando = datetime.fromtimestamp(
-        (INAD_DIR / "indicadores_kpi.xlsx").stat().st_mtime).strftime("%d/%m/%Y")
-    print(f"  [inad] saída de {quando} — {INAD_DIR}")
-    return INAD_DIR
-
-
-INAD_CONGELADO = Path(__file__).resolve().parent.parent / "_cache" / "inadimplencia"
-
-
-def _inad_congelada(m, ano):
-    """Posição da carteira ARQUIVADA para aquele mês, se houver.
-
-    A saída do ControleInadimplencia.py é uma foto só, sobrescrita a cada rodada:
-    em 18/09/2026 ela passou a valer 18/09 e o deck de AGOSTO, se regerado, trocaria
-    a posição de 31/08 (R$ 5,5M em aberto) pela de setembro (R$ 5,3M). Fechado não
-    muda: o mês que já tem foto guardada lê daqui, e só o mês corrente vai na
-    planilha viva. Mesma ideia dos snapshots semanais."""
-    f = INAD_CONGELADO / f"{ano}-{m:02d}.json"
-    if not f.exists():
-        return None
-    try:
-        return json.loads(f.read_text(encoding="utf-8"))
-    except Exception:
-        return None
 
 
 INAD_HIST = INAD_DIR / "historico"
