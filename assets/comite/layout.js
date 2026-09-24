@@ -94,7 +94,7 @@
   /* ---------------- formatação (a do relatório) ---------------- */
   const nf = (v, d) => Number(v).toLocaleString('pt-BR', {minimumFractionDigits: d, maximumFractionDigits: d});
   /* arredonda como a planilha: meio pra longe do zero. Math.round leva o meio
-     pra cima, e aí -43.937,5 saía -43.937 contra os -43.938 da face */
+     pra cima, e um valor terminado em ,5 negativo saía 1 real diferente da face */
   const arred = v => Math.sign(v) * Math.round(Math.abs(v));
   const reais = v => v == null ? '—' : (v < 0 ? '-' : '') + 'R$ ' + nf(Math.abs(arred(v)), 0);
   const deltaK = v => {
@@ -588,7 +588,7 @@
     s.colunas.forEach((c, j) => {
       const x = x0 + j * slot + (slot - bw) / 2, h = Math.max(2, 280 * c.v / max);
       P.push(R(x, 631.6 - h, bw, h, {fill: COR.azul}));
-      // rótulo em milhar: 'R$ 0,0M' escondia os R$ 22 mil de agosto
+      // rótulo em milhar: em milhão, mês fraco aparecia como 'R$ 0,0M'
       const rot = c.v >= 1e6 ? milhoes(c.v) : 'R$ ' + nf(arred(c.v / 1000), 0) + 'k';
       P.push(T(x - 28.8, 631.6 - h - 32, bw + 57.6, 28.2, rot, {pt: 8, b: 1, c: COR.azul, al: 'c', va: 'm'}));
       P.push(T(x, 638, bw, 28.2, c.rot, {pt: 9, b: 1, c: COR.tinta, al: 'c', va: 'm'}));

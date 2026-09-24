@@ -424,8 +424,8 @@ SINONIMOS_DRE = {
     "RECEITASCOMLOCACAO": "LOCAÇÃO DA CASA",
     "RECEITASFINANCEIRAS": "RECEITAS ADM/FINANCEIRAS",
     "RECEITALIQUIDALOCACAO": "RECEITA LIQUIDA - LOCAÇÃO",
-    # a comissão da locação (jun/26: -5.666) — sem isso a linha saía zerada no
-    # acumulado da Casa enquanto a Receita Líquida já vinha descontada
+    # a comissão da locação — sem isso a linha saía zerada no acumulado da
+    # Casa enquanto a Receita Líquida já vinha descontada
     "DEDUCOES": "DEDUÇÕES E IMPOSTOS",
     "DESPESAS": "DESPESAS - GERAIS",
     # No modelo CAIXA a face chama de "Resultado" o que a base chama de "Fluxo
@@ -839,13 +839,15 @@ ACENTOS_OBRA = {
     "ESCRITORIO": "ESCRITÓRIO", "ADUBACAO": "ADUBAÇÃO", "FORMACAO": "FORMAÇÃO", "ANALISE": "ANÁLISE",
     "ANALISES": "ANÁLISES", "AREAS": "ÁREAS", "MAO": "MÃO", "MOVEL": "MÓVEL", "COMERCIO": "COMÉRCIO",
     "CARTOES": "CARTÕES", "CREDITO": "CRÉDITO", "QUIMICAS": "QUÍMICAS", "FISICAS": "FÍSICAS",
-    "GESTAO": "GESTÃO", "AGRONEGOCIO": "AGRONEGÓCIO", "ALOISIO": "ALOÍSIO", "DUZIAS": "DÚZIAS",
+    "GESTAO": "GESTÃO", "AGRONEGOCIO": "AGRONEGÓCIO", "DUZIAS": "DÚZIAS",
     "MAQUINAS": "MÁQUINAS", "VEICULOS": "VEÍCULOS", "ESTACAO": "ESTAÇÃO", "NECESSARIAS": "NECESSÁRIAS",
-    "SEBASTIAO": "SEBASTIÃO", "EFRIGERADOR": "REFRIGERADOR", "DOMEST": "DOMÉSTICO", "INSTALACAO": "INSTALAÇÃO",
+    "EFRIGERADOR": "REFRIGERADOR", "DOMEST": "DOMÉSTICO", "INSTALACAO": "INSTALAÇÃO",
     "INSTALACOES": "INSTALAÇÕES", "GALPAO": "GALPÃO", "ELETRICA": "ELÉTRICA", "HIDRAULICA": "HIDRÁULICA",
 }
-# lugar/pessoa que a descrição cita (fica com inicial maiúscula) e sigla
-PROPRIOS_OBRA = {"FURNAS", "LUISINHO", "LUIZINHO", "DIOGO", "ALEXANDRE", "MANOEL", "LÚDIA", "VASSOURAS"}
+# lugar da fazenda que a descrição cita (fica com inicial maiúscula) e sigla;
+# nome de pessoa não entra em lista aqui (repo público): o que vem depois de
+# "SR."/"SRA." é que ganha maiúscula
+PROPRIOS_OBRA = {"FURNAS", "LUISINHO", "LUIZINHO", "LÚDIA", "VASSOURAS"}
 SIGLAS_OBRA = {"PG", "FPG", "RJ"}
 
 
@@ -878,11 +880,13 @@ def desc_obra(desc: str) -> str:
         if len(d) + len(p) > 90:
             break
         d += " — " + p
-    ps = []
+    ps, ant = [], ""
     for p in d.upper().split():
         p = ACENTOS_OBRA.get(p, ACENTOS.get(p, p))
         nu = re.sub(r"[^A-ZÀ-Ú-]", "", p)
-        ps.append(p if nu in SIGLAS_OBRA else p.title() if nu in PROPRIOS_OBRA else p.lower())
+        nome = nu in PROPRIOS_OBRA or ant in ("SR.", "SRA.", "SR", "SRA")
+        ps.append(p if nu in SIGLAS_OBRA else p.title() if nome else p.lower())
+        ant = p
     t = re.sub(r"\b0(\d)\b", r"\1", " ".join(ps))      # '02 refrigeradores' -> '2 ...'
     return t[:1].upper() + t[1:]
 
@@ -972,8 +976,8 @@ CATEGORIA_PLURAL = {
 }
 CATEGORIAS_NA_FACE = 12
 # A partir de agosto/2026 o relatório tira o valor médio só dos AVALIADOS
-# ("166 animais avaliados": 68,57M / 166 = R$ 413k). Julho foi apresentado com
-# a média sobre todos (69,163M / 189 = R$ 366k) e fica como foi apresentado.
+# ("N animais avaliados"). Julho foi apresentado com a média sobre todos e fica
+# como foi apresentado.
 MEDIO_AVALIADOS_DESDE = (2026, 8)
 
 
@@ -1814,7 +1818,7 @@ INAD_HIST = INAD_DIR / "historico"
 # Até julho/2026 o print do relatório era o painel filtrado na carteira da
 # Carla (jul/26 bate na vírgula com ele). O de agosto é o painel como o dash do
 # hub P&C mostra — a carteira CAR inteira, que é o que o ControleInadimplencia
-# grava em indicadores_kpi_historico.xlsx (31/08: R$ 5.494.012,80).
+# grava em indicadores_kpi_historico.xlsx.
 INAD_CARTEIRA = "Carla"
 INAD_CARTEIRA_ATE = (2026, 7)
 INAD_KPI_HIST = INAD_HIST / "indicadores_kpi_historico.xlsx"
@@ -2003,7 +2007,7 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
          "kpis": [{"v": brl_cheio(mes_v), "l": f"Vendas {mes_nome}", "s": "Realizado no mês", "cor": "ouro"},
                   {"v": brl_curto(ytd), "l": "Acumulado YTD", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "navy"},
                   # o relatório de agosto/2026 passou a trazer a média do ano
-                  # (acumulado ÷ meses decorridos: 2.043.606 / 8 = R$ 255k)
+                  # (acumulado ÷ meses decorridos)
                   {"v": brl_curto(ytd / m), "l": "Média Mensal", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "azul"},
                   {"v": brl_curto(meta_anual), "l": "Meta Anual", "s": f"Objetivo {ano}", "cor": "ardosia"},
                   {"v": brl_curto(max(meta_anual - ytd, 0)), "l": "Saldo para Meta", "s": "Ainda a realizar",
@@ -2284,7 +2288,7 @@ def comentario_trello(m: int, ano: int):
 
 
 def _item_trello(linha: str):
-    """'Ração (R$ 10K): Gasto abaixo do orçado' -> ('Ração', '+R$ 10k', 'Gasto...').
+    """'Ração (R$ 1K): Gasto abaixo do orçado' -> ('Ração', '+R$ 1k', 'Gasto...').
     Aguenta o que a formatação do comentário varia: parêntese sem fechar, dois
     pontos dentro do negrito, natureza sem valor."""
     s = re.sub(r"^[-•.\s]+", "", linha.replace("**", "")).strip()
