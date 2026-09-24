@@ -1961,6 +1961,227 @@ def conteudo_do_mes(todos, chave):
     return todos.get(chave, {})
 
 
+# ------------------------------------------- comentários do DRE: o card do Trello
+# A controladoria comenta o DRE do Haras todo mês no Trello (quadro "Fluxo de
+# Caixa", card "DRE Haras - <Mês> <ano>"): um comentário "COMENTÁRIOS DRE (HPG) –
+# AGOSTO/26" com cada natureza que variou, o valor e o porquê. É dele que o
+# relatório do haras tira o slide de comentários — o deck lê direto da fonte.
+# Os valores do comentário são os do CAIXA (recebimento, parcela paga): custos e
+# despesas são iguais nos dois modelos, receita e investimento não. Por isso o
+# ∆ de cada categoria sai da face Real x Orçado (Caixa).
+TRELLO_API = "https://api.trello.com/1"
+TRELLO_QUADRO = "Fluxo de Caixa"
+TRELLO_CACHE = REPO / "_cache" / "trello"
+_trello_cards: dict = {}
+
+# cabeçalho do comentário -> categoria do slide (None = cabeçalho de bloco,
+# que não muda a categoria). A chave é o texto normalizado por _chave_dre.
+CAT_TRELLO = {
+    "RECEITA": "Receitas", "RECEITAS": "Receitas", "VENDADEANIMAISEPRODUTOS": "Receitas",
+    "EMBRIOES": "Receitas", "COBERTURAS": "Receitas", "OVULOS": "Receitas", "ANIMAIS": "Receitas",
+    "OUTRASRECEITAS": "Receitas", "OUTRASRECEITASCOMOHARAS": "Receitas", "RECEITASFINANCEIRAS": "Receitas",
+    "DEDUCOESECANCELAMENTOS": "Deduções", "CANCELAMENTOS": "Deduções", "CUSTOSDEVENDA": "Deduções",
+    "CUSTOSDEVENDAS": "Deduções",
+    "DESPESA": None, "DESPESAS": None, "CUSTOSINDIRETOSDEPRODUCAO": None,
+    "VOLUMOSOECONCENTRADO": "Volumoso e Concentrado", "SANIDADE": "Sanidade",
+    "REPRODUCAO": "Reprodução", "PISTA": "Pista", "REGISTROSETRANSFERENCIAS": "Registros e Transferências",
+    "MANUTENCAO": "Manutenção", "CONSUMODEAGUAELUZ": "Consumo de Água e Luz",
+    "DESPESASCOMPESSOAL": "Pessoal", "DESPESASADMINISTRATIVAS": "Desp. Administrativas",
+    "ARRENDAMENTOS": "Arrendamentos",
+    "INVESTIMENTOS": "Investimentos", "MAQUINASEEQUIPAMENTOS": "Investimentos",
+    "INFRAESTRUTURA": "Investimentos", "ANIMAISEPRODUTOS": "Investimentos",
+    "COMPRADEANIMAIS": "Investimentos", "COMPRADEPRODUTOS": "Investimentos",
+}
+# ordem do DRE e a linha da face (Caixa) que dá o ∆ da categoria
+FACE_CAT = {
+    "Receitas": "Receita Bruta", "Deduções": "Deduções e Cancelamentos",
+    "Volumoso e Concentrado": "Volumoso E Concentrado", "Sanidade": "Sanidade",
+    "Reprodução": "Reprodução", "Pista": "Pista", "Registros e Transferências": "Registros e Transferências",
+    "Manutenção": "Manutenção", "Consumo de Água e Luz": "Consumo de ÁGua e Luz",
+    "Pessoal": "Despesas Com Pessoal", "Desp. Administrativas": "Despesas Administrativas",
+    "Arrendamentos": "Despesas - Arrendamentos", "Investimentos": "Investimentos",
+}
+
+
+def _trello_credenciais():
+    """TRELLO_API_KEY/TOKEN do ambiente ou de um .env (o do repo ou o da pasta
+    dos repositórios, onde as rotinas do P&C guardam). Nunca no Git."""
+    import os
+    k, t = os.environ.get("TRELLO_API_KEY"), os.environ.get("TRELLO_TOKEN")
+    if k and t:
+        return k, t
+    for pasta in (REPO, *REPO.parents[:2]):
+        env = pasta / ".env"
+        if env.exists():
+            cfg = dotenv_values(env)
+            if cfg.get("TRELLO_API_KEY") and cfg.get("TRELLO_TOKEN"):
+                return cfg["TRELLO_API_KEY"], cfg["TRELLO_TOKEN"]
+    return None, None
+
+
+def _card_do_mes(nome: str, m: int, ano: int) -> bool:
+    """'DRE Haras - Agosto 2026', 'DRE Haras - Maio/26': o nome varia de mês pra mês."""
+    mm = re.match(r"\s*DRE\s+Haras\s*-\s*(.+)$", nome or "", re.I)
+    if not mm:
+        return False
+    per = _chave_dre(mm.group(1))
+    return per.startswith(_chave_dre(ABR[m - 1])) and per.endswith(str(ano)[2:])
+
+
+def comentario_trello(m: int, ano: int):
+    """Texto do comentário 'COMENTÁRIOS DRE (HPG)' do mês. Vem do Trello e fica
+    arquivado em _cache/trello; sem API (sem credencial, fora do ar), vale o
+    arquivado. None se o mês não tem esse comentário."""
+    cache = TRELLO_CACHE / f"dre_haras_{ano}-{m:02d}.json"
+    key, tok = _trello_credenciais()
+    if key:
+        try:
+            q = {"key": key, "token": tok}
+
+            def get(caminho, **kw):
+                r = requests.get(f"{TRELLO_API}{caminho}", params={**q, **kw}, timeout=30)
+                r.raise_for_status()
+                return r.json()
+            if not _trello_cards:
+                quadros = [b for b in get("/members/me/boards", fields="name,closed") if not b["closed"]]
+                # o quadro do fluxo de caixa primeiro: o Kanban do P&C tem card
+                # com o mesmo nome, mas sem o comentário
+                quadros.sort(key=lambda b: b["name"].strip() != TRELLO_QUADRO)
+                _trello_cards["lista"] = [c for b in quadros
+                                          for c in get(f"/boards/{b['id']}/cards/all", fields="name")]
+            for card in [c for c in _trello_cards["lista"] if _card_do_mes(c["name"], m, ano)]:
+                acoes = get(f"/cards/{card['id']}/actions", filter="commentCard", limit=100)
+                # o card também tem as 'Observações relevantes YTD' e o recado da
+                # planilha; vale o comentário do mês, o mais recente (vem primeiro)
+                for a in acoes:
+                    txt = a["data"]["text"]
+                    if _chave_dre(txt[:60]).startswith("COMENTARIOSDRE"):
+                        TRELLO_CACHE.mkdir(parents=True, exist_ok=True)
+                        cache.write_text(json.dumps({"card": card["name"], "data": a["date"], "texto": txt},
+                                                    ensure_ascii=False, indent=1), encoding="utf-8")
+                        _registra("Comentários do DRE (Trello)", cache)
+                        return txt
+            return None
+        except Exception as exc:
+            print(f"  [trello] indisponível ({exc!r}) — usando o comentário arquivado")
+    if cache.exists():
+        _registra("Comentários do DRE (Trello)", cache)
+        return json.loads(cache.read_text(encoding="utf-8")).get("texto")
+    return None
+
+
+def _item_trello(linha: str):
+    """'Ração (R$ 10K): Gasto abaixo do orçado' -> ('Ração', '+R$ 10k', 'Gasto...').
+    Aguenta o que a formatação do comentário varia: parêntese sem fechar, dois
+    pontos dentro do negrito, natureza sem valor."""
+    s = re.sub(r"^[-•.\s]+", "", linha.replace("**", "")).strip()
+    mm = re.match(r"^(?P<nome>.*?)\s*\(\s*(?P<sin>[-−–]?)\s*R\$\s*(?P<num>\d[\d.,]*)\s*[kK]?\s*\)?\s*:?\s*(?P<txt>.*)$", s)
+    if mm:
+        num = mm.group("num").rstrip(".,")
+        zero = not re.sub(r"[0.,]", "", num)
+        sinal = "" if zero else ("-" if mm.group("sin") else "+")
+        return mm.group("nome").strip(" :"), f"{sinal}R$ {num}k", mm.group("txt").strip()
+    nome, _, txt = s.partition(":")
+    return nome.strip(), None, txt.strip()
+
+
+def _nome_natureza(nome: str) -> str:
+    """'Receita Com Venda De Embrião A Coletar' -> 'Receita com Venda de Embrião a Coletar'."""
+    ws = nome.split()
+    return " ".join(w.lower() if i and w.upper() in PARTICULAS else w for i, w in enumerate(ws))
+
+
+def itens_trello(texto: str, face_cx: list) -> list:
+    """O comentário do mês em categorias, na ordem do DRE: [{cat, delta, txt}],
+    txt = uma natureza por linha, com o valor e a explicação dela."""
+    cats, cat = {}, None
+    for bruto in texto.splitlines():
+        l = bruto.strip()
+        if not l:
+            continue
+        bullet = l[0] in "-•"
+        limpo = re.sub(r"^[-•.\s]+", "", l.replace("**", "")).strip()
+        if limpo.startswith("=>"):
+            ch = _chave_dre(limpo[2:])
+            if ch in CAT_TRELLO:
+                cat = CAT_TRELLO[ch] or cat
+            continue
+        if not limpo or _chave_dre(limpo).startswith("COMENTARIOSDRE"):
+            continue
+        nome, val, txt = _item_trello(limpo)
+        ch = _chave_dre(nome)
+        if ch in CAT_TRELLO and not txt:
+            # cabeçalho — com hífen ou sem, com o valor do grupo ou sem
+            cat = CAT_TRELLO[ch] or cat
+            continue
+        if not bullet and not txt:
+            continue
+        alvo = "Arrendamentos" if re.search(r"(?i)arrendamento|vassouras", nome) else cat
+        if not alvo:
+            continue
+        t = f"{_nome_natureza(nome)} ({val})" if val else _nome_natureza(nome)
+        if txt:
+            txt = re.sub(r"\s+", " ", txt)
+            txt = re.sub(r"[;,]\s*$", ".", txt)
+            t += f": {txt}"
+        # a grafia da casa é sem til (relatório, planilhas, hub)
+        t = re.sub(r"P[ãÃ]o Grande", "Pao Grande", t)
+        cats.setdefault(alvo, []).append("• " + t)
+    por = {_chave_dre(l["nome"]): l for l in face_cx}
+    out = []
+    for c in FACE_CAT:
+        if c not in cats:
+            continue
+        l = por.get(_chave_dre(FACE_CAT[c]))
+        dk = l["v"][2] if l else None
+        if dk is None:
+            delta = ""
+        else:
+            r = int(abs(dk) + 0.5) * (1 if dk >= 0 else -1)
+            delta = f"{'+' if r > 0 else '-' if r < 0 else ''}R${abs(r):,.0f}k".replace(",", ".")
+        out.append({"cat": c, "delta": delta, "txt": "\n".join(cats[c])})
+    return out
+
+
+def _paginas_comentarios(itens: list) -> list:
+    """Reparte as categorias em slides pela altura que o texto vai ocupar
+    (estimativa do layout: ~130 caracteres por linha de 7,6 pt)."""
+    def altura(it):
+        linhas = sum(max(1, -(-len(x) // 130)) for x in it["txt"].split("\n"))
+        return max(63.9, linhas * 16.3 + 10) + 1.2
+    pags, atual, usado = [], [], 0.0
+    for it in itens:
+        h = altura(it)
+        if atual and usado + h > 712 - 124.2:
+            pags.append(atual)
+            atual, usado = [], 0.0
+        atual.append(it)
+        usado += h
+    if atual:
+        pags.append(atual)
+    return pags
+
+
+def slides_comentarios(c, m, ano):
+    """S8 — comentários do mês: o do Trello (controladoria) quando existe; senão
+    o escrito à mão no hub; senão o slide fica pendente, para escrever."""
+    texto = comentario_trello(m, ano)
+    titulo = f"COMENTÁRIOS — {MESES[m-1].upper()} {ano}"
+    if texto:
+        face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m),
+                                    gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
+        itens = itens_trello(texto, face_cx)
+        if itens:
+            pags = _paginas_comentarios(itens)
+            return [{"t": "comentarios", "n": 8, "origem": "trello",
+                     "titulo": titulo + (" (cont.)" if k else ""),
+                     "sub": f"DRE {ano} | HPG  ·  Caixa  ·  Variações do mês comentadas pela controladoria  ·  "
+                            f"Fonte: Trello",
+                     "itens": p} for k, p in enumerate(pags)]
+    com = slide_comentarios(c, m, ano)
+    return [oculto(com) if com["t"] == "pendente" else com]
+
+
 def slide_comentarios(c, m, ano):
     """S8 — comentários do MÊS do deck.
 
@@ -2382,8 +2603,7 @@ def monta_deck(m, ano, ctx):
     s.append(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
                  f"DRE {ano} | HPG  ·  Acumulado Jan–{ABR[m-1]}  ·  Fonte: aba Real x Orçado (Comp)",
                  linhas_face(face_ytd, GAB_RESUMO), "resumo"))
-    com = slide_comentarios(cont, m, ano)
-    s.append(oculto(com) if com["t"] == "pendente" else com)
+    s += slides_comentarios(cont, m, ano)
     s.append(slide_investimentos(m, ano))
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",

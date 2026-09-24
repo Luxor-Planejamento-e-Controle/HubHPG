@@ -126,6 +126,8 @@ const ehExposicaoProg = s => s.t === 'tabela' && s.n === 23;
    `edita` (posto pelo build) dizendo que editor ele quer. */
 const editorDe = s => {
   if (!s) return null;
+  // comentário que veio do Trello: a fonte é o card da controladoria, não o hub
+  if (s.origem === 'trello') return null;
   if (s.t === 'pendente') return s.edita || null;
   if (s.t === 'resultados') return 'exposicoes';
   if (ehExposicaoProg(s)) return 'exposicoes';
@@ -420,6 +422,9 @@ function substituiSlidesDoTipo(chave, novos){
 async function aplicaConteudoAoVivo(mes){
   const vivo = await montaSlidesAoVivo(mes);
   if (mes !== mesAtual || !vivo) return;   // usuário já trocou de mês, ou nada pra aplicar
+  // o mês que tem o comentário do Trello fica com ele; o escrito no hub só
+  // cobre mês sem comentário da controladoria
+  if (slides.some(s => s.origem === 'trello')) delete vivo.comentarios;
   for (const [chave, novos] of Object.entries(vivo)) substituiSlidesDoTipo(chave, novos);
   listaSlides();
   go(Math.min(idx, slides.length - 1));

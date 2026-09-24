@@ -701,21 +701,29 @@
   };
 
   /* ---------------- comentários do mês ---------------- */
+  /* comentários: a faixa escura do relatório — categoria e ∆ num cartão à
+     esquerda, o texto à direita (uma natureza por linha quando vem do Trello).
+     A faixa cresce com o texto; se o slide não comporta, o corpo desce. */
+  const linhasP = (txt, pt, w) => String(txt || '').split('\n').reduce((a, par) => a + nLinhas(par, pt, w), 0);
   L.comentarios = s => {
     const P = claro(s, []);
-    cabecalho(P, 124.2, 34.6, [[53.8, 220, 'l', 'CATEGORIA'], [290, 800, 'l', 'DESTAQUE'], [1100, 125, 'r', '∆']]);
-    let pt = 8.5;
-    const alt = p => s.itens.map(i => Math.max(34, nLinhas(i.txt, p, 790) * altLinha(p) + 12));
-    while (pt > 6.5 && alt(pt).reduce((a, b) => a + b, 0) > 712 - 158.7) pt -= 0.25;
-    let y = 158.7;
+    const Y0 = 124.2, GAP = 1.2, W_TXT = 966.4;
+    const alt = p => s.itens.map(i => Math.max(63.9, linhasP(i.txt, p, W_TXT) * altLinha(p) + 10.4));
+    let pt = 7.63;
+    while (pt > 6.25 && alt(pt).reduce((a, b) => a + b + GAP, 0) > 712 - Y0) pt -= 0.125;
+    let y = Y0;
     alt(pt).forEach((h, i) => {
       const it = s.itens[i];
-      P.push(R(44.8, y, 1190.4, h, {fill: i % 2 ? COR.zebra : 'FFFFFF', line: COR.linha}));
-      P.push(C(53.8, y, 220, h, it.cat, {pt, b: 1, c: COR.navy, va: 'm'}));
-      P.push(T(290, y + 4, 800, h - 8, it.txt, {pt, c: '444444', va: 'm', wrap: 1}));
-      const neg = /^[-−]/.test(it.delta || '');
-      P.push(C(1100, y, 125, h, it.delta || '', {pt: pt + 0.5, b: 1, c: neg ? COR.neg : COR.verde, al: 'r', va: 'm'}));
-      y += h;
+      P.push(R(44.8, y, 1187.8, h, {fill: COR.navy}));
+      P.push(R(243.2, y, 986.9, h, {fill: i % 2 ? '0F2238' : '0A1828'}));
+      P.push(C(53.8, y + 3.9, 179.2, 29.3, it.cat, {pt: 8.14, b: 1, c: 'FFFFFF', va: 'm', min: 6.5}));
+      const d = String(it.delta || '').trim();
+      if (d) {
+        const neg = /^[-−]/.test(d), zero = !/[1-9]/.test(d);
+        P.push(C(53.8, y + 33.8, 179.2, 27.4, d, {pt: 8.64, b: 1, c: zero ? 'BBBBBB' : (neg ? 'FFAAAA' : '7BE0A0'), va: 'm'}));
+      }
+      P.push(T(262.4, y + 5.2, W_TXT, h - 10.4, it.txt, {pt, c: 'FFFFFF', va: 'm', wrap: 1}));
+      y += h + GAP;
     });
     return P;
   };
