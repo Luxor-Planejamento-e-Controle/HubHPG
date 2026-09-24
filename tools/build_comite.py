@@ -777,8 +777,10 @@ def slide_investimentos(m, ano):
     _registra("DRE anual (Haras)", DRE_HARAS)
     wb = openpyxl.load_workbook(DRE_HARAS, data_only=True, read_only=True)
     ws = wb["Investimentos"]
-    BLOCOS = ("INFRAESTRUTURA", "COMPRA DE ANIMAIS E PRODUTOS", "MÁQUINAS E EQUIPAMENTOS",
-              "INSTALAÇÕES", "FORMAÇÃO DE PASTAGEM")
+    # O relatório de agosto/2026 passou a mostrar SÓ o mês, com todos os blocos
+    # da aba (infraestrutura, máquinas, animais e produtos) e o total — antes era
+    # o acumulado do ano, só de animais e produtos, e o haras sentia falta das
+    # obras e das máquinas.
     meses, atual, bl = [], None, None
     for r in ws.iter_rows(values_only=True):
         a = str(r[0]).strip().upper() if r[0] is not None else ""
@@ -786,19 +788,105 @@ def slide_investimentos(m, ano):
         v = num(r[2]) if len(r) > 2 else None
         if a.startswith("INVESTIMENTOS -"):
             nome = a.split("-", 1)[1].strip().split("/")[0].title()
-            atual = {"mes": nome, "total": 0.0, "itens": []}
+            atual = {"mes": nome, "total": v or 0.0, "blocos": []}
             meses.append(atual); bl = None
             continue
         if atual is None:
             continue
-        if a in BLOCOS:
-            bl = a
-            if bl == "COMPRA DE ANIMAIS E PRODUTOS" and v:
-                atual["total"] = v
+        if a in BLOCOS_INVEST:
+            bl = {"nome": BLOCOS_INVEST[a], "total": v or 0.0, "itens": []}
+            atual["blocos"].append(bl)
             continue
-        if bl == "COMPRA DE ANIMAIS E PRODUTOS" and v is not None:
-            atual["itens"].append({"desc": desc_investimento(b, a), "valor": v})
+        if bl is not None and v is not None and a:
+            animal = bl["nome"] == "ANIMAIS E PRODUTOS"
+            it = {"quem": quem_investimento(a),
+                  "desc": desc_investimento(b, None) if animal else desc_obra(b), "valor": v}
+            # o mesmo lançamento repetido (kit de diesel 2×) vira uma linha só
+            igual = next((x for x in bl["itens"] if (x["quem"], x["desc"]) == (it["quem"], it["desc"])), None)
+            if igual:
+                igual["valor"] += v
+                igual["n"] = igual.get("n", 1) + 1
+            else:
+                bl["itens"].append(it)
     wb.close()
+    idx = {nm.lower(): i + 1 for i, nm in enumerate(MESES)}
+    mes = next((x for x in meses if idx.get(x["mes"].lower()) == m), None)
+    titulo = f"INVESTIMENTOS — COMENTÁRIOS {MESES[m-1].upper()} {ano}"
+    sub = f"DRE {ano} | HPG  ·  Compras e obras realizadas  ·  Fonte: aba Investimentos"
+    if not mes or not any(b["itens"] for b in mes["blocos"]):
+        return pend(9, titulo, sub, f"{DRE_HARAS.name} → aba Investimentos",
+                    f"a aba não tem a seção INVESTIMENTOS - {MESES[m-1].upper()}/{str(ano)[2:]}")
+    for b in mes["blocos"]:
+        for it in b["itens"]:
+            if it.get("n", 1) > 1:
+                it["desc"] += f" ({it.pop('n')}×)"
+    return {"t": "investimentos", "n": 9, "titulo": titulo, "sub": sub,
+            "blocos": [b for b in mes["blocos"] if b["itens"]], "total": mes["total"],
+            "rotulo_total": f"TOTAL INVESTIMENTOS {MESES[m-1].upper()}"}
+
+
+# bloco da aba Investimentos -> rótulo do slide
+BLOCOS_INVEST = {"INFRAESTRUTURA": "INFRAESTRUTURA", "INSTALAÇÕES": "INSTALAÇÕES",
+                 "FORMAÇÃO DE PASTAGEM": "FORMAÇÃO DE PASTAGEM",
+                 "MÁQUINAS E EQUIPAMENTOS": "MÁQUINAS E EQUIPAMENTOS",
+                 "COMPRA DE ANIMAIS E PRODUTOS": "ANIMAIS E PRODUTOS"}
+# acento que a descrição da controladoria perde (vem sem, em caixa alta)
+ACENTOS_OBRA = {
+    "MATERIAS": "MATERIAIS", "FUNCIONARIOS": "FUNCIONÁRIOS", "CONSTRUCAO": "CONSTRUÇÃO",
+    "CONSTRUCA": "CONSTRUÇÃO", "REPRODUCAO": "REPRODUÇÃO", "REFEITORIO": "REFEITÓRIO",
+    "MANUTENCAO": "MANUTENÇÃO", "AGUA": "ÁGUA", "IDENTIFICACAO": "IDENTIFICAÇÃO",
+    "ESCRITORIO": "ESCRITÓRIO", "ADUBACAO": "ADUBAÇÃO", "FORMACAO": "FORMAÇÃO", "ANALISE": "ANÁLISE",
+    "ANALISES": "ANÁLISES", "AREAS": "ÁREAS", "MAO": "MÃO", "MOVEL": "MÓVEL", "COMERCIO": "COMÉRCIO",
+    "CARTOES": "CARTÕES", "CREDITO": "CRÉDITO", "QUIMICAS": "QUÍMICAS", "FISICAS": "FÍSICAS",
+    "GESTAO": "GESTÃO", "AGRONEGOCIO": "AGRONEGÓCIO", "ALOISIO": "ALOÍSIO", "DUZIAS": "DÚZIAS",
+    "MAQUINAS": "MÁQUINAS", "VEICULOS": "VEÍCULOS", "ESTACAO": "ESTAÇÃO", "NECESSARIAS": "NECESSÁRIAS",
+    "SEBASTIAO": "SEBASTIÃO", "EFRIGERADOR": "REFRIGERADOR", "DOMEST": "DOMÉSTICO", "INSTALACAO": "INSTALAÇÃO",
+    "INSTALACOES": "INSTALAÇÕES", "GALPAO": "GALPÃO", "ELETRICA": "ELÉTRICA", "HIDRAULICA": "HIDRÁULICA",
+}
+# nome de lugar/pessoa que a descrição cita e que fica com maiúscula
+PROPRIOS_OBRA = {"FURNAS", "LUISINHO", "LUIZINHO", "DIOGO", "ALEXANDRE", "MANOEL", "LÚDIA", "VASSOURAS",
+                 "PG", "FPG", "RJ", "BR", "CL-C", "V"}
+
+
+def desc_obra(desc: str) -> str:
+    """Descrição de obra/compra de equipamento em frase: 'REFERENTE A COMPRA DE
+    CAL, PARA AS BAIAS - AGOSTO/2026: ...' -> 'Compra de cal, para as baias'.
+    Tira o 'referente a', o mês colado no fim e o 'solicitado pelo...'."""
+    d = " ".join(str(desc or "").split())
+    d = re.sub(r"(?i)^REFERENTE\s+(?:A|AO|À|AOS|AS|ÀS)?\s*", "", d)
+    d = re.sub(r"(?i)\s*[-–]?\s*\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[A-ZÇ]*[/ ]?20\d\d\b.*$", "", d)
+    d = re.sub(r"(?i)[\s,.-]*\b(SOLICITAD[OA]S?|OBS:|\(OBS|FICA AJUSTADO)\b.*$", "", d)
+    d = re.sub(r"\s*-?\s*\d{2}/\d{2}/\d{4}\s*$", "", d).strip(" -–,.;:")
+    ps = []
+    for i, p in enumerate(d.upper().split()):
+        p = ACENTOS_OBRA.get(p, ACENTOS.get(p, p))
+        ps.append(p if p in PROPRIOS_OBRA else p.lower())
+    t = " ".join(ps)
+    t = re.sub(r"\b0(\d)\b", r"\1", t)            # '02 refrigeradores' -> '2 ...'
+    return t[:1].upper() + t[1:]
+
+
+def quem_investimento(quem: str) -> str:
+    """Favorecido curto: sem CPF/CNPJ colado, sem 'LTDA' e sem o que vem depois
+    do traço — exceto o cartão, que o relatório chama pela bandeira."""
+    q = re.sub(r"\d{6,}", "", str(quem or "")).strip()
+    mm = re.match(r"(?i)CART[ÃA]O DE CR[ÉE]DITO\s*-\s*(\S+)", q)
+    if mm:
+        return "Cartão " + titulo_pt(mm.group(1))
+    partes = [x.strip() for x in re.split(r"\s+-\s+", q) if x.strip()]
+    q = partes[0] if partes else q
+    if len(partes) > 1 and len(q) < 14:            # 'FUNDO FIXO - ESCRITORIO FAZENDA PG'
+        q = f"{q} — {partes[1]}"
+    q = re.sub(r"(?i)\s+(LTDA|ME|EIRELI|S/?A)\.?$", "", q)
+    t = " ".join(ACENTOS_OBRA.get(p, p) for p in q.upper().split())
+    return titulo_pt(t)
+
+
+def _slide_investimentos_acumulado_antigo():
+    """(histórico) Até julho/2026 o slide era o acumulado do ano, só de Animais e
+    Produtos, mês a mês — layout `lista_mes`. Mantido o layout no layout.js para
+    os decks antigos já publicados; o build não monta mais esse formato."""
+    meses = []
     # o slide é acumulado do ano: mostra de janeiro até o mês do deck
     idx = {nm.lower(): i + 1 for i, nm in enumerate(MESES)}
     meses = [x for x in meses if idx.get(x["mes"].lower(), 99) <= m]
