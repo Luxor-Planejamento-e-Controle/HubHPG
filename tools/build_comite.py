@@ -904,7 +904,7 @@ def comparativo(wb):
 
     safras = sorted(por_safra, key=lambda s: s.split("/")[0])[-4:]
     if not safras:
-        return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO ENTRE ESTAÇÕES", "",
+        return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES", "",
                     "ESTACAO DE MONTA.xlsx, aba ESTAÇÃO", "nenhuma safra encontrada na coluna ESTAÇÃO")
     curto = [f"{s[2:4]}/{s[-2:]}" for s in safras]
     rows = []
@@ -916,7 +916,7 @@ def comparativo(wb):
     rows.append(["Absorções", *[por_safra[s]["absorcao"] for s in safras]])
     rows.append(["Lavados (+)", *[por_safra[s]["lavados"] for s in safras]])
     rows.append(["Tentativas", *[por_safra[s]["tent"] for s in safras]])
-    return {"t": "kpis_tabela", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO ENTRE ESTAÇÕES",
+    return {"t": "kpis_tabela", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES",
             "sub": ("Embriões confirmados por mês (IA + 60 dias) · calculado da aba ESTAÇÃO, "
                     "não da aba COMPARATIVO"),
             "kpis": [{"v": str(tot[s]), "l": f"Estação {c}", "s": f"{por_safra[s]['lavados']} lavados (+)"}
@@ -1703,6 +1703,10 @@ def monta_deck(m, ano, ctx):
     ]
     FONTE = "Fonte: DRE_Historico.xlsx (Base DRE Geral)"
     mesano = f"{ABR[m-1].upper()}/{str(ano)[2:]}"
+    # O relatório dela abrevia no resumo do Haras ("JUL/26") e escreve por
+    # extenso no Caixa e no Casa/FPG ("JULHO/26"). Parece descuido, mas é o
+    # título que o haras conhece — replicar é o combinado.
+    mesano_ext = f"{MESES[m-1].upper()}/{str(ano)[2:]}"
     dre = lambda n, t, sub, lin, fonte=None: (
         {"t": "dre", "n": n, "titulo": t, "sub": f"{sub} · {fonte or FONTE}", "linhas": lin}
         if lin else pend(n, t, sub, "DRE_Historico.xlsx", "sem linha para esse recorte no histórico"))
@@ -1724,13 +1728,13 @@ def monta_deck(m, ano, ctx):
                                       gabarito(DRE_HARAS, "Real x Orçado (Comp)")),
                     "Fonte: DRE_Historico.xlsx (Base YTD)"))
     s += divide_lista_mes(slide_investimentos(m, ano))
-    s += so_mensal(divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano}",
+    s += so_mensal(divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
                     "FC 2026 | HPG · caixa mensal",
                     _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m),
                                       gabarito(DRE_HARAS, "Real x Orçado (Caixa)")))))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
-    s += so_mensal(divide(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano}",
+    s += so_mensal(divide(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano_ext}",
                     "FPG | Casa · caixa mensal",
                     _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m),
                                       gabarito(DRE_CASA, "Real x Orçado")))))
