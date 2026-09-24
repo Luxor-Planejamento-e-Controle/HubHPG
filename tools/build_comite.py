@@ -1403,9 +1403,10 @@ def _meta_safra(safra: str):
         ws = wb["PLANEJAMENTO"]
         if _s(next(ws.iter_rows(min_row=1, max_row=1, values_only=True))[1]) != safra:
             return None
-        cab = [_norm(x or "") for x in next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
+        cab = [re.sub(r"\s+", "", _norm(x or "")) for x in
+               next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
         c_nome = next((j for j, h in enumerate(cab) if h == "NOME"), None)
-        c_meta = next((j for j, h in enumerate(cab) if h.replace(" ", "") == "METATOTAL"), None)
+        c_meta = next((j for j, h in enumerate(cab) if h == "METATOTAL"), None)
         if c_nome is None or c_meta is None:
             return None
         tot = 0
@@ -1457,11 +1458,15 @@ def doadoras(wb, safra):
     tem o time no PLANEJAMENTO — é o número que o relatório imprime (Time B: 42).
     Sem coluna TIME na safra, sai um slide só, sem inventar divisão."""
     ws = wb["PLANEJAMENTO"]
-    cab = [_norm(x or "") for x in next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
+    # o cabeçalho tem quebra de linha dentro da célula ('META' + quebra + 'TOTAL'):
+    # compara sem nenhum espaço em branco, senão nenhuma coluna casa e o slide
+    # sai vazio — foi o DOADORAS em branco do deck de agosto
+    cab = [re.sub(r"\s+", "", _norm(x or "")) for x in
+           next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
 
     def _col(*nomes):
         for j, h in enumerate(cab):
-            if any(h.replace(" ", "") == n.replace(" ", "") for n in nomes):
+            if any(h == re.sub(r"\s+", "", _norm(n)) for n in nomes):
                 return j
         return None
     c_nome, c_time = _col("NOME"), _col("TIME")
@@ -1694,36 +1699,13 @@ def slide_inadimplencia(m, ano):
                         if ka else None),
                 "ref_ant": ini.strftime("%d/%m/%Y") if ka else None,
                 "anos": k["anos"]}
-    congelada = _inad_congelada(m, ano)
-    if congelada:
-        print(f"  [inad] {ano}-{m:02d} lida da foto arquivada ({congelada.get('sub','')[:38]}…)")
-        return congelada
-    pasta = _inad_dir()
-    if pasta is None:
-        return pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
-                    "controle-de-inadimplencia → output_pbi/historico",
-                    "sem foto do fim do mês; rode o ControleInadimplencia.py com a base do fechamento")
-    kpi_f, faixa_f = pasta / "indicadores_kpi.xlsx", pasta / "resumo_por_faixa.xlsx"
-    k = pd.read_excel(_registra("inadimplência (KPI)", kpi_f)).iloc[0]
-    fx = pd.read_excel(_registra("inadimplência (faixas)", faixa_f))
-    ref = pd.to_datetime(k["data_referencia"]).strftime("%d/%m/%Y")
-    venc = fx[fx["status_titulo"] == "Vencido"].groupby("faixa_atraso")[["valor_total", "qtd_titulos"]].sum()
-    tot_venc = float(venc["valor_total"].sum()) or 1.0
-    rows = [[str(i).split(" - ", 1)[-1].title(), int(r["qtd_titulos"]),
-             brl_curto(r["valor_total"]), f"{r['valor_total']/tot_venc*100:.0f}%"]
-            for i, r in venc.iterrows()]
-    slide = {"t": "kpis_tabela", "n": 31, "titulo": "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS",
-            "sub": (f"Posição de {ref} · agregados do ControleInadimplencia.py"
-                    f" · sem dado identificável de devedor"),
-            "kpis": [{"v": brl_curto(k["total_em_aberto"]), "l": "Em Aberto", "s": f"{int(k['qtd_clientes_total'])} clientes"},
-                     {"v": brl_curto(k["total_vencido"]), "l": "Vencido",
-                      "s": f"{k['percentual_vencido']:.1f}% da carteira"},
-                     {"v": brl_curto(k["total_a_vencer"]), "l": "A Vencer", "s": "em dia"},
-                     {"v": brl_curto(k["acao_judicial_total"]), "l": "Ação Judicial", "s": "total em cobrança"},
-                     {"v": f"{int(k['qtd_clientes_vencidos'])}", "l": "Clientes Vencidos",
-                      "s": f"ticket médio {brl_curto(k['ticket_medio'])}"}],
-            "tabela": {"cols": ["FAIXA DE ATRASO", "TÍTULOS", "VALOR", "% DO VENCIDO"], "rows": rows}}
-    return slide
+    # Sem a foto do fim do mês o slide fica pendente. Cair na planilha viva (ou
+    # numa posição arquivada de outra data) punha no deck de maio a carteira de
+    # 31/08 — número de outro mês com cara de certo.
+    return pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {MESES[m-1].upper()}/{ano}",
+                "controle-de-inadimplencia → output_pbi/historico",
+                f"sem foto da carteira em {fim_mes.strftime('%d/%m/%Y')}; rode o ControleInadimplencia.py "
+                f"com a base do fechamento")
 
 
 # ============================================================== Vendas (S29–S35)
@@ -2210,7 +2192,7 @@ def _fotos_grupo_por_tema(grupos, m, ano):
         for k in range(n):
             bloco = embutidas[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]
             cols, rows = GRADE_FOTOS[len(bloco)]
-            sub = f"Obras e melhorias realizadas · {tema}" if tema else f"Registros de {MESES[m-1]} {ano}"
+            sub = f"Obras e melhorias realizadas  ·  {tema}" if tema else f"Registros de {MESES[m-1]} {ano}"
             if n > 1:
                 sub += f" ({k+1}/{n})"
             out.append({"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
@@ -2302,94 +2284,20 @@ def divisor(n, titulo, sub):
     return {"t": "divisor", "n": n, "titulo": titulo, "sub": sub}
 
 
-# Linhas por slide. Com 26 a linha fica em ~20px na tela de 720 — dá pra ler
-# sentado longe, que é o ponto de uma apresentação. Passou disso, o slide QUEBRA
-# em continuação, como o PowerPoint faria. Espremer tudo numa página só foi o
-# que deixou a lista ilegível e vazando por cima do rodapé.
-# Linhas por slide na exportação PPTX. Eram 26 (27 com o cabeçalho) e as quatro
-# últimas ficavam FORA do slide: a conta de altura usava `área / nº de linhas`, mas o
-# PowerPoint renderiza a linha maior que isso — a 6pt, ~0,19in contra os 0,155in
-# calculados. 22 linhas × 0,19in = 4,18in, que é a altura útil abaixo do título.
-# Conferido gerando o PPTX e comparando o texto que sobrevive na exportação em PDF.
-# O resumo financeiro do relatório da Ana tem 48 linhas e cabe num slide só —
-# quebrar em (1/3) foge do formato dela. O deck reduz a fonte sozinho pra
-# tabela caber (ver ajusta() no deck.js), então o teto pode subir.
-MAX_LINHAS = 50
-# Tabela de texto livre (nome de vendedor, garanhão, comprador) quebra em duas
-# linhas nas colunas estreitas, e aí cada linha ocupa o dobro. Metade do corte
-# normal, porque na prática cada linha vale por duas.
-MAX_LINHAS_TEXTO = 10
+# Contratos de embrião: com a altura de linha que o haras pediu (0,27in) cabem
+# 16 por slide, que é o que o relatório de julho tem no maior deles. O desenho
+# encolhe a linha até 23; passou disso, continua noutro slide.
+MAX_CONTRATOS = 23
 
 
-def divide_tab(slide):
-    """Mesma quebra, para o slide de KPIs + tabela (as linhas moram em .tabela)."""
-    t = slide.get("tabela")
-    if not t or len(t["rows"]) <= MAX_LINHAS - 6:
+def divide_contratos(slide):
+    rows = slide.get("rows") or []
+    if len(rows) <= MAX_CONTRATOS:
         return [slide]
-    linhas, out = t["rows"], []
-    passo = MAX_LINHAS - 6
-    n = (len(linhas) + passo - 1) // passo
-    for k in range(n):
-        p = dict(slide)
-        p["tabela"] = dict(t, rows=linhas[k*passo:(k+1)*passo])
-        p["titulo"] = f"{slide['titulo']} ({k+1}/{n})"
-        out.append(p)
-    return out
-
-
-def divide(slide, campo="linhas"):
-    """Devolve [slide] ou a lista de slides '(cont.)' quando a tabela é longa."""
-    linhas = slide.get(campo) or []
-    # `rows` é a tabela de texto livre; `linhas`, o DRE, que tem coluna larga e
-    # números curtos e não quebra
-    teto = MAX_LINHAS_TEXTO if campo == "rows" else MAX_LINHAS
-    if len(linhas) <= teto:
-        return [slide]
-    partes, n = [], (len(linhas) + teto - 1) // teto
-    for k in range(n):
-        p = dict(slide)
-        p[campo] = linhas[k * teto:(k + 1) * teto]
-        if k:
-            p["titulo"] = f"{slide['titulo']} (cont. {k + 1}/{n})"
-        else:
-            p["titulo"] = f"{slide['titulo']} (1/{n})"
-        partes.append(p)
-    return partes
-
-
-def divide_lista_mes(slide):
-    """Quebra o slide mês-a-mês (INVESTIMENTOS) quando a lista não cabe na tela.
-
-    Cada mês rende uma linha de cabeçalho mais uma por item, e descrição longa
-    ocupa duas — é o caso dos comentários de compra, que vêm da planilha em texto
-    corrido. Sem isto o slide cresce em silêncio: com o DRE v3, agosto entrou com
-    3 itens e a lista passou a ter 8 meses; o cabeçalho de AGOSTO aparecia com o
-    total R$ 74.000 e os itens ficavam fora da área visível."""
-    meses = slide.get("meses") or []
-
-    def peso(mes):
-        return 1 + sum(2 if len(str(i.get("desc") or "")) > 70 else 1
-                       for i in mes.get("itens") or [])
-
-    if sum(peso(x) for x in meses) <= MAX_LINHAS:
-        return [slide]
-    paginas, atual, carga = [], [], 0
-    for mes in meses:
-        p = peso(mes)
-        if atual and carga + p > MAX_LINHAS:
-            paginas.append(atual)
-            atual, carga = [], 0
-        atual.append(mes)
-        carga += p
-    if atual:
-        paginas.append(atual)
-    out, n = [], len(paginas)
-    for k, pag in enumerate(paginas):
-        s = dict(slide, meses=pag)
-        s["titulo"] = (f"{slide['titulo']} (1/{n})" if k == 0
-                       else f"{slide['titulo']} (cont. {k + 1}/{n})")
-        out.append(s)
-    return out
+    n = (len(rows) + MAX_CONTRATOS - 1) // MAX_CONTRATOS
+    passo = (len(rows) + n - 1) // n
+    return [dict(slide, rows=rows[k * passo:(k + 1) * passo],
+                 titulo=f"{slide['titulo']} ({k + 1}/{n})") for k in range(n)]
 
 
 def so_mensal(slides):
@@ -2403,88 +2311,102 @@ def so_mensal(slides):
     return slides if isinstance(slides, list) else [slides]
 
 
+def oculto(slide):
+    """Slide que existe no arquivo mas não entra na apresentação — o 'ocultar
+    slide' do PowerPoint. O relatório dela esconde o acumulado do Haras, o da
+    Casa e os comentários; o deck mantém os três (quem quiser, navega até eles)
+    e o PPTX sai com eles marcados como ocultos."""
+    slide["oculto"] = True
+    return slide
+
+
 def monta_deck(m, ano, ctx):
     cont = conteudo_do_mes(ctx["conteudo"], f"{ano}-{m:02d}")
     safra = safra_do_deck(ano, m)
     if safra not in ctx["estacao_por_safra"]:
         ctx["estacao_por_safra"][safra] = (slides_estacao(safra), slide_coberturas(safra))
     est_slides, cob_slide = ctx["estacao_por_safra"][safra]
+    MES, yy = MESES[m - 1].upper(), str(ano)[2:]
     s = [
         {"t": "capa", "titulo": "RELATÓRIO DE DESEMPENHO ESTRATÉGICO",
-         "mes": f"{MESES[m-1].upper()} / {ano}", "org": "HARAS PAO GRANDE"},
+         "mes": f"{MES} / {ano}", "org": "HARAS PAO GRANDE"},
         {"t": "agenda", "titulo": "AGENDA",
-         "sub": f"RELATÓRIO DESEMPENHO ESTRATÉGICO — {ABR[m-1].upper()}/{str(ano)[2:]}",
+         "sub": f"RELATÓRIO DESEMPENHO ESTRATÉGICO — {MES}/{yy}",
          "itens": [{"n": "01", "titulo": "FINANCEIRO", "sub": "DRE Haras · Caixa · Plantel"},
                    {"n": "02", "titulo": "ESTAÇÃO DE MONTA", "sub": "Embriões · Doadoras · Garanhões"},
                    {"n": "03", "titulo": "EXPOSIÇÕES", "sub": "Programação e resultados"},
                    {"n": "04", "titulo": "VENDAS", "sub": "Pipeline e contratos"},
                    {"n": "05", "titulo": "DECISÕES E MANEJO", "sub": "Plantel · Obras · Casa"}]},
-        divisor(1, "FINANCEIRO", f"DRE Haras · Caixa · Plantel | {MESES[m-1].upper()} {ano}"),
+        slide_pendencias(cont, m, ano),
+        divisor(1, "FINANCEIRO", f"DRE Haras  ·  Caixa  ·  Plantel  |  {MES} {ano}"),
     ]
-    FONTE = "Fonte: DRE_Historico.xlsx (Base DRE Geral)"
-    mesano = f"{ABR[m-1].upper()}/{str(ano)[2:]}"
-    # O relatório dela abrevia no resumo do Haras ("JUL/26") e escreve por
-    # extenso no Caixa e no Casa/FPG ("JULHO/26"). Parece descuido, mas é o
-    # título que o haras conhece — replicar é o combinado.
-    mesano_ext = f"{MESES[m-1].upper()}/{str(ano)[2:]}"
-    dre = lambda n, t, sub, lin, fonte=None: (
-        {"t": "dre", "n": n, "titulo": t, "sub": f"{sub} · {fonte or FONTE}", "linhas": lin}
-        if lin else pend(n, t, sub, "DRE_Historico.xlsx", "sem linha para esse recorte no histórico"))
+    # O relatório abrevia o mês no resumo do Haras ("JUL/26") e escreve por
+    # extenso no Caixa e na Casa ("JULHO/26"). É o título que o haras conhece.
+    mesano, mesano_ext = f"{ABR[m-1].upper()}/{yy}", f"{MES}/{yy}"
 
-    s += so_mensal(divide(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
-                    "DRE 2026 | HPG · competência mensal",
-                    _na_ordem_oficial(dre_mes("HPG", "Competência", ano, m),
-                                      gabarito(DRE_HARAS, "Real x Orçado (Comp)")))))
-    s += so_mensal(divide(dre(5, f"ANÁLISE DE CUSTOS — {MESES[m-1].upper()} {ano}",
-                    "Custos indiretos de produção · linhas zeradas no mês omitidas",
-                    dre_grupo("HPG", "Competência", ano, m, "CUSTOS E DESPESAS OPERACIONAIS"))))
-    s += so_mensal(divide(dre(6, f"ANÁLISE DE DESPESAS — {MESES[m-1].upper()} {ano}",
-                    "Despesas do mês · linhas zeradas no mês omitidas",
-                    dre_grupo("HPG", "Competência", ano, m, "DESPESAS"))))
-    s.append(slide_comentarios(cont, m, ano))
-    s += divide(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
-                    "DRE 2026 | HPG · acumulado no ano",
-                    _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
-                                      gabarito(DRE_HARAS, "Real x Orçado (Comp)")),
-                    "Fonte: DRE_Historico.xlsx (Base YTD)"))
-    s += divide_lista_mes(slide_investimentos(m, ano))
-    s += so_mensal(divide(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
-                    "FC 2026 | HPG · caixa mensal",
-                    _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m),
-                                      gabarito(DRE_HARAS, "Real x Orçado (Caixa)")))))
+    def dre(n, titulo, sub, linhas, layout):
+        if not linhas:
+            return pend(n, titulo, sub, "DRE_Historico.xlsx", "sem linha para esse recorte no histórico")
+        return {"t": "dre", "n": n, "titulo": titulo, "sub": sub, "layout": layout, "linhas": linhas}
+
+    face_comp = _na_ordem_oficial(dre_mes("HPG", "Competência", ano, m),
+                                  gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
+    s += so_mensal(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
+                       "DRE 2026 | HPG  ·  Competência Mensal  ·  Fonte: aba Real x Orçado (Comp)",
+                       linhas_face(face_comp, GAB_RESUMO), "resumo"))
+    for k, pag in enumerate(ANALISE_CUSTOS, 1):
+        s += so_mensal(dre(5, f"ANÁLISE DE CUSTOS — {MES} {ano}",
+                           f"DRE Haras  ·  Custos Indiretos de Produção  ·  Fonte: DRE-Compet  ·  "
+                           f"Parte {k} de {len(ANALISE_CUSTOS)}",
+                           linhas_analise(ano, m, pag), "analise"))
+    for k, pag in enumerate(ANALISE_DESPESAS, 1):
+        s += so_mensal(dre(6, f"ANÁLISE DE DESPESAS — {MES} {ano}",
+                           f"DRE Haras  ·  Despesas Operacionais  ·  Fonte: DRE-Compet  ·  "
+                           f"Parte {k} de {len(ANALISE_DESPESAS)}",
+                           linhas_analise(ano, m, pag), "analise"))
+    face_ytd = _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
+                                 gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
+    s.append(oculto(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
+                        f"DRE 2026 | HPG  ·  Competência  ·  Janeiro a {MESES[m-1]}  ·  Fonte: Base YTD",
+                        linhas_face(face_ytd, GAB_RESUMO), "resumo")))
+    com = slide_comentarios(cont, m, ano)
+    s.append(oculto(com) if com["t"] == "pendente" else com)
+    s.append(slide_investimentos(m, ano))
+    face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
+    s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
+                       "FC 2026 | HPG  ·  Caixa Mensal  ·  Dados confirmados",
+                       linhas_face(face_cx, GAB_CAIXA), "caixa"))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
-    s += so_mensal(divide(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano_ext}",
-                    "FPG | Casa · caixa mensal",
-                    _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m),
-                                      gabarito(DRE_CASA, "Real x Orçado")))))
-    s += divide(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
-                    "FPG | Casa · acumulado no ano",
-                    _na_ordem_oficial(dre_ytd("FPG", "Caixa", ano, m),
-                                      gabarito(DRE_CASA, "Real x Orçado")),
-                    "Fonte: DRE_Historico.xlsx (Base YTD)"))
+    face_casa = _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m), gabarito(DRE_CASA, "Real x Orçado"))
+    s += so_mensal(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano_ext}",
+                       f"FC {ano} | FPG  ·  Caixa  ·  {MESES[m-1]} {ano}  ·  Fonte: aba Real x Orçado",
+                       linhas_face(face_casa, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
+    face_casa_ytd = _na_ordem_oficial(dre_ytd("FPG", "Caixa", ano, m), gabarito(DRE_CASA, "Real x Orçado"))
+    s.append(oculto(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
+                        f"FC {ano} | FPG  ·  Caixa  ·  Janeiro a {MESES[m-1]}  ·  Fonte: Base YTD",
+                        linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa")))
 
-    s.append(divisor(2, "ESTAÇÃO DE MONTA", "Embriões · Doadoras · Garanhões"))
-    for x in est_slides:
-        s += divide_tab(x)
-    s += divide_tab(cob_slide)
+    s.append(divisor(2, "ESTAÇÃO DE MONTA", f"Embriões  ·  Doadoras  ·  Garanhões  |  {safra}"))
+    s += est_slides
+    s.append(cob_slide)
 
-    s.append(divisor(3, "EXPOSIÇÕES", "Programação e resultados"))
-    for x in slides_exposicoes(cont, ano):
-        s += divide(x, 'rows') if x["t"] == "tabela" else [x]
+    s.append(divisor(3, "EXPOSIÇÕES", f"Programação  ·  Resultados  |  {MES} {ano}"))
+    s += slides_exposicoes(cont, ano)
 
-    s.append(divisor(4, "VENDAS", "Pipeline e contratos"))
-    for x in slides_vendas(m, ano):
-        s += divide(x, 'rows')
-    s += divide_tab(slide_inadimplencia(m, ano))
-    for x in ctx["embrioes"]:
-        s += divide(x, 'rows')
+    s.append(divisor(4, "VENDAS", f"Pipeline Comercial  ·  Contratos {ano}  |  {MES} {ano}"))
+    s += slides_vendas(m, ano)
+    s.append(slide_inadimplencia(m, ano))
+    for x in slides_embrioes(m, ano):
+        s += divide_contratos(x)
 
-    s.append(divisor(5, "DECISÕES E MANEJO", "Plantel · Obras · Casa"))
-    s.append(slide_contagem(m, ano))
+    s.append(divisor(5, "DECISÕES E MANEJO", f"Plantel  ·  Obras  ·  Casa  |  {MES} {ano}"))
+    # a contagem por local não está no relatório dela; fica no arquivo, oculta
+    s.append(oculto(slide_contagem(m, ano)))
     s.append(slide_manejo(cont, m, ano))
     s += slides_fotos(cont, m, ano)
-    s.append({"t": "encerramento", "titulo": "HARAS PAO GRANDE"})
+    s.append({"t": "encerramento", "titulo": "HARAS PAO GRANDE",
+              "sub": f"Relatório de Desempenho Estratégico  ·  {MES} {ano}"})
     return s
 
 
@@ -2526,7 +2448,6 @@ def build(so_mes=None):
     # diferentes (julho é 25/26, agosto é 26/27) — resolve por safra, uma vez cada
     ctx["estacao_por_safra"] = {}
     ctx["conteudo"] = le_conteudo()
-    ctx["embrioes"] = slides_embrioes()
 
     alvo = [so_mes.month] if so_mes else meses
     decks = {}
