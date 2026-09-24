@@ -43,9 +43,19 @@ body{display:flex;flex-direction:column}
   background:var(--bg);transform-origin:center center;
   box-shadow:0 10px 44px rgba(0,0,0,.35);border:1px solid var(--line);
 }
-/* faixa dourada do topo — a marca visual do relatório dela */
-.slide::before{content:"";position:absolute;left:0;right:0;top:0;height:5px;
+/* Capa, agenda, divisor e encerramento são ESCUROS no relatório dela — só as
+   tabelas vão em branco. É o sanduíche do deck original: abre em navy, o miolo
+   é claro para leitura de número, e fecha em navy. */
+.slide:has(.capa),.slide:has(.agenda),.slide:has(.divisor),.slide:has(.fim){
+  --bg:#12233F; --bg-2:#1A2F4E; --card:#1A2F4E; --line:#2A4062; --line-2:#3A5478;
+  --ink:#FFFFFF; --ink-2:#C9D4E2; --ink-3:#D9A520;
+}
+/* faixa dourada do topo: grossa nos slides escuros (como na capa dela), fina
+   nos claros */
+.slide::before{content:"";position:absolute;left:0;right:0;top:0;height:6px;
   background:var(--amber);z-index:2}
+.slide:has(.capa)::before,.slide:has(.agenda)::before,
+.slide:has(.divisor)::before,.slide:has(.fim)::before{height:44px}
 .bar{
   flex:0 0 auto;min-height:54px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;
   padding:8px 16px;background:var(--bg-2);border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);
@@ -119,11 +129,17 @@ body.play .slide{box-shadow:none;border:0}
 .s-body{overflow:hidden}
 
 /* capa / divisor / encerramento */
-.capa,.fim{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 78px}
-.capa img,.fim img{position:absolute;right:78px;top:50%;transform:translateY(-50%);height:250px;opacity:.95}
-.capa h1{margin:0;font-size:40px;font-weight:600;letter-spacing:.01em;max-width:640px}
-.capa .mes{margin-top:12px;font-size:21px;color:var(--amber);letter-spacing:.05em}
-.capa .org{margin-top:38px;font-size:14px;letter-spacing:.3em;color:var(--ink-3)}
+/* Capa do relatório dela: tudo CENTRADO na vertical e na horizontal — logo
+   grande em cima, o título em dourado com muito espaçamento, o mês em branco e
+   grande, e a assinatura miúda embaixo. Era uma composição à esquerda com o
+   logo jogado na direita. */
+.capa,.fim{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;padding:44px 78px 0;text-align:center}
+.capa img,.fim img{position:static;transform:none;height:250px;opacity:1;margin-bottom:46px}
+.capa h1{margin:0;font-size:17px;font-weight:600;letter-spacing:.22em;color:var(--amber);
+  text-transform:uppercase;max-width:none}
+.capa .mes{margin-top:22px;font-size:44px;font-weight:700;color:#FFFFFF;letter-spacing:.01em}
+.capa .org{margin-top:26px;font-size:11px;letter-spacing:.14em;color:var(--amber)}
 .fim h1{margin:0;font-size:36px;letter-spacing:.06em;color:var(--amber)}
 .divisor{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 78px}
 .divisor .n{position:absolute;right:78px;top:56px;font-size:110px;font-weight:700;color:var(--line);line-height:1}
@@ -131,11 +147,20 @@ body.play .slide{box-shadow:none;border:0}
 .divisor .sub{margin-top:16px;font-size:15px;color:var(--ink-3);letter-spacing:.04em}
 
 /* agenda */
-.agenda{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;height:100%;align-content:start;padding-top:34px}
-.agenda .it{border-top:3px solid var(--amber);padding-top:14px}
-.agenda .it .n{font-size:28px;font-weight:700;color:var(--amber)}
-.agenda .it h3{margin:12px 0 6px;font-size:15px;letter-spacing:.04em}
-.agenda .it p{margin:0;font-size:13px;color:var(--ink-3);line-height:1.5}
+/* Agenda dela: número dentro de um CÍRCULO dourado, separador vertical entre
+   as colunas, título em dourado e descrição em branco. Antes era um filete
+   dourado em cima do número, sem círculo nem separador. */
+.agenda{display:grid;grid-template-columns:repeat(5,1fr);gap:0;height:100%;
+  align-content:start;padding-top:22px;text-align:center}
+.agenda .it{padding:0 16px;position:relative}
+.agenda .it+.it::before{content:"";position:absolute;left:0;top:6px;bottom:34px;
+  width:2px;background:var(--line-2)}
+.agenda .it .n{width:74px;height:74px;margin:0 auto;border-radius:50%;
+  background:var(--amber);color:#12233F;font-size:23px;font-weight:700;
+  display:flex;align-items:center;justify-content:center}
+.agenda .it h3{margin:20px 0 14px;font-size:12px;letter-spacing:.05em;
+  color:var(--amber);text-transform:uppercase}
+.agenda .it p{margin:0;font-size:12px;color:var(--ink-2);line-height:1.5}
 
 /* tabelas */
 /* `table-layout:fixed` repartia a largura em partes iguais, ignorando o
