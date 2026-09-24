@@ -1628,7 +1628,72 @@ def _inad_congelada(m, ano):
         return None
 
 
+INAD_HIST = INAD_DIR / "historico"
+INAD_CARTEIRA = "Carla"      # o painel que o relatório mostra é o da carteira da Carla
+STATUS_VENCIDO = ("Aberto vencido", "Aberto parcialmente")
+
+
+def _inad_foto(data_ref: date):
+    """Foto da carteira na data (historico/fato_titulos_AAAA-MM-DD.parquet)."""
+    f = INAD_HIST / f"fato_titulos_{data_ref.isoformat()}.parquet"
+    return f if f.exists() else None
+
+
+def _inad_kpis(f: Path) -> dict:
+    """Os seis cartões e a quebra por ano, com a MESMA regra do dashboard de
+    conferência (ControleInadimplencia.py, computeKPIs/aggregateByYear): título
+    vencido = status vencido/parcial E mais de 7 dias; Ação Judicial, Não
+    Entregues e Inadimplentes são a quebra dos vencidos; o resto é A Vencer."""
+    d = pd.read_parquet(f)
+    d = d[(d["tipo_conta"] == "CAR") & (d["carteira"] == INAD_CARTEIRA)]
+    venc = d["status_vencimento"].astype(str).str.strip().isin(STATUS_VENCIDO) & (d["dias_atraso"] > 7)
+    cat = d["categoria"].astype(str)
+    k = {"total": float(d["vl_em_aberto"].sum()),
+         "venc": float(d.loc[venc, "vl_em_aberto"].sum()),
+         "aj": float(d.loc[venc & (cat == "ACAO JUDICIAL"), "vl_em_aberto"].sum()),
+         "ne": float(d.loc[venc & (cat == "NAO ENTREGUES"), "vl_em_aberto"].sum()),
+         "clientes": int(d["nome_pessoa"].nunique()),
+         "clientes_venc": int(d.loc[venc, "nome_pessoa"].nunique())}
+    k["inad"] = k["venc"] - k["aj"] - k["ne"]
+    k["avencer"] = k["total"] - k["venc"]
+    anos = []
+    for ano_e, g in d.groupby("ano_emissao"):
+        if pd.isna(ano_e) or not g["vl_em_aberto"].sum():
+            continue
+        v = venc.loc[g.index]
+        c = cat.loc[g.index]
+        tot = float(g["vl_em_aberto"].sum())
+        vv = float(g.loc[v, "vl_em_aberto"].sum())
+        aj = float(g.loc[v & (c == "ACAO JUDICIAL"), "vl_em_aberto"].sum())
+        ne = float(g.loc[v & (c == "NAO ENTREGUES"), "vl_em_aberto"].sum())
+        anos.append({"ano": int(ano_e), "venc": vv / tot, "inad": (vv - aj - ne) / tot,
+                     "aj": aj / tot, "ne": ne / tot})
+    k["anos"] = anos
+    return k
+
+
 def slide_inadimplencia(m, ano):
+    """S31 — o painel de cobrança na posição do FIM do mês do deck, comparado com
+    o fim do mês anterior. O relatório colava o print do dashboard; aqui o painel
+    é desenhado com os mesmos números, tirados da foto que o próprio
+    ControleInadimplencia.py arquiva a cada fechamento (historico/). Sem foto do
+    mês, cai na posição arquivada pelo build (_cache) e, por último, na viva."""
+    fim_mes = date(ano + m // 12, m % 12 + 1, 1) - timedelta(days=1)
+    f = _inad_foto(fim_mes)
+    if f is not None:
+        _registra("inadimplência (foto do mês)", f)
+        k = _inad_kpis(f)
+        ini = date(fim_mes.year, fim_mes.month, 1) - timedelta(days=1)
+        fa = _inad_foto(ini)
+        ka = _inad_kpis(fa) if fa is not None else None
+        return {"t": "inadimplencia", "n": 31, "titulo": "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS",
+                "sub": f"Posição {MESES[m-1].upper()}/{ano}  ·  Fonte: Dashboard de Gestão de Cobrança",
+                "k": {x: k[x] for x in ("total", "venc", "aj", "ne", "inad", "avencer",
+                                         "clientes", "clientes_venc")},
+                "ant": ({x: ka[x] for x in ("total", "venc", "aj", "ne", "inad", "avencer")}
+                        if ka else None),
+                "ref_ant": ini.strftime("%d/%m/%Y") if ka else None,
+                "anos": k["anos"]}
     congelada = _inad_congelada(m, ano)
     if congelada:
         print(f"  [inad] {ano}-{m:02d} lida da foto arquivada ({congelada.get('sub','')[:38]}…)")
@@ -1636,8 +1701,8 @@ def slide_inadimplencia(m, ano):
     pasta = _inad_dir()
     if pasta is None:
         return pend(31, "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS", f"Posição {ABR[m-1]}/{str(ano)[2:]}",
-                    "controle-de-inadimplencia → output_pbi/indicadores_kpi.xlsx",
-                    "saída não encontrada; rode o ControleInadimplencia.py")
+                    "controle-de-inadimplencia → output_pbi/historico",
+                    "sem foto do fim do mês; rode o ControleInadimplencia.py com a base do fechamento")
     kpi_f, faixa_f = pasta / "indicadores_kpi.xlsx", pasta / "resumo_por_faixa.xlsx"
     k = pd.read_excel(_registra("inadimplência (KPI)", kpi_f)).iloc[0]
     fx = pd.read_excel(_registra("inadimplência (faixas)", faixa_f))
@@ -1657,17 +1722,7 @@ def slide_inadimplencia(m, ano):
                      {"v": brl_curto(k["acao_judicial_total"]), "l": "Ação Judicial", "s": "total em cobrança"},
                      {"v": f"{int(k['qtd_clientes_vencidos'])}", "l": "Clientes Vencidos",
                       "s": f"ticket médio {brl_curto(k['ticket_medio'])}"}],
-            "tabela": {"cols": ["FAIXA DE ATRASO", "TÍTULOS", "VALOR", "% DO VENCIDO"], "rows": rows},
-            "obs": None if pd.to_datetime(k["data_referencia"]).month == m
-                   else f"a base de cobrança está posicionada em {ref}"}
-    # Foto do próprio mês vira arquivo: a planilha é sobrescrita na rodada seguinte
-    # e sem isto a posição se perde para sempre (ver _inad_congelada).
-    dref = pd.to_datetime(k["data_referencia"])
-    if dref.month == m and dref.year == ano:
-        INAD_CONGELADO.mkdir(parents=True, exist_ok=True)
-        (INAD_CONGELADO / f"{ano}-{m:02d}.json").write_text(
-            json.dumps(slide, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"  [inad] posição de {ref} arquivada para {ano}-{m:02d}")
+            "tabela": {"cols": ["FAIXA DE ATRASO", "TÍTULOS", "VALOR", "% DO VENCIDO"], "rows": rows}}
     return slide
 
 
@@ -1706,7 +1761,6 @@ def _evento_vendas(tipo, nome) -> str:
     if "DIRETA" in _norm(tipo or "") or not _s(nome):
         return "Venda Direta"
     n = " ".join(_norm(nome).split())
-    n = re.sub(r"NEGOCIO", "NEGOCIOS", n)
     return titulo_pt(n)
 
 
@@ -1774,7 +1828,29 @@ S33 = ("PAUSAD", "APOS CONF", "APÓS CONF")
 S34 = ("DIREITO", "TROCA")
 
 
-def slides_embrioes():
+def _data_contrato(v):
+    """Data como vem na planilha (datetime, 'dd/mm/aaaa' ou só o ano) -> (date|None, texto)."""
+    if hasattr(v, "strftime"):
+        return (v.date() if hasattr(v, "date") else v), v.strftime("%d/%m/%y")
+    t = _s(v)
+    mm = re.match(r"^(\d{2})/(\d{2})/(\d{4})$", t or "")
+    if mm:
+        d = date(int(mm.group(3)), int(mm.group(2)), int(mm.group(1)))
+        return d, d.strftime("%d/%m/%y")
+    return None, (t or "—")
+
+
+def _cota_txt(c):
+    if not c:
+        return "—"
+    return f"{c:g}"
+
+
+def slides_embrioes(m, ano):
+    """S32–S35 — contratos de embrião, na ordem da planilha (que já vem por
+    doadora) e com a altura de linha padrão que o haras pediu em junho. Contrato
+    vendido DEPOIS do mês do deck não entra: o deck de agosto não mostra venda
+    de setembro."""
     try:
         wb = _load(_registra("embriões a entregar", EMB_COMERCIAIS))
     except Exception as e:
@@ -1782,43 +1858,54 @@ def slides_embrioes():
                     f"não consegui abrir: {e}")
         return [base, dict(base, n=33), dict(base, n=34),
                 dict(base, n=35, titulo="ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER")]
+    fim_mes = date(ano + m // 12, m % 12 + 1, 1) - timedelta(days=1)
 
-    def linhas(aba, col_contraparte):
+    def linhas(aba):
         out = []
         for i, r in enumerate(wb[aba].iter_rows(values_only=True), 1):
             if i < 4 or len(r) < 13 or r[1] is None:
                 continue
-            out.append({"doadora": _s(r[1]), "garanhao": _s(r[2]), "data": r[3],
-                        "contraparte": _s(r[col_contraparte]), "cota": _to_num(r[6]),
-                        "valor": _to_num(r[10]), "pgto": _s(r[11]) or "",
-                        "status": _s(r[12]) or ""})
+            d, dtxt = _data_contrato(r[3])
+            if d and d > fim_mes:
+                continue
+            out.append({"doadora": nome_animal(r[1], curto=False),
+                        "garanhao": titulo_pt(r[2]) if _s(r[2]) else "—",
+                        "data": dtxt, "contraparte": pessoa_curta(r[5]),
+                        "cota": _cota_txt(_to_num(r[6])), "valor": brl_k(_to_num(r[10])),
+                        "pgto": _s(r[11]) or "", "status": _s(r[12]) or ""})
         return out
 
-    ent = linhas("ENTREGAR", 5)
-    rec = linhas("RECEBER", 5)
+    ent = linhas("ENTREGAR")
+    rec = linhas("RECEBER")
     wb.close()
     af = lambda x: _norm(x["status"]).startswith("A FAZER")
     tem = lambda x, ks: any(k in _norm(x["pgto"]) for k in ks)
 
-    def tabela(n, titulo, sel, itens, rotulo_contra="COMPRADOR"):
-        lst = [x for x in itens if sel(x)]
-        tot = sum(x["valor"] or 0 for x in lst)
-        return {"t": "tabela", "n": n, "titulo": titulo,
-                "sub": f"{len(lst)} contrato(s) · {brl_curto(tot)}",
-                "cols": ["DOADORA", "GARANHÃO", "DATA", rotulo_contra, "CT", "VALOR", "PGTO"],
-                "moeda": [5], "data": [2],
-                "rows": [[x["doadora"], x["garanhao"], x["data"], x["contraparte"],
-                          f"{x['cota']*100:.0f}%" if x["cota"] else "—", x["valor"], x["pgto"]]
-                         for x in sorted(lst, key=lambda y: -(y["valor"] or 0))]}
+    def slide(n, titulo, sub, lst, rotulo_contra="COMPRADOR", col_doadora="DOADORA", pgto=None):
+        return {"t": "contratos", "n": n, "titulo": titulo,
+                "sub": f"{len(lst)} contratos  ·  {sub}",
+                "cols": [col_doadora, "GARANHÃO", "DATA", rotulo_contra, "CT", "VALOR", "PGTO"],
+                "rows": [[x["doadora"], x["garanhao"], x["data"], x["contraparte"], x["cota"],
+                          x["valor"], (pgto(x) if pgto else x["pgto"])] for x in lst]}
 
+    s33 = [x for x in ent if af(x) and tem(x, S33 + ("A PAGAR",))]
+    tem_a_pagar = any("A PAGAR" in _norm(x["pgto"]) for x in s33)
+    s34 = [x for x in ent if _norm(x["status"]).startswith("REPOSI") or (af(x) and tem(x, S34))]
     return [
-        tabela(32, "VENDAS — EMBRIÕES VENDIDOS A FAZER (QUITADO / PAGANDO)",
-               lambda x: af(x) and tem(x, S32), ent),
-        tabela(33, "VENDAS — EMBRIÕES VENDIDOS A FAZER (PGTO PAUSADO / APÓS CONF.)",
-               lambda x: af(x) and tem(x, S33), ent),
-        tabela(34, "VENDAS — EMBRIÕES DE DIREITO / REPOSIÇÃO",
-               lambda x: _norm(x["status"]).startswith("REPOSI") or (af(x) and tem(x, S34)), ent),
-        tabela(35, "ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER", af, rec, "VENDEDOR"),
+        slide(32, "VENDAS — EMBRIÕES VENDIDOS A FAZER (QUITADO / PAGANDO)",
+              "Status: A fazer  ·  Pgto: Quitado ou Pagando", [x for x in ent if af(x) and tem(x, S32)]),
+        slide(33, "VENDAS — EMBRIÕES VENDIDOS A FAZER (PGTO PAUSADO / APÓS CONF.)",
+              "Status: A fazer  ·  Pgto: Pausado" + (", Após confirmação ou A pagar" if tem_a_pagar
+                                                    else " ou Após confirmação"), s33),
+        # na reposição o que importa é o status do embrião ('Reposição'); no
+        # contrato de direito, o 'Direito' — é o que a coluna mostra no relatório
+        slide(34, "VENDAS — EMBRIÕES DE DIREITO / REPOSIÇÃO",
+              "Status: Reposição ou A fazer  ·  Pgto: Direito / Troca", s34,
+              pgto=lambda x: ("Reposição" if _norm(x["status"]).startswith("REPOSI")
+                              else ("Direito" if "DIREITO" in _norm(x["pgto"]) else x["pgto"]))),
+        slide(35, "ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER",
+              'Status "A Fazer" — ainda não produzidos  ·  Fonte: aba RECEBER', [x for x in rec if af(x)],
+              "VENDEDOR", "DOADORA (ORIGEM)"),
     ]
 
 
@@ -1832,6 +1919,7 @@ def slides_embrioes():
 # alguém editar pelo hub — sem isso o slide vira placeholder à toa se o
 # conteúdo já existe no JSON de uma migração antiga).
 CONTEUDO = REPO / "_docs" / "comite_conteudo.json"
+CAMPOS_CONTEUDO = ("comentarios", "exposicoes", "manejo", "fotos", "pendencias")
 FALTA_CONTEUDO = "escreva o conteúdo desse mês pelo hub (aba Comitê) ou em _docs/comite_conteudo.json"
 
 
@@ -1856,12 +1944,13 @@ def le_conteudo():
         return local
     try:
         r = requests.get(
-            f"{url}/rest/v1/comite_conteudo?select=mes,comentarios,exposicoes,manejo,fotos",
+            # select=* e não a lista de colunas: `pendencias` entrou depois
+            # (migration 20260924) e pedir coluna que o banco ainda não tem é 400
+            f"{url}/rest/v1/comite_conteudo?select=*",
             headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=15,
         )
         r.raise_for_status()
-        remoto = {row["mes"]: {k: row[k] for k in ("comentarios", "exposicoes", "manejo", "fotos")}
-                  for row in r.json()}
+        remoto = {row["mes"]: {k: row.get(k) for k in CAMPOS_CONTEUDO} for row in r.json()}
     except Exception as exc:
         print(f"  [conteudo] Supabase indisponível ({exc!r}) — usando só o JSON local")
         return local
@@ -1894,8 +1983,19 @@ def slide_comentarios(c, m, ano):
                     "_docs/comite_conteudo.json → comentarios", FALTA_CONTEUDO,
                     edita="comentarios")
     return {"t": "comentarios", "n": 8, "titulo": titulo,
-            "sub": "DRE 2026 | HPG · principais destaques do mês por categoria",
+            "sub": "DRE 2026 | HPG  ·  Principais destaques do mês por categoria",
             "itens": itens}
+
+
+def slide_pendencias(c, m, ano):
+    """S03 — o que ficou combinado na apresentação ANTERIOR, em forma de lista de
+    verificação. É o terceiro slide do relatório dela, logo depois da agenda."""
+    ant = MESES[(m - 2) % 12].upper()
+    titulo = f"PENDÊNCIAS DA APRESENTAÇÃO DE {ant}"
+    itens = [x for x in (c.get("pendencias") or []) if str(x).strip()]
+    if not itens:
+        return pend(3, titulo, "", "comite_conteudo → pendencias", FALTA_CONTEUDO, edita="pendencias")
+    return {"t": "pendencias", "n": 3, "titulo": titulo, "itens": itens}
 
 
 def slides_exposicoes(c, ano):
@@ -1928,7 +2028,8 @@ def slide_manejo(c, m, ano):
                     "_docs/comite_conteudo.json → manejo", FALTA_CONTEUDO,
                     edita="manejo")
     return {"t": "manejo", "n": 38, "titulo": "MANEJO — PONTOS DE MELHORIA E DECISÕES",
-            "sub": f"Histórico de intervenções Jan–{ABR[m-1]} {ano}", "itens": itens}
+            "sub": f"Histórico de intervenções Jan–{ABR[m-1]} {ano}", "itens": itens,
+            "atual": ABR[m - 1]}
 
 
 # Fotos do mês, como o haras as manda: pasta única por ano, arquivos do WhatsApp.
