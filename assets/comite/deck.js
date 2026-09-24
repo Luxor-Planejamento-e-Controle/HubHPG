@@ -17,7 +17,7 @@ const SPEC = window.COMITE_SPEC;
    arquivo que sai. */
 const C = {bg:'FFFFFF', bg2:'FAFAFA', card:'F4F6F8', line:'E0E0E0', ink:'1A1A1A',
            ink2:'444444', ink3:'666666', amber:'C09200', pos:'1E7A46', neg:'C0392B',
-           head:'0D2035', headInk:'FFFFFF'};
+           head:'0D2035', headInk:'FFFFFF', dark:'12233F'};
 const LOGO = 'assets/pg-logo.png';
 /* área útil do slide: 1280×720 menos cabeçalho (96) e rodapé (44) */
 const BODY_H = 720 - 96 - 44;
@@ -1123,24 +1123,43 @@ const somaAlturas = a => a.reduce((x, v) => x + v, 0);
 function pptSlide(p, s, i, logo, imgs){
   const sl = p.addSlide();
   sl.background = {color: C.bg};
-  // faixa dourada do topo — a marca do relatório da Ana, em todo slide
-  sl.addShape(p.ShapeType.rect, {x:0, y:0, w:10, h:0.055, fill:{color:C.amber}, line:{width:0}});
-  const T = (t, o) => sl.addText(t, Object.assign({fontFace:'Segoe UI', color:C.ink}, o));
+  /* Capa, agenda, divisor e encerramento vão em NAVY; o miolo em branco. E a
+     faixa dourada muda de lugar: horizontal e grossa nos slides de abertura,
+     vertical na borda esquerda do divisor, fininha nos de tabela. É o desenho
+     do relatório dela. */
+  const escuro = ['capa', 'encerramento', 'divisor', 'agenda'].includes(s.t);
+  if (escuro) sl.background = {color: C.dark};
+  if (s.t === 'divisor') {
+    sl.addShape(p.ShapeType.rect, {x:0, y:0, w:0.33, h:5.625, fill:{color:C.amber}, line:{width:0}});
+  } else {
+    sl.addShape(p.ShapeType.rect, {x:0, y:0, w:10,
+      h: escuro ? 0.44 : 0.055, fill:{color:C.amber}, line:{width:0}});
+  }
+  // nos slides escuros o texto padrão é branco
+  const Ink = escuro ? 'FFFFFF' : C.ink;
+  let T = (t, o) => sl.addText(t, Object.assign({fontFace:'Segoe UI', color:C.ink}, o));
 
   if (s.t === 'capa' || s.t === 'encerramento'){
-    if (logo) sl.addImage({data:logo, x:6.1, y:1.1, w:2.6, h:2.6});
-    T(s.titulo, {x:0.6, y:s.t === 'capa' ? 1.9 : 2.4, w:5.4, h:1.1, fontSize:s.t === 'capa' ? 28 : 26,
-                 bold:true, color:s.t === 'capa' ? C.ink : C.amber});
-    if (s.mes) T(s.mes, {x:0.6, y:3.0, w:5.4, h:0.4, fontSize:15, color:C.amber});
-    if (s.org) T(s.org, {x:0.6, y:3.8, w:5.4, h:0.4, fontSize:10, color:C.ink3, charSpacing:3});
+    // capa dela: tudo centrado — logo grande em cima, título dourado espaçado,
+    // mês em branco e grande, assinatura miúda embaixo
+    if (logo) sl.addImage({data:logo, x:4.15, y:0.78, w:1.7, h:1.7});
+    T(s.titulo, {x:0.6, y:2.72, w:8.8, h:0.4, fontSize:s.t === 'capa' ? 11 : 20,
+                 bold:true, align:'center', charSpacing:4, color:C.amber});
+    if (s.mes) T(s.mes, {x:0.6, y:3.22, w:8.8, h:0.7, fontSize:30, bold:true,
+                         align:'center', color:'FFFFFF'});
+    if (s.org) T(s.org, {x:0.6, y:4.08, w:8.8, h:0.3, fontSize:8, align:'center',
+                         charSpacing:2, color:C.amber});
     return;
   }
   if (s.t === 'divisor'){
-    T('0' + s.n, {x:6.6, y:0.4, w:2.9, h:1.4, fontSize:72, bold:true, color:C.line, align:'right'});
-    T(s.titulo, {x:0.6, y:2.1, w:6, h:0.8, fontSize:26, bold:true});
-    T(s.sub, {x:0.6, y:2.95, w:8.8, h:0.4, fontSize:12, color:C.ink3});
+    if (logo) sl.addImage({data:logo, x:0.72, y:0.52, w:0.62, h:0.62});
+    T('0' + s.n, {x:6.6, y:0.42, w:2.9, h:1.4, fontSize:72, bold:true,
+                  color:'6E5B14', align:'right'});
+    T(s.titulo, {x:0.72, y:2.35, w:6, h:0.8, fontSize:26, bold:true, color:'FFFFFF'});
+    T(s.sub, {x:0.72, y:3.12, w:8.8, h:0.4, fontSize:11, color:C.amber});
     return;
   }
+  if (escuro) T = (t, o) => sl.addText(t, Object.assign({fontFace:'Segoe UI', color:Ink}, o));
 
   /* título comprido quebrava em duas linhas, cobria o subtítulo e a tabela — que
      começa em y fixo — não recuava. Reduz a fonte quando é longo, em vez de deixar
