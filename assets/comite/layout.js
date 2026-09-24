@@ -101,8 +101,9 @@
   };
   const deltaP = v => {
     if (v == null) return 'N/A';
+    // o relatório escreve -2409%, sem separador de milhar no percentual
     const r = Math.round(v * 100);
-    return r === 0 ? '0%' : (r > 0 ? '+' : '-') + nf(Math.abs(r), 0) + '%';
+    return r === 0 ? '0%' : (r > 0 ? '+' : '-') + Math.abs(r) + '%';
   };
   /* R$18.703k / R$7,5k / -R$1.091k — a matriz da movimentação */
   function reaisK(v) {
@@ -394,7 +395,6 @@
     P.push(T(53.8, 128, 249.6, 26.9, 'ESTAÇÃO', {pt: 8, b: 1, c: 'FFFFFF', va: 'm'}));
     const cx = j => 304.6 + j * 75.52;
     s.meses.forEach((m, j) => P.push(T(cx(j), 128, 75.5, 26.9, m, {pt: 7.5, b: 1, c: 'FFFFFF', al: 'c', va: 'm'})));
-    P.push(T(1210.9, 128, 69, 26.9, 'Total', {pt: 7.5, b: 1, c: 'FFFFFF', al: 'c', va: 'm'}));
     const max = Math.max(1, ...s.safras.flatMap(b => b.meses.map(v => v || 0)));
     const escala = 33 / max;
     const velhas = s.safras.filter(b => !b.atual).length;
@@ -491,6 +491,15 @@
   /* ---------------- resultados de exposição ---------------- */
   L.resultados = s => {
     const P = claro(s, []);
+    /* o mesmo animal pode vir em várias entradas (um prêmio por linha, como o
+       haras escreve no editor); o relatório junta tudo num cartão só */
+    const junta = [];
+    (s.animais || []).forEach(a => {
+      const nome = String(a.nome || '').trim(), ja = junta.find(x => x.nome.toUpperCase() === nome.toUpperCase());
+      if (ja) ja.premios = ja.premios.concat(a.premios || []);
+      else junta.push({nome, premios: (a.premios || []).slice()});
+    });
+    s = Object.assign({}, s, {animais: junta});
     const cartao = a => 31.7 + a.premios.length * 39.7 + 5.9;
     const total = s.animais.reduce((x, a) => x + cartao(a), 0);
     const cols = [[], []];

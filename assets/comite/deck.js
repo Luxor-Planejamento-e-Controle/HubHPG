@@ -41,7 +41,7 @@ const NOMES_EDITOR = {
   manejo: 'os pontos de manejo e decisões',
   exposicoes: 'as exposições',
   fotos: 'as fotos',
-  pendencias: 'as pendências da apresentação anterior',
+  pendencias: 'pendências registradas',
 };
 
 function vazioEditavel(s){
@@ -50,7 +50,7 @@ function vazioEditavel(s){
     <div class="glyph">✎</div>
     <span class="tag">a escrever</span>
     <h2>${esc(s.titulo)}</h2>
-    <p>Ainda não há ${esc(oque)} deste mês.</p>
+    <p>Ainda não há ${esc(oque)} para este mês.</p>
     ${souEditor
       ? `<button type="button" class="vazio-btn" data-abrir-editor="1">Escrever agora</button>`
       : `<p class="vazio-nota">Quem edita o comitê pode preencher direto por aqui.</p>`}
