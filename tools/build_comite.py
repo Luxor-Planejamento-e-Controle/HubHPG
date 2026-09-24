@@ -424,6 +424,9 @@ SINONIMOS_DRE = {
     "RECEITASCOMLOCACAO": "LOCAÇÃO DA CASA",
     "RECEITASFINANCEIRAS": "RECEITAS ADM/FINANCEIRAS",
     "RECEITALIQUIDALOCACAO": "RECEITA LIQUIDA - LOCAÇÃO",
+    # a comissão da locação (jun/26: -5.666) — sem isso a linha saía zerada no
+    # acumulado da Casa enquanto a Receita Líquida já vinha descontada
+    "DEDUCOES": "DEDUÇÕES E IMPOSTOS",
     "DESPESAS": "DESPESAS - GERAIS",
     # No modelo CAIXA a face chama de "Resultado" o que a base chama de "Fluxo
     # de Caixa" — mesma linha, nome diferente. Como alternativa (o Competência
