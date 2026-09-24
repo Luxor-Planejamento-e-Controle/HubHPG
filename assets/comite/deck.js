@@ -1242,14 +1242,27 @@ function pptSlide(p, s, i, logo, imgs){
     return;
   }
   if (s.t === 'dre'){
+    /* Mesma hierarquia do relatório dela, que o HTML já usa: subtotal em navy
+       sobre faixa azul-clara (não em dourado, que deixava quase toda linha em
+       destaque), detalhe recuado em cinza, e a ÚLTIMA linha do bloco invertida
+       — fundo navy, texto branco. */
     const rows = [[th('NATUREZA'), th('ORÇADO'), th('REALIZADO'), th('∆ R$ k'), th('∆ %')]];
-    s.linhas.forEach(l => rows.push([
-      {text:(l.total ? '' : '   ') + l.nome, options:{align:'left', bold:l.total, color:l.total ? C.amber : C.ink2}},
-      {text:rs(l.v[0]), options:{align:'right', bold:l.total}},
-      {text:rs(l.v[1]), options:{align:'right', bold:l.total}},
-      {text:dk(l.v[2]), options:{align:'right', color:l.v[2] == null ? C.ink : l.v[2] >= 0 ? C.pos : C.neg}},
-      {text:dpct(l.v[3]), options:{align:'right', color:l.v[3] == null ? C.ink3 : l.v[3] >= 0 ? C.pos : C.neg}},
-    ]));
+    const ult = s.linhas.length - 1;
+    s.linhas.forEach((l, li) => {
+      const fim = l.total && li === ult;            // "Resultado após Investimentos"
+      const fundo = fim ? C.head : (l.total ? 'EAF0F6' : 'FFFFFF');
+      const cor = fim ? 'FFFFFF' : (l.total ? C.head : C.ink3);
+      const recuo = l.nivel === 2 ? '      ' : l.total ? '' : '   ';
+      const cel = (t, extra) => ({text:t, options:Object.assign(
+        {align:'right', bold:!!l.total, color:cor, fill:{color:fundo}}, extra)});
+      const dcor = v => fim ? 'FFFFFF' : (v == null ? C.ink3 : v >= 0 ? C.pos : C.neg);
+      rows.push([
+        cel(recuo + l.nome, {align:'left'}),
+        cel(rs(l.v[0])), cel(rs(l.v[1])),
+        cel(dk(l.v[2]), {color:dcor(l.v[2])}),
+        cel(dpct(l.v[3]), {color:dcor(l.v[3])}),
+      ]);
+    });
     tbl(rows, {colW:[3.7, 1.7, 1.7, 1.1, 1.0]});
     return;
   }

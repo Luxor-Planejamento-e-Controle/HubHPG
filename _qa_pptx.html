@@ -49,13 +49,10 @@
 <script src="assets/comite/deck.js?v=202609241345"></script>
 <pre id="b64out" style="display:none"></pre>
 <script>
-/* QA: gera o mesmo PPTX do botao, mas devolve em base64 pra inspecao */
 setTimeout(async ()=>{
-  const orig = PptxGenJS.prototype.writeFile;
   PptxGenJS.prototype.writeFile = async function(){
     const b64 = await this.write('base64');
     document.getElementById('b64out').textContent = 'B64START' + b64 + 'B64END';
-    document.title = 'PRONTO';
     return '';
   };
   await exportarPptx(document.getElementById('pptx'));
