@@ -844,26 +844,46 @@ ACENTOS_OBRA = {
     "SEBASTIAO": "SEBASTIÃO", "EFRIGERADOR": "REFRIGERADOR", "DOMEST": "DOMÉSTICO", "INSTALACAO": "INSTALAÇÃO",
     "INSTALACOES": "INSTALAÇÕES", "GALPAO": "GALPÃO", "ELETRICA": "ELÉTRICA", "HIDRAULICA": "HIDRÁULICA",
 }
-# nome de lugar/pessoa que a descrição cita e que fica com maiúscula
-PROPRIOS_OBRA = {"FURNAS", "LUISINHO", "LUIZINHO", "DIOGO", "ALEXANDRE", "MANOEL", "LÚDIA", "VASSOURAS",
-                 "PG", "FPG", "RJ", "BR", "CL-C", "V"}
+# lugar/pessoa que a descrição cita (fica com inicial maiúscula) e sigla
+PROPRIOS_OBRA = {"FURNAS", "LUISINHO", "LUIZINHO", "DIOGO", "ALEXANDRE", "MANOEL", "LÚDIA", "VASSOURAS"}
+SIGLAS_OBRA = {"PG", "FPG", "RJ"}
 
 
 def desc_obra(desc: str) -> str:
     """Descrição de obra/compra de equipamento em frase: 'REFERENTE A COMPRA DE
     CAL, PARA AS BAIAS - AGOSTO/2026: ...' -> 'Compra de cal, para as baias'.
-    Tira o 'referente a', o mês colado no fim e o 'solicitado pelo...'."""
+    Tira o 'referente a', o mês colado no fim, o 'solicitado pelo Fulano' e a
+    ficha técnica do produto (2DOORS 332L 127V); o resto é o texto dela."""
     d = " ".join(str(desc or "").split())
-    d = re.sub(r"(?i)^REFERENTE\s+(?:A|AO|À|AOS|AS|ÀS)?\s*", "", d)
+    d = re.sub(r"(?i)^REFERENTE\s+(?:(?:AOS|AO|ÀS|AS|À|A)\s+)?", "", d)
     d = re.sub(r"(?i)\s*[-–]?\s*\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[A-ZÇ]*[/ ]?20\d\d\b.*$", "", d)
-    d = re.sub(r"(?i)[\s,.-]*\b(SOLICITAD[OA]S?|OBS:|\(OBS|FICA AJUSTADO)\b.*$", "", d)
-    d = re.sub(r"\s*-?\s*\d{2}/\d{2}/\d{4}\s*$", "", d).strip(" -–,.;:")
+    d = re.sub(r"(?i)[\s,.-]*(\bOBS:|\(OBS|\bFICA AJUSTADO\b).*$", "", d)
+    d = re.sub(r"(?i),?\s*\bSOLICITAD[OA]S?\s+PEL[OA]S?\s+[A-ZÀ-Ú]+(\s+E\s+[A-ZÀ-Ú]+)?\s*,?", " ", d)
+    # período e conta do serviço ('do dia 30/3/26 a 9/4/2026; R$23,0 por achas')
+    d = re.sub(r"(?i),?\s*\b(DO DIA|ATE O DIA|ATÉ O DIA)\b.*$|;\s*R\$.*$", "", d)
+    d = re.sub(r"\s*-?\s*\d{2}/\d{2}/\d{4}\s*$", "", d)
+    # a observação que vem depois do ponto não cabe na linha
+    if len(d) > 95:
+        d = re.split(r"(?<=[A-ZÀ-Úa-zà-ú]{4})\s*\.\s+", d)[0]
+    partes = [p.strip(" ,.;:") for p in re.split(r"\s+-\s+|\s+-$", d) if p.strip(" ,.;:-")]
+    if not partes:
+        return ""
+    # a ficha técnica colada na primeira parte ('EFRIGERADOR DOMEST 2DOORS 332L
+    # 127V BR CL-C') corta ali: do primeiro código letra+número em diante
+    ws = partes[0].split()
+    corte = next((i for i, w in enumerate(ws) if i > 1 and re.fullmatch(r"\d+[A-Z]+\d*|[A-Z]+\d+[A-Z]*", w.upper())), None)
+    partes[0] = " ".join(ws[:corte]) if corte else partes[0]
+    d = partes[0]
+    for p in partes[1:]:
+        if len(d) + len(p) > 90:
+            break
+        d += " — " + p
     ps = []
-    for i, p in enumerate(d.upper().split()):
+    for p in d.upper().split():
         p = ACENTOS_OBRA.get(p, ACENTOS.get(p, p))
-        ps.append(p if p in PROPRIOS_OBRA else p.lower())
-    t = " ".join(ps)
-    t = re.sub(r"\b0(\d)\b", r"\1", t)            # '02 refrigeradores' -> '2 ...'
+        nu = re.sub(r"[^A-ZÀ-Ú-]", "", p)
+        ps.append(p if nu in SIGLAS_OBRA else p.title() if nu in PROPRIOS_OBRA else p.lower())
+    t = re.sub(r"\b0(\d)\b", r"\1", " ".join(ps))      # '02 refrigeradores' -> '2 ...'
     return t[:1].upper() + t[1:]
 
 
