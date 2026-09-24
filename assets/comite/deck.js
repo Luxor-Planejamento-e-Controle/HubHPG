@@ -37,10 +37,10 @@ function slideHTML(s){
    genérica, nenhum dos dois acionável de dentro do deck. Aqui o slide diz o que
    falta e abre o editor no clique; quem não é editor vê só o aviso. */
 const NOMES_EDITOR = {
-  comentarios: 'os comentários',
-  manejo: 'os pontos de manejo e decisões',
-  exposicoes: 'as exposições',
-  fotos: 'as fotos',
+  comentarios: 'comentários',
+  manejo: 'pontos de manejo e decisões',
+  exposicoes: 'exposições',
+  fotos: 'fotos',
   pendencias: 'pendências registradas',
 };
 
