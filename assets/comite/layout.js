@@ -93,16 +93,19 @@
 
   /* ---------------- formatação (a do relatório) ---------------- */
   const nf = (v, d) => Number(v).toLocaleString('pt-BR', {minimumFractionDigits: d, maximumFractionDigits: d});
-  const reais = v => v == null ? '—' : (v < 0 ? '-' : '') + 'R$ ' + nf(Math.abs(Math.round(v)), 0);
+  /* arredonda como a planilha: meio pra longe do zero. Math.round leva o meio
+     pra cima, e aí -43.937,5 saía -43.937 contra os -43.938 da face */
+  const arred = v => Math.sign(v) * Math.round(Math.abs(v));
+  const reais = v => v == null ? '—' : (v < 0 ? '-' : '') + 'R$ ' + nf(Math.abs(arred(v)), 0);
   const deltaK = v => {
     if (v == null) return '—';
-    const r = Math.round(v);
+    const r = arred(v);
     return r === 0 ? '0k' : (r > 0 ? '+' : '-') + nf(Math.abs(r), 0) + 'k';
   };
   const deltaP = v => {
     if (v == null) return 'N/A';
     // o relatório escreve -2409%, sem separador de milhar no percentual
-    const r = Math.round(v * 100);
+    const r = arred(v * 100);
     return r === 0 ? '0%' : (r > 0 ? '+' : '-') + Math.abs(r) + '%';
   };
   /* R$18.703k / R$7,5k / -R$1.091k — a matriz da movimentação */
@@ -114,7 +117,7 @@
     return (v < 0 ? '-' : '') + 'R$' + s + 'k';
   }
   const milhoes = v => 'R$ ' + nf(v / 1e6, 1) + 'M';
-  const corDelta = (v, neutra) => v == null ? neutra : (Math.round(v) === 0 ? COR.cinza : (v > 0 ? COR.verde : COR.neg));
+  const corDelta = (v, neutra) => v == null ? neutra : (arred(v) === 0 ? COR.cinza : (v > 0 ? COR.verde : COR.neg));
 
   /* ---------------- moldura ---------------- */
   function claro(s, P) {

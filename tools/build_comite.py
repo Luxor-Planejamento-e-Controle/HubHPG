@@ -560,10 +560,21 @@ def dre_ytd(cc, modelo, ano, m, **kw):
 # e resultado (faixa azul em negrito), fechando com a linha invertida em navy.
 # Cada linha aponta para o rótulo da aba "Real x Orçado", que é de onde o VALOR
 # sai (via _na_ordem_oficial, conferido 158/158 com a face em agosto/2026).
-#   (rótulo no slide, rótulo na face oficial, estilo)
+#   (rótulo no slide, rótulo na face oficial, estilo[, "mov"])
+# "mov" = a linha só entra se teve movimento (orçado ou realizado) no recorte.
+# O relatório de agosto/2026 passou a abrir a Venda de Produtos — Embriões e
+# Animais, que eram os que tinham valor; Coberturas e Óvulos zerados ficaram de
+# fora. A regra reproduz isso em qualquer mês, e no YTD abre as quatro.
+PRODUTOS = [
+    ("Embriões", "Embriões", "det", "mov"),
+    ("Coberturas", "Coberturas", "det", "mov"),
+    ("Óvulos", "ÓVulos", "det", "mov"),
+    ("Animais", "Animais", "det", "mov"),
+]
 GAB_RESUMO = [
     ("Receita Bruta", "Receita Bruta", "grupo"),
     ("Venda de Produtos", "Venda de Produtos", "det"),
+    *PRODUTOS,
     ("Receitas Financeiras", "Receitas Financeiras", "det"),
     ("Deduções e Cancelamentos", "Deduções e Cancelamentos", "grupo"),
     ("Cancelamentos", "Cancelamentos", "det"),
@@ -582,17 +593,26 @@ GAB_RESUMO = [
     ("Investimentos", "Investimentos", "grupo"),
     ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
 ]
+# O caixa de agosto/2026 do relatório abre a receita (produtos) e os
+# investimentos por bloco — é onde o haras confere Animais e Produtos.
 GAB_CAIXA = [
     ("Receita Bruta", "Receita Bruta", "grupo"),
+    ("Venda de Produtos", "Venda de Produtos", "det"),
+    *PRODUTOS,
+    ("Deduções e Cancelamentos", "Deduções e Cancelamentos", "grupo"),
     ("Receita Líquida", "Receita operacional - Líquida", "banda"),
     ("Custos e Despesas", "Custos E Despesas", "banda"),
     ("Resultado Operacional", "Resultado Operacional", "banda"),
     ("Investimentos", "Investimentos", "grupo"),
+    ("Máquinas e Equipamentos", "Máquinas e Equipamentos", "det", "mov"),
+    ("Infraestrutura", "Infraestrutura", "det", "mov"),
+    ("Animais e Produtos", "Animais E Produtos", "det", "mov"),
     ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
 ]
 GAB_CASA = [
     ("CASA", None, "rotulo"),
     ("Receita Bruta", "Receita Bruta", "grupo"),
+    ("Receitas com Locação", "Receitas com Locação", "det", "mov"),
     ("Deduções", "Deduções", "det"),
     ("Receitas Financeiras", "Receitas Financeiras", "det"),
     ("Receita Líquida — Locação", "Receita Liquida - Locação", "banda"),
@@ -617,12 +637,14 @@ def linhas_face(face: list[dict], gab: list, extras=None, depois_de=None) -> lis
     """Recorta a face oficial (saída de _na_ordem_oficial) no gabarito do slide."""
     por = {_chave_dre(l["nome"]): l for l in face}
     out = []
-    for rot, rot_face, estilo in gab:
+    for rot, rot_face, estilo, *op in gab:
         if rot_face is None:
             out.append({"nome": rot, "estilo": estilo, "v": [None, None, None, None]})
             continue
         l = por.get(_chave_dre(rot_face))
         v = list(l["v"]) if l else [0.0, 0.0, 0.0, None]
+        if "mov" in op and abs(v[0] or 0) < 0.5 and abs(v[1] or 0) < 0.5:
+            continue
         out.append({"nome": rot, "estilo": estilo, "v": v})
         if extras and rot == depois_de:
             for rot_x, face_x in extras:
@@ -2301,9 +2323,10 @@ def so_mensal(slides):
 
 def oculto(slide):
     """Slide que existe no arquivo mas não entra na apresentação — o 'ocultar
-    slide' do PowerPoint. O relatório dela esconde o acumulado do Haras, o da
-    Casa e os comentários; o deck mantém os três (quem quiser, navega até eles)
-    e o PPTX sai com eles marcados como ocultos."""
+    slide' do PowerPoint. O deck mantém no arquivo o que o relatório não
+    apresenta (quem quiser, navega até eles) e o PPTX sai com eles marcados como
+    ocultos. O acumulado do Haras e o da Casa eram ocultos até julho/2026; o
+    relatório de agosto passou a apresentá-los."""
     slide["oculto"] = True
     return slide
 
@@ -2354,15 +2377,17 @@ def monta_deck(m, ano, ctx):
                            linhas_analise(ano, m, pag), "analise"))
     face_ytd = _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
                                  gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
-    s.append(oculto(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
-                        f"DRE 2026 | HPG  ·  Competência  ·  Janeiro a {MESES[m-1]}  ·  Fonte: Base YTD",
-                        linhas_face(face_ytd, GAB_RESUMO), "resumo")))
+    # o relatório de agosto/2026 passou a APRESENTAR o acumulado (em julho ele
+    # ficava oculto); os números são os das colunas YTD da própria face
+    s.append(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
+                 f"DRE {ano} | HPG  ·  Acumulado Jan–{ABR[m-1]}  ·  Fonte: aba Real x Orçado (Comp)",
+                 linhas_face(face_ytd, GAB_RESUMO), "resumo"))
     com = slide_comentarios(cont, m, ano)
     s.append(oculto(com) if com["t"] == "pendente" else com)
     s.append(slide_investimentos(m, ano))
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
-                       "FC 2026 | HPG  ·  Caixa Mensal  ·  Dados confirmados",
+                       f"DRE {ano} | HPG  ·  Caixa Mensal  ·  Fonte: aba Real x Orçado (Caixa)",
                        linhas_face(face_cx, GAB_CAIXA), "caixa"))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
@@ -2371,9 +2396,9 @@ def monta_deck(m, ano, ctx):
                        f"FC {ano} | FPG  ·  Caixa  ·  {MESES[m-1]} {ano}  ·  Fonte: aba Real x Orçado",
                        linhas_face(face_casa, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
     face_casa_ytd = _na_ordem_oficial(dre_ytd("FPG", "Caixa", ano, m), gabarito(DRE_CASA, "Real x Orçado"))
-    s.append(oculto(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
-                        f"FC {ano} | FPG  ·  Caixa  ·  Janeiro a {MESES[m-1]}  ·  Fonte: Base YTD",
-                        linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa")))
+    s.append(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
+                 f"FC {ano} | FPG  ·  Acumulado Jan–{ABR[m-1]}  ·  Fonte: aba Real x Orçado",
+                 linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", f"Embriões  ·  Doadoras  ·  Garanhões  |  {safra}"))
     s += est_slides
