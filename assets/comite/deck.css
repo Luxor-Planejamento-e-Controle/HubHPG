@@ -187,9 +187,15 @@ table.t td{padding:0 10px;border-bottom:1px solid var(--line);color:var(--ink);t
 /* hierarquia do DRE em três níveis — sem isso toda linha saía dourada e
    negrito, e a lista virava um paredão sem leitura */
 table.t td.nome{color:var(--ink-2)}
-table.t tr.tot td{font-weight:700;color:var(--ink)}
-table.t tr.tot td.n0{color:var(--amber);letter-spacing:.02em}
-table.t tr.tot td{border-top:1px solid var(--line-2)}
+/* Subtotal no relatório dela é faixa azul-clara com texto navy em negrito —
+   não dourado. O dourado ali deixava quase toda linha em destaque, sem
+   hierarquia. A última linha do bloco (Resultado após Invest.) é invertida:
+   fundo navy, texto branco. */
+table.t tr.tot td{font-weight:700;color:#0D2035;background:#EAF0F6;
+  border-top:1px solid var(--line-2)}
+table.t tr.tot td.n0{color:#0D2035;letter-spacing:.02em}
+table.t tbody tr.tot:last-child td{background:#0D2035;color:#FFFFFF}
+table.t tbody tr.tot:last-child td.n0{color:#FFFFFF}
 table.t tr.sub td{font-weight:600;color:var(--ink)}
 table.t tr.sub td.n1{color:var(--ink);padding-left:26px}
 table.t td.n2{padding-left:44px;color:var(--ink-3)}

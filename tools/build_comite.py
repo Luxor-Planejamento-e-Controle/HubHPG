@@ -1591,7 +1591,10 @@ def divisor(n, titulo, sub):
 # PowerPoint renderiza a linha maior que isso — a 6pt, ~0,19in contra os 0,155in
 # calculados. 22 linhas × 0,19in = 4,18in, que é a altura útil abaixo do título.
 # Conferido gerando o PPTX e comparando o texto que sobrevive na exportação em PDF.
-MAX_LINHAS = 22
+# O resumo financeiro do relatório da Ana tem 48 linhas e cabe num slide só —
+# quebrar em (1/3) foge do formato dela. O deck reduz a fonte sozinho pra
+# tabela caber (ver ajusta() no deck.js), então o teto pode subir.
+MAX_LINHAS = 50
 # Tabela de texto livre (nome de vendedor, garanhão, comprador) quebra em duas
 # linhas nas colunas estreitas, e aí cada linha ocupa o dobro. Metade do corte
 # normal, porque na prática cada linha vale por duas.
