@@ -2156,6 +2156,23 @@ def _foto_do_bucket(path: str) -> str | None:
         return None
 
 
+def _item_foto(uri: str, video: str | None = None) -> dict:
+    """Item da grade com a proporção da imagem. O relatório mostra a foto INTEIRA
+    (sem recorte, cada uma na sua proporção, lado a lado ocupando a altura), e o
+    layout só consegue fazer isso sabendo largura e altura de cada uma."""
+    w = h = None
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1])))
+        w, h = im.size
+    except Exception:
+        pass
+    d = {"img": uri, "w": w, "h": h}
+    if video:
+        d["video"] = video
+    return d
+
+
 # path no formato "AAAA-MM/arquivo.jpg" = veio do Supabase (comite_conteudo,
 # tools/migrar_comite_conteudo.py ou upload pelo hub). Formato antigo local
 # ("fotos/arquivo.jpg", só em conteúdo ainda não migrado) lê do disco.
@@ -2182,11 +2199,11 @@ def _fotos_grupo_por_tema(grupos, m, ano):
                 # o conteúdo ao vivo ainda o resgata com a marca de play
                 poster = _foto_do_bucket(f + ".poster.jpg") if _RE_PATH_BUCKET.match(f) else None
                 if poster:
-                    embutidas.append({"img": poster, "video": f})
+                    embutidas.append(_item_foto(poster, f))
                 continue
             uri = _foto_do_bucket(f) if _RE_PATH_BUCKET.match(f) else _foto_embutida(OUT / f)
             if uri:
-                embutidas.append(uri)
+                embutidas.append(_item_foto(uri))
         if not embutidas:
             continue
         n = (len(embutidas) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
@@ -2260,7 +2277,7 @@ def slides_fotos(c, m, ano):
     for f in caminhos:
         uri = _foto_embutida(f)
         if uri:
-            embutidas.append(uri)
+            embutidas.append(_item_foto(uri))
             kb += len(uri) // 1024
     if not embutidas:
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
