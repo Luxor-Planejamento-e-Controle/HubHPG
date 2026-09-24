@@ -939,6 +939,14 @@ def _mapa_mov(ano: int, m: int):
     return max(cands, key=lambda f: f.stat().st_mtime) if cands else None
 
 
+def _rotulo(v) -> str:
+    """Rótulo de linha comparável: sem acento, caixa alta, espaço simples. O
+    `_norm` do pipeline só põe em caixa alta — 'TÍTULO' não casava com 'TITULO'
+    e o slide caía na cascata calculada, somando o Eduardo."""
+    t = unicodedata.normalize("NFKD", str(v or "")).encode("ascii", "ignore").decode().upper()
+    return " ".join(t.split())
+
+
 def resumo_contabil(ano: int, m: int) -> dict:
     """{'2026-01': {saldo_ini, compras, ...}} da aba Resumo Contabil."""
     f = _mapa_mov(ano, m)
@@ -949,10 +957,10 @@ def resumo_contabil(ano: int, m: int) -> dict:
     out, col_mes = {}, {}
     if aba:
         for r in wb[aba].iter_rows(values_only=True):
-            rot = _norm(r[1]) if len(r) > 1 and r[1] is not None else ""
+            rot = _rotulo(r[1]) if len(r) > 1 else ""
             if rot == "TITULO":
                 for j, c in enumerate(r):
-                    k = next((i + 1 for i, a in enumerate(ABR) if _norm(c or "")[:3] == _norm(a)), None)
+                    k = next((i + 1 for i, a in enumerate(ABR) if _rotulo(c)[:3] == _rotulo(a)), None)
                     if k and j > 1:
                         col_mes[j] = k
                 continue
