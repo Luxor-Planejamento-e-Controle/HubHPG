@@ -55,7 +55,14 @@ body{display:flex;flex-direction:column}
 .slide::before{content:"";position:absolute;left:0;right:0;top:0;height:6px;
   background:var(--amber);z-index:2}
 .slide:has(.capa)::before,.slide:has(.agenda)::before,
-.slide:has(.divisor)::before,.slide:has(.fim)::before{height:44px}
+.slide:has(.divisor)::before,.slide:has(.fim)::before{height:56px}
+/* a faixa grossa empurra o cabeçalho e o corpo pra baixo, senão ela come o
+   título do slide */
+.slide:has(.agenda) .s-head{top:72px}
+/* o logo do canto ficava por baixo da faixa grossa e saía cortado ao meio */
+.slide:has(.agenda) .s-mark{top:76px}
+.slide:has(.agenda) .s-body{top:150px}
+.slide:has(.divisor) .divisor,.slide:has(.capa) .capa,.slide:has(.fim) .fim{padding-top:56px}
 .bar{
   flex:0 0 auto;min-height:54px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;
   padding:8px 16px;background:var(--bg-2);border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);
@@ -153,7 +160,7 @@ body.play .slide{box-shadow:none;border:0}
 .agenda{display:grid;grid-template-columns:repeat(5,1fr);gap:0;height:100%;
   align-content:start;padding-top:22px;text-align:center}
 .agenda .it{padding:0 16px;position:relative}
-.agenda .it+.it::before{content:"";position:absolute;left:0;top:6px;bottom:34px;
+.agenda .it+.it::before{content:"";position:absolute;left:0;top:0;height:212px;
   width:2px;background:var(--line-2)}
 .agenda .it .n{width:74px;height:74px;margin:0 auto;border-radius:50%;
   background:var(--amber);color:#12233F;font-size:23px;font-weight:700;
