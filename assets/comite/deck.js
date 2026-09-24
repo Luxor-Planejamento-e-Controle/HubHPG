@@ -78,7 +78,8 @@ const R = {
 
   encerramento: s => `<div class="fim"><img src="${LOGO}" alt=""><h1>${esc(s.titulo)}</h1></div>`,
 
-  divisor: s => `<div class="divisor"><div class="n">0${s.n}</div>
+  divisor: s => `<div class="divisor"><img class="dv-logo" src="${LOGO}" alt="">
+    <div class="n">0${s.n}</div>
     <h1>${esc(s.titulo)}</h1><div class="sub">${esc(s.sub)}</div></div>`,
 
   agenda: s => head(s) + `<div class="s-body"><div class="agenda">` +

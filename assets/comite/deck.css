@@ -55,14 +55,16 @@ body{display:flex;flex-direction:column}
 .slide::before{content:"";position:absolute;left:0;right:0;top:0;height:6px;
   background:var(--amber);z-index:2}
 .slide:has(.capa)::before,.slide:has(.agenda)::before,
-.slide:has(.divisor)::before,.slide:has(.fim)::before{height:56px}
+.slide:has(.fim)::before{height:56px}
+/* no divisor a faixa vira uma barra vertical na borda esquerda */
+.slide:has(.divisor)::before{top:0;bottom:0;left:0;right:auto;width:42px;height:auto}
 /* a faixa grossa empurra o cabeçalho e o corpo pra baixo, senão ela come o
    título do slide */
 .slide:has(.agenda) .s-head{top:72px}
 /* o logo do canto ficava por baixo da faixa grossa e saía cortado ao meio */
 .slide:has(.agenda) .s-mark{top:76px}
 .slide:has(.agenda) .s-body{top:150px}
-.slide:has(.divisor) .divisor,.slide:has(.capa) .capa,.slide:has(.fim) .fim{padding-top:56px}
+.slide:has(.capa) .capa,.slide:has(.fim) .fim{padding-top:56px}
 .bar{
   flex:0 0 auto;min-height:54px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;
   padding:8px 16px;background:var(--bg-2);border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);
@@ -148,10 +150,16 @@ body.play .slide{box-shadow:none;border:0}
 .capa .mes{margin-top:22px;font-size:44px;font-weight:700;color:#FFFFFF;letter-spacing:.01em}
 .capa .org{margin-top:26px;font-size:11px;letter-spacing:.14em;color:var(--amber)}
 .fim h1{margin:0;font-size:36px;letter-spacing:.06em;color:var(--amber)}
-.divisor{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 78px}
-.divisor .n{position:absolute;right:78px;top:56px;font-size:110px;font-weight:700;color:var(--line);line-height:1}
-.divisor h1{margin:0;font-size:38px;font-weight:600}
-.divisor .sub{margin-top:16px;font-size:15px;color:var(--ink-3);letter-spacing:.04em}
+/* Divisor do relatório dela: faixa dourada VERTICAL na borda esquerda (não a
+   horizontal do topo), logo pequeno no alto, título no meio da altura e o
+   número da seção gigante à direita, em dourado apagado sobre o navy. */
+.divisor{position:absolute;inset:0;display:flex;flex-direction:column;
+  justify-content:center;padding:0 78px 0 104px}
+.divisor .dv-logo{position:absolute;left:104px;top:52px;height:62px}
+.divisor .n{position:absolute;right:84px;top:58px;font-size:128px;font-weight:700;
+  color:#6E5B14;line-height:1}
+.divisor h1{margin:0;font-size:38px;font-weight:700;color:#FFFFFF}
+.divisor .sub{margin-top:16px;font-size:14px;color:var(--amber);letter-spacing:.04em}
 
 /* agenda */
 /* Agenda dela: número dentro de um CÍRCULO dourado, separador vertical entre
