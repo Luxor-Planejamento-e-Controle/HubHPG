@@ -2125,6 +2125,7 @@ def itens_trello(texto: str, face_cx: list) -> list:
         t = f"{_nome_natureza(nome)} ({val})" if val else _nome_natureza(nome)
         if txt:
             txt = re.sub(r"\s+", " ", txt)
+            txt = re.sub(r"\s+([.,;:])", r"\1", txt)
             txt = re.sub(r"[;,]\s*$", ".", txt)
             t += f": {txt}"
         # a grafia da casa é sem til (relatório, planilhas, hub)
@@ -2148,9 +2149,10 @@ def itens_trello(texto: str, face_cx: list) -> list:
 
 def _paginas_comentarios(itens: list) -> list:
     """Reparte as categorias em slides pela altura que o texto vai ocupar
-    (estimativa do layout: ~130 caracteres por linha de 7,6 pt)."""
+    (estimativa do layout: ~160 caracteres por linha de 7,6 pt na largura do
+    texto; se a conta passar, o layout ainda desce o corpo)."""
     def altura(it):
-        linhas = sum(max(1, -(-len(x) // 130)) for x in it["txt"].split("\n"))
+        linhas = sum(max(1, -(-len(x) // 160)) for x in it["txt"].split("\n"))
         return max(63.9, linhas * 16.3 + 10) + 1.2
     pags, atual, usado = [], [], 0.0
     for it in itens:
