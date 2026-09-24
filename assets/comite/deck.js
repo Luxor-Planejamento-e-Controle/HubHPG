@@ -11,8 +11,13 @@
 'use strict';
 
 const SPEC = window.COMITE_SPEC;
-const C = {bg:'04223B', bg2:'072B49', card:'0A3050', line:'1B486B', ink:'EAF0F4',
-           ink2:'B6C8D6', ink3:'93AABC', amber:'CA9703', pos:'4CC38A', neg:'F07A7A'};
+/* Paleta do PPTX = a do relatório que a Ana levava ao comitê: fundo branco,
+   faixa dourada no topo, cabeçalho de tabela navy com texto branco. O deck na
+   tela usa as mesmas cores (ver .slide em deck.css), então a prévia é fiel ao
+   arquivo que sai. */
+const C = {bg:'FFFFFF', bg2:'FAFAFA', card:'F4F6F8', line:'E0E0E0', ink:'1A1A1A',
+           ink2:'444444', ink3:'666666', amber:'C09200', pos:'1E7A46', neg:'C0392B',
+           head:'0D2035', headInk:'FFFFFF'};
 const LOGO = 'assets/pg-logo.png';
 /* área útil do slide: 1280×720 menos cabeçalho (96) e rodapé (44) */
 const BODY_H = 720 - 96 - 44;
@@ -1110,6 +1115,8 @@ const somaAlturas = a => a.reduce((x, v) => x + v, 0);
 function pptSlide(p, s, i, logo, imgs){
   const sl = p.addSlide();
   sl.background = {color: C.bg};
+  // faixa dourada do topo — a marca do relatório da Ana, em todo slide
+  sl.addShape(p.ShapeType.rect, {x:0, y:0, w:10, h:0.055, fill:{color:C.amber}, line:{width:0}});
   const T = (t, o) => sl.addText(t, Object.assign({fontFace:'Segoe UI', color:C.ink}, o));
 
   if (s.t === 'capa' || s.t === 'encerramento'){
@@ -1169,7 +1176,8 @@ function pptSlide(p, s, i, logo, imgs){
       fontFace:'Segoe UI', color:C.ink, valign:'middle',
     }, o, {fontSize:fs, rowH:alturas, margin:[0, 0.03, 0, 0.03]}));
   };
-  const th = t => ({text:String(t), options:{bold:true, fontSize:7.5, color:C.ink3, fill:{color:C.bg2}, align:'right'}});
+  const th = t => ({text:String(t), options:{bold:true, fontSize:8, color:C.headInk,
+                                             fill:{color:C.head}, align:'right'}});
   const kpis = () => {
     const w = 9.2 / s.kpis.length;
     s.kpis.forEach((k, j) => {
