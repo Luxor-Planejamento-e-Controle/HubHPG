@@ -812,14 +812,16 @@ def desc_investimento(desc: str, quem: str) -> str:
     partes = [x.strip() for x in re.split(r"\s+-\s+", d) if x.strip()]
     curto = partes[0] if partes else d
     for x in partes[1:]:
-        if len(curto) + len(x) > 62:
+        if len(curto) + len(x) > 75:
             break
         curto += " - " + x
     t = titulo_pt(curto).replace(" X ", " × ").replace(" - ", " — ")
     t = " ".join(w.lower() if i and w.upper() in MINUSCULAS_DESC else w for i, w in enumerate(t.split()))
     t = re.sub(r"^Ref\. canc\.", "Ref. Canc.", t, flags=re.I)
-    q = pessoa_curta(quem) if quem else ""
-    return f"{t} ({q})" if q and q != "—" else t
+    # nome inteiro, como o relatório; sequência longa de dígito (CPF/CNPJ colado
+    # no nome do favorecido) nunca vai pro slide
+    q = titulo_pt(re.sub(r"\d{6,}", "", str(quem or "")).split(" - ")[0]) if quem else ""
+    return f"{t} ({q})" if q else t
 
 
 # palavras que ficam em minúscula no meio da descrição (o resto segue o
