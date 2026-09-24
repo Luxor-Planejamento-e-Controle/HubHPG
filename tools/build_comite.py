@@ -803,14 +803,29 @@ def desc_investimento(desc: str, quem: str) -> str:
     Semana de Negócios PG (Vitor Bezerra de Menezes Picanço)'. Tira a data que a
     controladoria cola no fim e troca os separadores; o texto continua o dela."""
     d = " ".join(str(desc or "").split())
+    # a controladoria cola no fim o mês de referência ('- AGOSTO/2026') e, às
+    # vezes, a cláusula inteira do contrato; no slide a compra é uma linha só
+    d = re.sub(r"(?i)\s*[-–]?\s*(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[A-ZÇ]*/20\d\d\b.*$", "", d)
     d = re.sub(r"\s*-?\s*\d{2}/\d{2}/\d{4}\s*$", "", d)            # data no fim
     d = re.sub(r"(?i)\bREF\.?\s*CANCELAMENTO\b", "REF. CANC.", d)
-    d = re.sub(r"(?i)\bCOMPRA DE 0(\d)\b", r"COMPRA DE \1", d)
-    t = titulo_pt(d).replace(" X ", " × ").replace(" x ", " × ").replace(" - ", " — ")
-    t = re.sub(r"\bRef\. Canc\.", "Ref. Canc.", t)
+    d = re.sub(r"(?i)^(COMPRA DE )?0(\d)\b", lambda mm: (mm.group(1) or "") + mm.group(2), d)
+    partes = [x.strip() for x in re.split(r"\s+-\s+", d) if x.strip()]
+    curto = partes[0] if partes else d
+    for x in partes[1:]:
+        if len(curto) + len(x) > 62:
+            break
+        curto += " - " + x
+    t = titulo_pt(curto).replace(" X ", " × ").replace(" - ", " — ")
+    t = " ".join(w.lower() if i and w.upper() in MINUSCULAS_DESC else w for i, w in enumerate(t.split()))
     t = re.sub(r"^Ref\. canc\.", "Ref. Canc.", t, flags=re.I)
-    q = titulo_pt(quem) if quem else ""
-    return f"{t} ({q})" if q else t
+    q = pessoa_curta(quem) if quem else ""
+    return f"{t} ({q})" if q and q != "—" else t
+
+
+# palavras que ficam em minúscula no meio da descrição (o resto segue o
+# título, porque quase tudo ali é nome de animal ou de pessoa)
+MINUSCULAS_DESC = PARTICULAS | {"PELO", "PELA", "PELOS", "PELAS", "QUE", "MAS", "FOI", "AQUI", "SEM",
+                                "UM", "UMA", "SE", "SUA", "SEU", "FAZER", "DAR", "TINHAM", "ESTAVAM"}
 
 
 # ============================================================ Plantel (S11/S12/S37)
@@ -985,7 +1000,7 @@ def slide_movimentacao(m, ano):
         ab = ABR[meses[-1] - 1]
         return {"t": "movimentacao", "n": 12, "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}",
                 "sub": "Saldo mensal · Compras, produções, vendas e baixas",
-                "kpis": [{"v": ("+" if u.get("producao", 0) >= 0 else "") + brl_curto(u.get("producao", 0)),
+                "kpis": [{"v": ("+" if u.get("producao", 0) > 0 else "") + brl_curto(u.get("producao", 0)),
                           "l": f"Produção Emb. {ab}", "s": f"{mes_nome} {ano}", "cor": "navy"},
                          {"v": brl_curto(u.get("vendas", 0)), "l": f"Baixa Vendas {ab}",
                           "s": f"{mes_nome} {ano}", "cor": "vinho"},
@@ -1258,8 +1273,10 @@ def garanhoes(wb, safra):
         if k not in aba or not aba[k]["lav"]:
             if not d["lav"]:
                 continue
-            base = aba.get(k, {"nome": nome_animal(d["nome"], curto=False), "t": ""})
-            aba[k] = {**base, "lav": d["lav"], "pos": d["pos"], "conf": d["conf"]}
+            base = aba.get(k, {"t": ""})
+            # o nome vem da ESTAÇÃO junto com os números (a aba grafa 'MARADA')
+            aba[k] = {**base, "nome": nome_animal(d["nome"], curto=False),
+                      "lav": d["lav"], "pos": d["pos"], "conf": d["conf"]}
     rows = [x for x in aba.values() if x["lav"]]
     for x in rows:
         if not x["t"]:
@@ -1294,7 +1311,7 @@ REF_SEMEN = {"R": "ref.: 60%", "C": "ref.: 50-60%", "F": "ref.: 70%"}
 # Tipo de sêmen de garanhão que não está na aba GARANHOES da safra (a aba é
 # mantida à mão). Os tipos são os que o relatório de jul/2026 atribui a eles;
 # a aba 26/27 confirma Latino (fresco) e Xodó (congelado).
-TIPO_SEMEN = {"LATINO PAO GRANDE": "F", "XODO PORTEIRA AZUL": "C", "ESTEIO TRES CORACOES": "C",
+TIPO_SEMEN = {"LATINO PAO GRANDE": "F", "DAMASCO PAO GRANDE": "F", "XODO PORTEIRA AZUL": "C", "ESTEIO TRES CORACOES": "C",
               "INVENCIVEL LUA PRATA": "C", "ENCANTADO AGROTEXAS": "C", "ATREVIDO MORADA NOVA": "R",
               "FUTURO MYLA": "C"}
 
