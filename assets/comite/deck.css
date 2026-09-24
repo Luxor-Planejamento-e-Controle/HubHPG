@@ -27,44 +27,32 @@ body{display:flex;flex-direction:column}
    centro sai errado, o slide vaza pra fora da tela. top/left 50% +
    translate(-50%,-50%) centraliza certo em qualquer proporção; o scale()
    completo (incluindo o translate) é escrito por fit() em deck.js. */
-/* O SLIDE é claro; a barra de controles em volta continua escura. As custom
-   properties herdam, então redefini-las aqui reveste tudo que está dentro do
-   slide sem tocar na casca do hub.
-
-   As cores saem do relatório que a Ana levava ao comitê (RELATORIO_MENSAL_PG_
-   JULHO26): fundo branco, faixa dourada C09200 de 5px no topo, cabeçalho de
-   tabela navy 0D2035 com texto branco, linhas separadas por E0E0E0, corpo
-   1A1A1A e apoio 666666, negativo em C0392B. É o formato que o haras confere. */
+/* O SLIDE é desenhado por primitivas (assets/comite/layout.js): retângulos,
+   textos e imagens posicionados na geometria do relatório da Ana, a mesma lista
+   que vira PPTX. Aqui só vive a caixa de 1280×720 e o jeito de desenhar cada
+   primitiva — cor, posição e corpo de fonte vêm inline, do layout. */
 .slide{
-  --bg:#FFFFFF; --bg-2:#FAFAFA; --card:#F4F6F8; --line:#E0E0E0; --line-2:#D2D2D2;
-  --ink:#1A1A1A; --ink-2:#444444; --ink-3:#666666;
-  --amber:#C09200; --teal:#2A6C97; --pos:#1E7A46; --neg:#C0392B;
   width:var(--W);height:var(--H);position:absolute;top:50%;left:50%;overflow:hidden;
-  background:var(--bg);transform-origin:center center;
-  box-shadow:0 10px 44px rgba(0,0,0,.35);border:1px solid var(--line);
+  background:#FFFFFF;transform-origin:center center;
+  box-shadow:0 10px 44px rgba(0,0,0,.35);
+  font-family:Calibri,Carlito,"Segoe UI",Arial,sans-serif;color:#1A1A1A;
 }
-/* Capa, agenda, divisor e encerramento são ESCUROS no relatório dela — só as
-   tabelas vão em branco. É o sanduíche do deck original: abre em navy, o miolo
-   é claro para leitura de número, e fecha em navy. */
-.slide:has(.capa),.slide:has(.agenda),.slide:has(.divisor),.slide:has(.fim){
-  --bg:#12233F; --bg-2:#1A2F4E; --card:#1A2F4E; --line:#2A4062; --line-2:#3A5478;
-  --ink:#FFFFFF; --ink-2:#C9D4E2; --ink-3:#D9A520;
-}
-/* faixa dourada do topo: grossa nos slides escuros (como na capa dela), fina
-   nos claros */
-.slide::before{content:"";position:absolute;left:0;right:0;top:0;height:6px;
-  background:var(--amber);z-index:2}
-.slide:has(.capa)::before,.slide:has(.agenda)::before,
-.slide:has(.fim)::before{height:56px}
-/* no divisor a faixa vira uma barra vertical na borda esquerda */
-.slide:has(.divisor)::before{top:0;bottom:0;left:0;right:auto;width:42px;height:auto}
-/* a faixa grossa empurra o cabeçalho e o corpo pra baixo, senão ela come o
-   título do slide */
-.slide:has(.agenda) .s-head{top:72px}
-/* o logo do canto ficava por baixo da faixa grossa e saía cortado ao meio */
-.slide:has(.agenda) .s-mark{top:76px}
-.slide:has(.agenda) .s-body{top:150px}
-.slide:has(.capa) .capa,.slide:has(.fim) .fim{padding-top:56px}
+.slide .pr,.slide .pt,.slide .pi{position:absolute;box-sizing:border-box;margin:0}
+.slide .pr{display:block}
+.slide .pt{display:flex;overflow:hidden;line-height:1.2;white-space:pre}
+.slide .pt span{display:block;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.slide .pt.quebra{white-space:pre-wrap}
+.slide .pt.quebra span{white-space:pre-wrap;overflow-wrap:break-word}
+.slide .pi{display:block;object-fit:fill}
+.slide .parcos{position:absolute;left:0;top:0;pointer-events:none}
+.slide a .pi,.slide a.pr{cursor:pointer}
+/* slide que existe no arquivo mas não entra na apresentação */
+.selo-oculto{position:absolute;right:120px;top:26px;font:600 11px/1 "Segoe UI",Arial,sans-serif;
+  letter-spacing:.08em;text-transform:uppercase;color:#8A6D00;background:#FFF4CC;
+  border:1px solid #E5C75A;border-radius:12px;padding:6px 10px;z-index:3}
+body.play .selo-oculto{display:none}
+/* cartão do slide sem conteúdo, por cima do corpo */
+.vazio-sobre{position:absolute;left:52px;right:52px;top:124px;bottom:40px}
 .bar{
   flex:0 0 auto;min-height:54px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;
   padding:8px 16px;background:var(--bg-2);border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);
@@ -124,148 +112,6 @@ body.play .slide{box-shadow:none;border:0}
   body.imprimindo #impressao .slide:last-child{break-after:auto;page-break-after:auto}
 }
 
-/* ---- elementos comuns do slide ---- */
-.s-head{position:absolute;left:52px;right:52px;top:20px}
-.s-head h1{margin:0;font-size:26px;font-weight:600;letter-spacing:.01em;color:var(--ink)}
-.s-head .sub{margin-top:7px;font-size:14px;color:var(--ink-3)}
-.s-body{position:absolute;left:52px;right:52px;top:96px;bottom:44px}
-.s-mark{position:absolute;right:34px;top:24px;height:40px;opacity:.9}
-.s-foot{position:absolute;left:52px;right:52px;bottom:16px;display:flex;gap:14px;font-size:11px;color:var(--ink-3)}
-.s-foot .spacer{flex:1}
-.s-foot .obs{color:var(--amber)}
-/* o corpo do slide nunca empurra conteúdo pra fora da moldura: a tabela é
-   dimensionada em JS (ajusta()), e isto aqui é a rede de segurança */
-.s-body{overflow:hidden}
-
-/* capa / divisor / encerramento */
-/* Capa do relatório dela: tudo CENTRADO na vertical e na horizontal — logo
-   grande em cima, o título em dourado com muito espaçamento, o mês em branco e
-   grande, e a assinatura miúda embaixo. Era uma composição à esquerda com o
-   logo jogado na direita. */
-.capa,.fim{position:absolute;inset:0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;padding:44px 78px 0;text-align:center}
-.capa img,.fim img{position:static;transform:none;height:250px;opacity:1;margin-bottom:46px}
-.capa h1{margin:0;font-size:17px;font-weight:600;letter-spacing:.22em;color:var(--amber);
-  text-transform:uppercase;max-width:none}
-.capa .mes{margin-top:22px;font-size:44px;font-weight:700;color:#FFFFFF;letter-spacing:.01em}
-.capa .org{margin-top:26px;font-size:11px;letter-spacing:.14em;color:var(--amber)}
-.fim h1{margin:0;font-size:36px;letter-spacing:.06em;color:var(--amber)}
-/* Divisor do relatório dela: faixa dourada VERTICAL na borda esquerda (não a
-   horizontal do topo), logo pequeno no alto, título no meio da altura e o
-   número da seção gigante à direita, em dourado apagado sobre o navy. */
-.divisor{position:absolute;inset:0;display:flex;flex-direction:column;
-  justify-content:center;padding:0 78px 0 104px}
-.divisor .dv-logo{position:absolute;left:104px;top:52px;height:62px}
-.divisor .n{position:absolute;right:84px;top:58px;font-size:128px;font-weight:700;
-  color:#6E5B14;line-height:1}
-.divisor h1{margin:0;font-size:38px;font-weight:700;color:#FFFFFF}
-.divisor .sub{margin-top:16px;font-size:14px;color:var(--amber);letter-spacing:.04em}
-
-/* agenda */
-/* Agenda dela: número dentro de um CÍRCULO dourado, separador vertical entre
-   as colunas, título em dourado e descrição em branco. Antes era um filete
-   dourado em cima do número, sem círculo nem separador. */
-.agenda{display:grid;grid-template-columns:repeat(5,1fr);gap:0;height:100%;
-  align-content:start;padding-top:22px;text-align:center}
-.agenda .it{padding:0 16px;position:relative}
-.agenda .it+.it::before{content:"";position:absolute;left:0;top:0;height:212px;
-  width:2px;background:var(--line-2)}
-.agenda .it .n{width:74px;height:74px;margin:0 auto;border-radius:50%;
-  background:var(--amber);color:#12233F;font-size:23px;font-weight:700;
-  display:flex;align-items:center;justify-content:center}
-.agenda .it h3{margin:20px 0 14px;font-size:12px;letter-spacing:.05em;
-  color:var(--amber);text-transform:uppercase}
-.agenda .it p{margin:0;font-size:12px;color:var(--ink-2);line-height:1.5}
-
-/* tabelas */
-/* `table-layout:fixed` repartia a largura em partes iguais, ignorando o
-   conteúdo: DOADORA, GARANHÃO e COMPRADOR saíam cortados em "JAVA DA PAO GRA…"
-   enquanto CT, VALOR e PGTO sobravam espaço na mesma linha. Com `auto` a coluna
-   pede o que o texto precisa — no slide de embriões vendidos isso são ~900px
-   dos 1280 disponíveis, então tudo cabe inteiro. A reticência do `td` continua
-   como último recurso, para a tabela que realmente não couber. */
-table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;table-layout:auto}
-table.t th{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#FFFFFF;
-  text-align:right;padding:5px 10px;font-weight:700;background:#0D2035;white-space:nowrap}
-table.t th:first-child{border-radius:3px 0 0 3px}
-table.t th:last-child{border-radius:0 3px 3px 0}
-table.t th:first-child,table.t td:first-child{text-align:left}
-table.t td{padding:0 10px;line-height:1.05;border-bottom:1px solid var(--line);color:var(--ink);text-align:right;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* hierarquia do DRE em três níveis — sem isso toda linha saía dourada e
-   negrito, e a lista virava um paredão sem leitura */
-table.t td.nome{color:var(--ink-2)}
-/* Subtotal no relatório dela é faixa azul-clara com texto navy em negrito —
-   não dourado. O dourado ali deixava quase toda linha em destaque, sem
-   hierarquia. A última linha do bloco (Resultado após Invest.) é invertida:
-   fundo navy, texto branco. */
-table.t tr.tot td{font-weight:700;color:#0D2035;background:#EAF0F6;
-  border-top:1px solid var(--line-2)}
-table.t tr.tot td.n0{color:#0D2035;letter-spacing:.02em}
-table.t tbody tr.tot:last-child td{background:#0D2035;color:#FFFFFF}
-table.t tbody tr.tot:last-child td.n0{color:#FFFFFF}
-table.t tr.sub td{font-weight:600;color:var(--ink)}
-table.t tr.sub td.n1{color:var(--ink);padding-left:26px}
-table.t td.n2{padding-left:44px;color:var(--ink-3)}
-table.t tr:not(.tot):not(.sub) td{color:var(--ink-2)}
-.pos{color:var(--pos)} .neg{color:var(--neg)}
-
-/* kpis */
-.kpis{display:grid;gap:14px;margin-bottom:20px}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 16px}
-.kpi .v{font-size:29px;font-weight:700;line-height:1.1;color:var(--amber)}
-.kpi .l{margin-top:5px;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
-.kpi .s{margin-top:2px;font-size:11.5px;color:var(--ink-3)}
-
-/* investimentos (lista por mês) */
-.lista{display:flex;flex-direction:column;gap:9px}
-.lista .m{display:grid;grid-template-columns:64px 1fr auto;gap:12px;align-items:baseline}
-.lista .m .mes{font-size:12px;letter-spacing:.06em;color:var(--amber);font-weight:600}
-.lista .m .tag{font-size:10.5px;letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase}
-.lista .m .tot{font-size:14px;font-weight:700}
-.lista .it{display:grid;grid-template-columns:64px 1fr auto;gap:12px;font-size:12px;color:var(--ink-2);
-  padding-bottom:7px;border-bottom:1px solid var(--line)}
-.lista .it .d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
-/* S08 — comentários do DRE */
-.coment{display:flex;flex-direction:column;height:100%}
-.coment .li{display:grid;grid-template-columns:190px 1fr 90px;gap:16px;align-items:center;
-  padding:7px 0;border-bottom:1px solid var(--line)}
-.coment .cat{color:var(--amber);font-weight:600}
-.coment .txt{color:var(--ink-2);line-height:1.4}
-.coment .d{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
-
-/* S24+ — resultados de exposição, em duas colunas */
-/* --rf-nome/--rf-p/--rf-gap vêm inline do JS (ajuste dinâmico por qtde de
-   linhas) — os valores aqui são só o piso, pra CSS isolado (fora do deck)
-   não ficar sem estilo. */
-.premios{columns:2;column-gap:44px;height:100%;font-size:var(--rf-p,13px)}
-.premios .an{break-inside:avoid;margin-bottom:var(--rf-gap,16px)}
-.premios .nome{color:var(--amber);font-weight:700;font-size:var(--rf-nome,14px);letter-spacing:.02em;margin-bottom:6px}
-.premios .p{color:var(--ink);font-size:var(--rf-p,13px);line-height:1.5;padding-left:22px;position:relative}
-.premios .p::before{content:"🏆";position:absolute;left:0;font-size:.85em}
-
-/* S38 — histórico de manejo */
-.manejo{display:flex;flex-direction:column;height:100%}
-.manejo .li{display:grid;grid-template-columns:72px 1fr;gap:18px;align-items:center;
-  padding:7px 0;border-bottom:1px solid var(--line)}
-.manejo .m{color:var(--amber);font-weight:700;font-size:1em;letter-spacing:.06em}
-.manejo .t{color:var(--ink);font-size:1em;line-height:1.42}
-
-/* S39+ — fotos */
-.fotos{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:12px;height:100%}
-.fotos .f{background-size:cover;background-position:center;border-radius:10px;
-  border:1px solid var(--line);min-height:0}
-/* vídeo na mesma grade: o que aparece é o primeiro frame, com a marca de play */
-.fotos a.f-video{position:relative;display:block;text-decoration:none}
-.fotos a.f-sem-capa{background:var(--card)}
-.fotos .play{position:absolute;inset:0;margin:auto;width:54px;height:54px;border-radius:50%;
-  background:rgba(4,34,59,.62);border:2px solid rgba(255,255,255,.9);
-  display:grid;place-items:center;transition:background .15s,transform .15s}
-.fotos .play::after{content:"";border-style:solid;border-width:11px 0 11px 18px;
-  border-color:transparent transparent transparent #fff;margin-left:4px}
-.fotos a.f-video:hover .play{background:var(--amber);transform:scale(1.06)}
-
 /* player — sobrepõe o slide, mesmo peso visual do editor */
 #videoOverlay{position:fixed;inset:0;z-index:60;background:rgba(2,16,28,.82);
   display:none;align-items:center;justify-content:center;padding:32px}
@@ -277,27 +123,27 @@ table.t tr:not(.tot):not(.sub) td{color:var(--ink-2)}
 #videoFechar:hover{background:var(--amber);color:#1a1300}
 #videoErro{color:var(--ink2);text-align:center;padding:40px 20px}
 
-/* no PDF (impressão) o vídeo é o frame com a marca — o link fica no href */
-@media print{ .fotos .play{background:rgba(4,34,59,.55);border-color:#fff} #videoOverlay{display:none!important} }
+/* no PDF (impressão) o player não aparece */
+@media print{ #videoOverlay{display:none!important} }
 
 /* estado vazio — centralizado num cartão, não jogado no canto esquerdo */
 .vazio{height:100%;display:grid;place-items:center;text-align:center}
 .vazio-btn{margin-top:18px;background:var(--amber);color:#1a1300;border:0;border-radius:9px;
   padding:9px 20px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
 .vazio-btn:hover{background:#b98803}
-.vazio-nota{color:var(--ink-3);font-size:12px;margin-top:14px}
-.vazio .box{max-width:640px;padding:34px 40px;border:1px dashed var(--line-2);border-radius:16px;
-  background:rgba(10,48,80,.45)}
-.vazio .glyph{font-size:34px;line-height:1;color:var(--line-2);margin-bottom:16px}
+.vazio-nota{color:#666;font-size:12px;margin-top:14px}
+.vazio .box{max-width:640px;padding:34px 40px;border:1px dashed #C9D2DC;border-radius:16px;
+  background:#F7F9FB;font-family:"Segoe UI",Arial,sans-serif}
+.vazio .glyph{font-size:34px;line-height:1;color:#9FB0C2;margin-bottom:16px}
 .vazio .tag{display:inline-flex;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
   background:rgba(202,151,3,.14);color:var(--amber);border:1px solid rgba(202,151,3,.35);
   padding:5px 13px;border-radius:20px}
-.vazio h2{margin:16px 0 0;font-size:17px;font-weight:600;color:var(--ink)}
-.vazio p{margin:8px 0 0;font-size:13px;color:var(--ink-2);line-height:1.5}
+.vazio h2{margin:16px 0 0;font-size:17px;font-weight:600;color:#0D2035}
+.vazio p{margin:8px 0 0;font-size:13px;color:#444;line-height:1.5}
 .vazio .campos{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:24px;text-align:left;
-  padding-top:20px;border-top:1px solid var(--line)}
-.vazio .campos .l{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
-.vazio .campos .v{font-size:12.5px;color:var(--ink);line-height:1.45}
+  padding-top:20px;border-top:1px solid #E0E0E0}
+.vazio .campos .l{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:#666;margin-bottom:6px}
+.vazio .campos .v{font-size:12.5px;color:#1A1A1A;line-height:1.45}
 
 /* ---- editor (comentários/exposições/manejo/fotos — Ana/Aline/Arthur) ----
    Fica FORA de .stage (não escala com o slide 1280×720) — é overlay de UI
@@ -327,6 +173,7 @@ table.t tr:not(.tot):not(.sub) td{color:var(--ink-2)}
 #edCorpo input:focus,#edCorpo textarea:focus{outline:none;border-color:var(--amber)}
 .ed-linha{display:grid;grid-template-columns:1fr 2fr 90px auto;gap:8px;align-items:start;margin-bottom:8px}
 .ed-linha4{grid-template-columns:1.4fr 1fr 1fr .8fr auto}
+.ed-linha2{grid-template-columns:1fr auto}
 .ed-curta{width:100%}
 .ed-rm{background:transparent;border:1px solid var(--line);color:var(--ink-3);
   border-radius:7px;width:30px;height:30px;cursor:pointer;flex:0 0 auto}

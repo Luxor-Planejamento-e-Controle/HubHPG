@@ -2413,7 +2413,7 @@ def monta_deck(m, ano, ctx):
 # comite.html é estático e carrega deck.js/deck.css/spec.js. Sem versão na URL, o
 # navegador serve o cache e a mudança não aparece — o arquivo no disco está certo e a
 # tela continua velha. O carimbo abaixo invalida o cache a cada build.
-RE_ASSET = re.compile(r'((?:href|src)="assets/comite/(?:deck\.js|deck\.css|spec\.js))(?:\?v=\d+)?"')
+RE_ASSET = re.compile(r'((?:href|src)="assets/comite/(?:deck\.js|deck\.css|spec\.js|layout\.js))(?:\?v=\d+)?"')
 
 
 def _versiona_assets():
