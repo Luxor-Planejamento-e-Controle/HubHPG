@@ -2449,15 +2449,47 @@ def slides_exposicoes(c, ano):
     return out
 
 
-def slide_manejo(c, m, ano):
-    itens = c.get("manejo") or []
-    if not itens:
-        return pend(38, "MANEJO — PONTOS DE MELHORIA E DECISÕES", "Histórico de intervenções",
-                    "_docs/comite_conteudo.json → manejo", FALTA_CONTEUDO,
-                    edita="manejo")
-    return {"t": "manejo", "n": 38, "titulo": "MANEJO — PONTOS DE MELHORIA E DECISÕES",
-            "sub": f"Histórico de intervenções Jan–{ABR[m-1]} {ano}", "itens": itens,
-            "atual": ABR[m - 1]}
+def _mes_do_rotulo(rot):
+    """'Jul', 'Julho', 'JULHO' -> 7."""
+    k = _chave_dre(rot)[:3]
+    return next((i + 1 for i, a in enumerate(ABR) if _chave_dre(a) == k), None)
+
+
+def manejo_historico(todos, m, ano) -> dict:
+    """{mês: texto} de janeiro até o mês do deck, juntando o conteúdo de TODOS os
+    meses: quem escreve o de agosto só lista julho e agosto, e o histórico do
+    semestre anterior está no conteúdo de junho/julho. Mês repetido vale o texto
+    do conteúdo mais recente."""
+    por_mes = {}
+    for k in range(1, m + 1):
+        for par in (todos.get(f"{ano}-{k:02d}", {}).get("manejo") or []):
+            if not par or len(par) < 2:
+                continue
+            n, t = _mes_do_rotulo(par[0]), str(par[1] or "").strip()
+            if n and n <= m and t:
+                por_mes[n] = t
+    return por_mes
+
+
+def slides_manejo(todos, c, m, ano):
+    """S38 — um slide por semestre, com o histórico inteiro (o haras pediu em
+    set/2026: agosto só mostrava jul e ago). O mês do deck vai na faixa dourada.
+    O deck.js remonta com a mesma regra quando o conteúdo muda ao vivo."""
+    hist = manejo_historico(todos, m, ano)
+    if not hist:
+        return [pend(38, "MANEJO — PONTOS DE MELHORIA E DECISÕES", "Histórico de intervenções",
+                     "_docs/comite_conteudo.json → manejo", FALTA_CONTEUDO, edita="manejo")]
+    out = []
+    for sem, (a, b) in enumerate(((1, 6), (7, 12)), 1):
+        fim = min(b, m)
+        ks = [k for k in range(a, fim + 1) if k in hist]
+        if not ks:
+            continue
+        out.append({"t": "manejo", "n": 38, "titulo": "MANEJO — PONTOS DE MELHORIA E DECISÕES",
+                    "sub": f"Histórico de intervenções {ABR[a-1]}–{ABR[fim-1]} {ano}  ·  {sem}º semestre",
+                    "itens": [[ABR[k - 1], hist[k]] for k in ks],
+                    "atual": ABR[m - 1] if a <= m <= b else ""})
+    return out
 
 
 # Fotos do mês, como o haras as manda: pasta única por ano, arquivos do WhatsApp.
@@ -2784,7 +2816,9 @@ def monta_deck(m, ano, ctx):
                    {"n": "03", "titulo": "EXPOSIÇÕES", "sub": "Programação e resultados"},
                    {"n": "04", "titulo": "VENDAS", "sub": "Pipeline e contratos"},
                    {"n": "05", "titulo": "DECISÕES E MANEJO", "sub": "Plantel · Obras · Casa"}]},
-        slide_pendencias(cont, m, ano),
+        # sem pendência registrada o slide fica no arquivo (para escrever) mas
+        # não entra na apresentação — o relatório de agosto/2026 não o tem
+        (lambda p: oculto(p) if p["t"] == "pendente" else p)(slide_pendencias(cont, m, ano)),
         divisor(1, "FINANCEIRO", f"DRE Haras  ·  Caixa  ·  Plantel  |  {MES} {ano}"),
     ]
     # O relatório abrevia o mês no resumo do Haras ("JUL/26") e escreve por
@@ -2851,7 +2885,7 @@ def monta_deck(m, ano, ctx):
     s.append(divisor(5, "DECISÕES E MANEJO", f"Plantel  ·  Obras  ·  Casa  |  {MES} {ano}"))
     # a contagem por local não está no relatório dela; fica no arquivo, oculta
     s.append(oculto(slide_contagem(m, ano)))
-    s.append(slide_manejo(cont, m, ano))
+    s += slides_manejo(ctx["conteudo"], cont, m, ano)
     s += slides_fotos(cont, m, ano)
     s.append({"t": "encerramento", "titulo": "HARAS PAO GRANDE",
               "sub": f"Relatório de Desempenho Estratégico  ·  {MES} {ano}"})

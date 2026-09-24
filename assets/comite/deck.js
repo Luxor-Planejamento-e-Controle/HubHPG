@@ -338,6 +338,27 @@ function medeImagem(uri){
   });
 }
 
+/* 'Jul', 'Julho', 'JULHO' -> 7 */
+const mesDoRotulo = r => {
+  const k = String(r || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().slice(0, 3);
+  const i = ABR_PT.findIndex(a => a.toUpperCase() === k);
+  return i >= 0 ? i + 1 : null;
+};
+/* manejo: um slide por semestre, com o histórico — mesma regra do
+   slides_manejo do build_comite.py */
+function slidesManejo(hist, mNum, ano){
+  const out = [];
+  [[1, 6], [7, 12]].forEach(([a, b], j) => {
+    const fim = Math.min(b, mNum);
+    const ks = Object.keys(hist).map(Number).filter(k => k >= a && k <= fim).sort((x, y) => x - y);
+    if (!ks.length) return;
+    out.push({t:'manejo', n:38, titulo:'MANEJO — PONTOS DE MELHORIA E DECISÕES',
+      sub:`Histórico de intervenções ${ABR_PT[a-1]}–${ABR_PT[fim-1]} ${ano}  ·  ${j + 1}º semestre`,
+      itens: ks.map(k => [ABR_PT[k-1], hist[k]]), atual: mNum >= a && mNum <= b ? ABR_PT[mNum-1] : ''});
+  });
+  return out;
+}
+
 async function montaSlidesAoVivo(mes){
   const c = await buscaConteudoAoVivo(mes);
   if (!c) return null;
@@ -368,8 +389,17 @@ async function montaSlidesAoVivo(mes){
   }
 
   if (c.manejo && c.manejo.length) {
-    out.manejo = [{t:'manejo', n:38, titulo:'MANEJO — PONTOS DE MELHORIA E DECISÕES',
-      sub:`Histórico de intervenções Jan–${ABR_PT[mNum-1]} ${ano}`, itens: c.manejo, atual: ABR_PT[mNum-1]}];
+    /* o histórico dos meses anteriores vem no spec (o build junta o conteúdo de
+       todos os meses); o escrito agora substitui só os meses que ele traz */
+    const hist = {};
+    for (const s of (SPEC.decks[mes] || [])) {
+      if (s.t === 'manejo') for (const [r, t] of (s.itens || [])) { const k = mesDoRotulo(r); if (k) hist[k] = t; }
+    }
+    for (const [r, t] of c.manejo) {
+      const k = mesDoRotulo(r);
+      if (k && k <= mNum && String(t || '').trim()) hist[k] = String(t).trim();
+    }
+    out.manejo = slidesManejo(hist, mNum, ano);
   }
 
   if (c.fotos && c.fotos.length) {
