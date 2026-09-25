@@ -97,16 +97,18 @@
      pra cima, e um valor terminado em ,5 negativo saía 1 real diferente da face */
   const arred = v => Math.sign(v) * Math.round(Math.abs(v));
   const reais = v => v == null ? '—' : (v < 0 ? '-' : '') + 'R$ ' + nf(Math.abs(arred(v)), 0);
+  /* o sinal vem do valor, não do arredondado: variação de -133 reais é "-0k",
+     como a planilha e o relatório escrevem; só o zero de verdade sai "0k" */
   const deltaK = v => {
     if (v == null) return '—';
     const r = arred(v);
-    return r === 0 ? '0k' : (r > 0 ? '+' : '-') + nf(Math.abs(r), 0) + 'k';
+    return Math.abs(v) < 0.0005 ? '0k' : (v > 0 ? '+' : '-') + nf(Math.abs(r), 0) + 'k';   // < R$ 0,50 = zero
   };
   const deltaP = v => {
     if (v == null) return 'N/A';
     // o relatório escreve -2409%, sem separador de milhar no percentual
     const r = arred(v * 100);
-    return r === 0 ? '0%' : (r > 0 ? '+' : '-') + Math.abs(r) + '%';
+    return Math.abs(v) < 1e-6 ? '0%' : (v > 0 ? '+' : '-') + Math.abs(r) + '%';
   };
   /* R$18.703k / R$7,5k / -R$1.091k — a matriz da movimentação */
   function reaisK(v) {
@@ -371,9 +373,7 @@
       P.push(R(44.8, y, 1190.4, hh, {fill: fim ? COR.navy : ini ? COR.banda : (i % 2 ? COR.zebra : 'FFFFFF'), line: COR.linha}));
       const o = {pt: 8, b: ini || fim ? 1 : 0, c: fim ? 'FFFFFF' : COR.tinta, va: 'm'};
       P.push(C(53.8, y, 236.8, hh, r[0], o));
-      // entre os saldos, o relatório pinta o que entrou de verde e o que saiu de vermelho
-      r.slice(1).forEach((v, j) => P.push(C(291.8 + j * cw, y, cw, hh, reaisK(v), Object.assign({}, o, {al: 'c'},
-        ini || fim || !v ? {} : {c: v > 0 ? COR.verde : COR.neg}))));
+      r.slice(1).forEach((v, j) => P.push(C(291.8 + j * cw, y, cw, hh, reaisK(v), Object.assign({}, o, {al: 'c'}))));
     });
     return P;
   };

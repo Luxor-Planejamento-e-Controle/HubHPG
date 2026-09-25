@@ -338,6 +338,52 @@ function medeImagem(uri){
   });
 }
 
+/* exposições e fotos: a mesma apresentação do build_comite.py
+   (expo_programacao, expo_resultado, tema_foto) — o conteúdo guardado não muda */
+const FONTE_RESULTADOS = 'Fonte: WhatsApp equipe + site ABCCMM';
+const ordinalExpo = t => String(t || '').replace(/(\d+)\s*[°º]\s*(?=EXPOSI|Exposi|exposi)/g, '$1ª ');
+function dataExpo(t){
+  t = String(t || '').split(/\s+/).filter(Boolean).join(' ');
+  let m = /^(\d{1,2}\/\d{2})\/(\d{4}) a (\d{1,2}\/\d{2})\/(\d{4})$/.exec(t);
+  if (m && m[2] === m[4]) t = `${m[1]} a ${m[3]}/${m[4]}`;
+  m = /^(\d{1,2})\/(\d{2}) a (\d{1,2})\/(\d{2})\/(\d{4})$/.exec(t);
+  if (m && m[2] === m[4]) t = `${m[1]} a ${m[3]}/${m[4]}/${m[5]}`;
+  return t;
+}
+const chaveExpo = t => String(t || '').replace(/^\s*RESULTADOS\s*[-—–]\s*/i, '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const expoProgramacao = prog => prog.map(r => {
+  const [ev, dt, loc, st] = [...r, '', '', '', ''].slice(0, 4);
+  let l = String(loc || '').trim();
+  if (l.length === 2) l = l.toUpperCase();
+  return [ordinalExpo(ev), dataExpo(dt), l || '—', st];
+});
+function expoResultado(r, prog){
+  const tit = ordinalExpo(r.titulo || '').replace(/^\s*RESULTADOS\s*[-–]\s*/i, 'RESULTADOS — ');
+  let sub = String(r.sub || '').trim();
+  if (!sub) {
+    const k = chaveExpo(tit);
+    const p = prog.find(x => x.length > 1 && chaveExpo(ordinalExpo(x[0])) === k);
+    const dt = p ? dataExpo(p[1]) : '';
+    sub = dt ? `${dt}  ·  ${FONTE_RESULTADOS}` : FONTE_RESULTADOS;
+  }
+  return [tit, sub];
+}
+function premioTxt(t){
+  t = String(t || '').split(/\s+/).filter(Boolean).join(' ');
+  t = t.replace(/(\d+)\s*[°º]\s*(?=Pr[êe]mio|PR[ÊE]MIO)/g, '$1º ').split(' - ').join(' — ');
+  return t.replace(/(\S) (De|Da|Do|Das|Dos|E)(?= )/g, (m, a, p) => `${a} ${p.toLowerCase()}`);
+}
+const expoAnimais = animais => (animais || []).map(a => Object.assign({}, a, {premios: (a.premios || []).map(premioTxt)}));
+const SIGLAS_TEMA = new Set(['PG', 'FPG', 'RJ', 'MH', 'CTE', 'GTA']);
+const PARTICULAS_TEMA = new Set(['DA','DE','DO','DAS','DOS','E','COM','PARA','EM','A','O','AS','OS','NA','NO','NAS','NOS','À','AO','POR']);
+function temaFoto(t){
+  t = String(t || '').split(/\s+/).filter(Boolean).join(' ');
+  if (!t || t !== t.toUpperCase()) return t;
+  return t.replace(/PAO GRANDE/g, 'PG').split(' ').map((w, i) => SIGLAS_TEMA.has(w) ? w
+    : (i && PARTICULAS_TEMA.has(w)) ? w.toLowerCase() : w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+}
+
 /* 'Jul', 'Julho', 'JULHO' -> 7 */
 const mesDoRotulo = r => {
   const k = String(r || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().slice(0, 3);
@@ -379,12 +425,29 @@ async function montaSlidesAoVivo(mes){
       titulo:`PENDÊNCIAS DA APRESENTAÇÃO DE ${MESES_PT[(mNum + 10) % 12].toUpperCase()}`, itens: pend}];
   }
 
-  const exp = c.exposicoes || {}, prog = exp.programacao || [], res = exp.resultados || [];
+  const exp = c.exposicoes || {}, res = exp.resultados || [];
+  /* evento com resultado no mês e fora da programação volta com a linha do
+     calendário que o build montou (programacao_com_resultados) */
+  let prog = (exp.programacao || []).slice();
+  if (prog.length) {
+    const base = ((SPEC.decks[mes] || []).find(x => x.t === 'tabela' && x.n === 23) || {}).rows || [];
+    const k = r => chaveExpo(ordinalExpo(r[0]));
+    for (const r of res) {
+      const kr = chaveExpo(ordinalExpo(r.titulo || ''));
+      if (!kr || prog.some(x => k(x) === kr)) continue;
+      const i = base.findIndex(x => k(x) === kr);
+      if (i < 0) continue;
+      const antes = base.slice(0, i).reverse().find(x => prog.some(y => k(y) === k(x)));
+      const pos = antes ? prog.findIndex(y => k(y) === k(antes)) + 1 : 0;
+      prog.splice(pos, 0, base[i]);
+    }
+  }
   if (prog.length || res.length) {
     const s = [];
     if (prog.length) s.push({t:'tabela', n:23, titulo:`EXPOSIÇÕES ${ano} — PROGRAMAÇÃO`,
-      sub:'Calendário de participações previstas', cols:['EVENTO','DATA','LOCAL','STATUS'], rows: prog});
-    res.forEach((r, k) => s.push({t:'resultados', n:24+k, titulo:r.titulo, sub:r.sub || '', animais:r.animais}));
+      sub:'Calendário de participações previstas', cols:['EVENTO','DATA','LOCAL','STATUS'], rows: expoProgramacao(prog)});
+    res.forEach((r, k) => { const [titulo, sub] = expoResultado(r, prog);
+      s.push({t:'resultados', n:24+k, titulo, sub, animais:expoAnimais(r.animais)}); });
     out.exposicoes = s;
   }
 
@@ -419,7 +482,7 @@ async function montaSlidesAoVivo(mes){
       const n = Math.ceil(itens.length / FOTOS_POR_SLIDE);
       for (let k = 0; k < n; k++) {
         const bloco = itens.slice(k * FOTOS_POR_SLIDE, (k + 1) * FOTOS_POR_SLIDE);
-        let sub = g.tema ? `Obras e melhorias realizadas  ·  ${g.tema}` : `Registros de ${MES} ${ano}`;
+        let sub = g.tema ? `Obras e melhorias realizadas  ·  ${temaFoto(g.tema)}` : `Registros de ${MES} ${ano}`;
         if (n > 1) sub += ` (${k+1}/${n})`;
         s.push({t:'fotos', n:39, titulo:'MANEJO — FOTOS E REGISTROS', sub, fotos:bloco});
       }

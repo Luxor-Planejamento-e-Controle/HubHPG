@@ -45,17 +45,17 @@ fotos (S39).
 
 | Slide | Conteúdo | Fonte | Aba / campos | Status |
 |---|---|---|---|---|
-| **04** | Resumo financeiro Haras — competência, orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, Modelo=Competência, só `É Subtotal`; desde ago/26 abre Venda de Produtos em Embriões/Coberturas/Óvulos/Animais **quando a linha tem valor** (orçado ou realizado). Conferido 21/21 contra a face (arredondamento do Excel: meio pra longe do zero) | auto |
+| **04** | Resumo financeiro Haras — competência, orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, Modelo=Competência, só `É Subtotal`; as 19 linhas do relatório (a versão corrigida de ago/26 tirou a abertura de Embriões/Animais que a anterior tinha). Conferido contra a face com o arredondamento do Excel (meio pra longe do zero; variação que arredonda a zero mantém o sinal: `-0k`) | auto |
 | **05** | Análise de **custos** do mês, aberta por natureza | `DRE_Historico.xlsx` | `Base DRE Geral`, `Grupo = CUSTOS E DESPESAS OPERACIONAIS`; linha zerada no mês omitida | auto |
-| **06** | Análise de **despesas** do mês, aberta por natureza | `DRE_Historico.xlsx` | `Base DRE Geral`, `Grupo = DESPESAS` | auto |
-| **07** | Haras competência — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, faixa `NN-Jan a <Mês>`; mesmas linhas do S04. **Apresentado** desde ago/26 (em jul/26 era oculto). Ago/26: 23/23 com as colunas YTD da face | auto |
+| **06** | Análise de **despesas** do mês, aberta por natureza | `DRE_Historico.xlsx` | `Base DRE Geral`, `Grupo = DESPESAS`; desde ago/26 o DESPESAS TOTAIS soma Despesas + arrendamentos D. Lúdia e Vassouras (que as páginas listam embaixo dele), como o relatório; jul/26 fica só Despesas, como foi apresentado | auto |
+| **07** | Haras competência — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, faixa `NN-Jan a <Mês>`; mesmas linhas do S04. **Oculto** (no arquivo, fora da apresentação), como no relatório de jul/26 e na versão corrigida de ago/26; os números batem com as colunas YTD da face | auto |
 | **08** | Comentários das variações do mês | **Trello** — quadro `Fluxo de Caixa`, card `DRE Haras - <Mês> <ano>`, comentário `COMENTÁRIOS DRE (HPG) – <MÊS>/<AA>` da controladoria (arquivado em `_cache/trello/`) | uma faixa por categoria, na ordem do DRE; texto = cada natureza com o valor e a explicação dela; ∆ da categoria = face **Real x Orçado (Caixa)** (o comentário é sobre o caixa); quantos slides o texto pedir | auto — sem comentário no Trello, vale o escrito no hub (`comite_conteudo.comentarios`); o slide do Trello não abre o editor |
 | **09** | Investimentos do mês — todos os blocos | `DRE 2026 HPG - HARAS v3.xlsx` aba `Investimentos` | seção `INVESTIMENTOS - <MÊS>/<AA>`: blocos INFRAESTRUTURA / FORMAÇÃO DE PASTAGEM / MÁQUINAS E EQUIPAMENTOS / COMPRA DE ANIMAIS E PRODUTOS (A=favorecido, B=descrição, C=valor) + total da seção; lançamento repetido vira uma linha (2×); ago/26 bate com o relatório | auto — é o total da aba, que difere do bloco Investimentos da face |
-| **10** | Haras **caixa** — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, `Modelo = Caixa`; abre produtos e os blocos de investimento (Máquinas, Infraestrutura, Animais e Produtos) quando têm valor. Ago/26: 15/15 com a face | auto |
-| **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) + aba `Resumo Contabil` do mapa de movimentações | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO` (o `E 100%` do Eduardo NÃO entra — vale só pro semanal); **patrimônio = saldo final do Resumo Contábil do mês** (o mesmo número do S12; jul/26 R$ 15.970.552,61), valor médio = soma `valor_100` ÷ **avaliados** desde ago/26 ("N animais avaliados"; até jul/26 ÷ todos, como foi apresentado); todas as categorias abertas (coluna CATEGORIA da aba PLANTEL — a divisão do relatório de ago/26 tem reclassificação manual, sem regra na planilha) | auto |
+| **10** | Haras **caixa** — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, `Modelo = Caixa`; as 6 linhas do relatório (Receita Bruta, Receita Líquida, Custos e Despesas, Resultado Operacional, Investimentos, Resultado após) | auto |
+| **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) + aba `Resumo Contabil` do mapa de movimentações | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO` (o `E 100%` do Eduardo NÃO entra — vale só pro semanal); **patrimônio = saldo final do Resumo Contábil do mês** (o mesmo número do S12; jul/26 R$ 15.970.552,61), valor médio = soma `valor_100` ÷ **avaliados** desde ago/26 (até jul/26 ÷ todos, como foi apresentado); todas as categorias abertas (coluna CATEGORIA da aba PLANTEL — a divisão do relatório de ago/26 tem reclassificação manual, sem regra na planilha) | auto |
 | **12** | Resumo da movimentação do plantel — saldo mensal | **aba Plantel do hub** — `tools/resumo_plantel_hub.js` roda o motor dela (`assets/plantel/plantel.js`) sobre `plantel.<AAAA-MM>.json` do bucket + `plantel_mov_classificacao` (arquivado em `_cache/plantel_hub/`) | Saldo inicial, (+) Compras, (+) Produção embriões, (−) Baixa vendas, (−) Baixa mortes e doações, (+/−) Reavaliações, Saldo final — só mês fechado (ou 100% classificado) no hub; jan–jul/26 idênticos ao Resumo Contábil divulgado | auto — mês que o hub não fechou sai da aba `Resumo Contabil` do mapa, e o subtítulo diz |
-| **13** | Resumo financeiro Casa/FPG — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, **CC=FPG**, `Modelo = Caixa`; + Receitas com Locação. Ago/26: 17/17 com a face | auto |
-| **14** | Casa/FPG — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, CC=FPG. Apresentado desde ago/26; `Deduções` = DEDUÇÕES E IMPOSTOS da base (saía zerada) | auto |
+| **13** | Resumo financeiro Casa/FPG — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, **CC=FPG**, `Modelo = Caixa`; Marketing e Hospedagem Família entram quando têm valor (senão os detalhes não fecham com Despesas Gerais) | auto |
+| **14** | Casa/FPG — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, CC=FPG. **Oculto**, como no relatório; `Deduções` = DEDUÇÕES E IMPOSTOS da base (saía zerada) | auto |
 
 > **Slide oculto — programação da casa.** Existe no arquivo mas fica escondido porque
 > a casa não tem meta. Assim que houver orçado da casa, é o mesmo tratamento de S13/S14.
@@ -120,8 +120,8 @@ histórico por trás de S19/S20).
 
 | Slide | Conteúdo | Fonte | Status |
 |---|---|---|---|
-| **23** | Programação — evento, data, local, status | `_docs/comite_conteudo.json` → `exposicoes.programacao` | manual estruturado |
-| **24–27** | Resultados por exposição — animal e prêmios | `_docs/comite_conteudo.json` → `exposicoes.resultados` | manual estruturado |
+| **23** | Programação — evento, data, local, status | `comite_conteudo.exposicoes.programacao` do mês | manual estruturado — apresentação padronizada no build e no deck.js (ordinal `35ª`, data `06 a 12/04/2026`, local vazio `—`); evento com resultado no mês que sumiu da programação volta com a linha do mês anterior (ago/26: Paracambi). O conteúdo guardado não muda |
+| **24–27** | Resultados por exposição — animal e prêmios | `comite_conteudo.exposicoes.resultados` | manual estruturado — título com travessão e ordinal; sem subtítulo escrito, sai a data da programação + `Fonte: WhatsApp equipe + site ABCCMM`; prêmio `1º Prêmio — …`, partícula minúscula |
 
 Não há planilha por trás, mas também não é mais placeholder: o conteúdo do deck
 de junho foi extraído para o JSON e o slide é montado a partir dele. Todo mês
@@ -154,7 +154,7 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
 |---|---|---|---|
 | **37** | Plantel — Pao Grande / Arrendamento / Sócios, com total | `CONTROLE_DE_PLANTEL` do fechamento do mês (`headcount_de`) | auto — **oculto**: o relatório de jul/26 não tem esse slide; ele fica no arquivo, fora da apresentação |
 | **38** | Manejo — histórico de intervenções e decisões, **um slide por semestre** | `comite_conteudo.manejo` de **todos** os meses até o do deck (o texto mais recente de cada mês vale) | manual estruturado — o deck ao vivo remonta com a mesma regra |
-| **39+** | Fotos e registros do mês | `_docs/comite_conteudo.json` → `fotos` + `hub/assets/comite/fotos/` | manual — 6 fotos por slide, quantos slides forem precisos |
+| **39+** | Fotos e registros do mês | `comite_conteudo.fotos` (bucket) | manual — por tema, quantos slides forem precisos; tema digitado em caixa alta sai como título (`POÇO LUISINHO` → `Poço Luisinho`) |
 
 ---
 

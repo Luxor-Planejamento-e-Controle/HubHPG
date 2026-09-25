@@ -563,21 +563,13 @@ def dre_ytd(cc, modelo, ano, m, **kw):
 # e resultado (faixa azul em negrito), fechando com a linha invertida em navy.
 # Cada linha aponta para o rótulo da aba "Real x Orçado", que é de onde o VALOR
 # sai (via _na_ordem_oficial, conferido 158/158 com a face em agosto/2026).
-#   (rótulo no slide, rótulo na face oficial, estilo[, "mov"])
-# "mov" = a linha só entra se teve movimento (orçado ou realizado) no recorte.
-# O relatório de agosto/2026 passou a abrir a Venda de Produtos — Embriões e
-# Animais, que eram os que tinham valor; Coberturas e Óvulos zerados ficaram de
-# fora. A regra reproduz isso em qualquer mês, e no YTD abre as quatro.
-PRODUTOS = [
-    ("Embriões", "Embriões", "det", "mov"),
-    ("Coberturas", "Coberturas", "det", "mov"),
-    ("Óvulos", "ÓVulos", "det", "mov"),
-    ("Animais", "Animais", "det", "mov"),
-]
+#   (rótulo no slide, rótulo na face oficial, estilo)
+# Em ago/2026 o relatório chegou a abrir a Venda de Produtos (Embriões, Animais)
+# e o Caixa por bloco de investimento; a versão corrigida (v3, 25/09) voltou ao
+# recorte de julho — são essas as linhas, e nenhuma a mais.
 GAB_RESUMO = [
     ("Receita Bruta", "Receita Bruta", "grupo"),
     ("Venda de Produtos", "Venda de Produtos", "det"),
-    *PRODUTOS,
     ("Receitas Financeiras", "Receitas Financeiras", "det"),
     ("Deduções e Cancelamentos", "Deduções e Cancelamentos", "grupo"),
     ("Cancelamentos", "Cancelamentos", "det"),
@@ -596,26 +588,17 @@ GAB_RESUMO = [
     ("Investimentos", "Investimentos", "grupo"),
     ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
 ]
-# O caixa de agosto/2026 do relatório abre a receita (produtos) e os
-# investimentos por bloco — é onde o haras confere Animais e Produtos.
 GAB_CAIXA = [
     ("Receita Bruta", "Receita Bruta", "grupo"),
-    ("Venda de Produtos", "Venda de Produtos", "det"),
-    *PRODUTOS,
-    ("Deduções e Cancelamentos", "Deduções e Cancelamentos", "grupo"),
     ("Receita Líquida", "Receita operacional - Líquida", "banda"),
     ("Custos e Despesas", "Custos E Despesas", "banda"),
     ("Resultado Operacional", "Resultado Operacional", "banda"),
     ("Investimentos", "Investimentos", "grupo"),
-    ("Máquinas e Equipamentos", "Máquinas e Equipamentos", "det", "mov"),
-    ("Infraestrutura", "Infraestrutura", "det", "mov"),
-    ("Animais e Produtos", "Animais E Produtos", "det", "mov"),
     ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
 ]
 GAB_CASA = [
     ("CASA", None, "rotulo"),
     ("Receita Bruta", "Receita Bruta", "grupo"),
-    ("Receitas com Locação", "Receitas com Locação", "det", "mov"),
     ("Deduções", "Deduções", "det"),
     ("Receitas Financeiras", "Receitas Financeiras", "det"),
     ("Receita Líquida — Locação", "Receita Liquida - Locação", "banda"),
@@ -640,14 +623,12 @@ def linhas_face(face: list[dict], gab: list, extras=None, depois_de=None) -> lis
     """Recorta a face oficial (saída de _na_ordem_oficial) no gabarito do slide."""
     por = {_chave_dre(l["nome"]): l for l in face}
     out = []
-    for rot, rot_face, estilo, *op in gab:
+    for rot, rot_face, estilo in gab:
         if rot_face is None:
             out.append({"nome": rot, "estilo": estilo, "v": [None, None, None, None]})
             continue
         l = por.get(_chave_dre(rot_face))
         v = list(l["v"]) if l else [0.0, 0.0, 0.0, None]
-        if "mov" in op and abs(v[0] or 0) < 0.5 and abs(v[1] or 0) < 0.5:
-            continue
         out.append({"nome": rot, "estilo": estilo, "v": v})
         if extras and rot == depois_de:
             for rot_x, face_x in extras:
@@ -698,8 +679,17 @@ ANALISE_CUSTOS = [
      ("Técnico", "folha", _CUS, "REGISTROS E TRANSFERENCIAS", "TENICO"),
      ("ABCCMM (Associação)", "folha", _CUS, "REGISTROS E TRANSFERENCIAS", "ABCCMM (ASSOCIAÇÃO)")],
 ]
+# O total da análise de despesas é Despesas + os dois arrendamentos: as duas
+# páginas listam D. Lúdia e Vassouras embaixo dele, e o relatório de ago/26
+# fecha assim nas duas versões (atualizada e v3). Julho foi apresentado com o
+# total só de Despesas e fica como foi.
+TOTAL_COM_ARRENDAMENTO_DESDE = (2026, 8)
+DESPESAS_TOTAIS = ("DESPESAS TOTAIS", "total", _DES, None,
+                   [(None, "DESPESAS"),
+                    ("DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS", "DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS"),
+                    ("DESPESAS - ARRENDAMENTO Vassouras - HARAS", "DESPESAS - ARRENDAMENTO Vassouras - HARAS")])
 ANALISE_DESPESAS = [
-    [("DESPESAS TOTAIS", "total", _DES, None, "DESPESAS"),
+    [DESPESAS_TOTAIS,
      ("Marketing", "sub", _DES, "MARKETING", "MARKETING"),
      ("Manutenção", "sub", _DES, "MANUTENÇÃO", "MANUTENÇÃO"),
      ("Veículos - Caminhão", "folha", _DES, "MANUTENÇÃO", "VEICULOS - CAMINHÃO"),
@@ -716,7 +706,7 @@ ANALISE_DESPESAS = [
      ("Uniformes/EPIs", "folha", _DES, "DESPESAS COM PESSOAL", "UNIFORMES E EPI´S"),
      ("Salário", "folha", _DES, "DESPESAS COM PESSOAL", "SALÁRIO"),
      ("FGTS", "folha", _DES, "DESPESAS COM PESSOAL", "FGTS")],
-    [("DESPESAS TOTAIS", "total", _DES, None, "DESPESAS"),
+    [DESPESAS_TOTAIS,
      ("Desp. Administrativas", "sub", _DES, "DESPESAS ADMINISTRATIVAS", "DESPESAS ADMINISTRATIVAS"),
      ("Cobrança Adm. e Jurídica", "folha", _DES, "DESPESAS ADMINISTRATIVAS", "COBRANÇA ADM E JURÍDICA"),
      ("Custo RJ", "folha", _DES, "DESPESAS ADMINISTRATIVAS", "CUSTO RJ"),
@@ -746,8 +736,7 @@ def linhas_analise(ano: int, m: int, pagina: list) -> list[dict]:
     grupo_k = df["Grupo"].map(ch)
     sub_k = df["Subgrupo"].map(ch)
     nat_k = df["Natureza de Lançamento"].map(ch)
-    out = []
-    for rot, estilo, grupo, sub, nat in pagina:
+    def valor(grupo, sub, nat):
         sel = (nat_k == _chave_dre(nat)) & (grupo_k == _chave_dre(grupo))
         if sub:
             sel &= sub_k == _chave_dre(sub)
@@ -758,10 +747,18 @@ def linhas_analise(ano: int, m: int, pagina: list) -> list[dict]:
             cand = cand.assign(_p=cand["Orçado"].abs().fillna(0) + cand["Realizado"].abs().fillna(0)) \
                        .sort_values("_p", ascending=False).head(1)
         if cand.empty:
-            orc = real = 0.0
-        else:
-            r = cand.iloc[0]
-            orc, real = num(r["Orçado"]) or 0.0, num(r["Realizado"]) or 0.0
+            return 0.0, 0.0
+        r = cand.iloc[0]
+        return num(r["Orçado"]) or 0.0, num(r["Realizado"]) or 0.0
+
+    out = []
+    for rot, estilo, grupo, sub, nat in pagina:
+        # linha que soma várias da base: `nat` vem como lista de (subgrupo, natureza)
+        pares = nat if isinstance(nat, list) else [(sub, nat)]
+        if isinstance(nat, list) and (ano, m) < TOTAL_COM_ARRENDAMENTO_DESDE:
+            pares = pares[:1]
+        vs = [valor(grupo, sb, nt) for sb, nt in pares]
+        orc, real = sum(v[0] for v in vs), sum(v[1] for v in vs)
         out.append({"nome": rot, "estilo": estilo,
                     "v": [orc, real, (real - orc) / 1000.0, pct(orc, real)]})
     return out
@@ -1018,10 +1015,8 @@ def slide_estoque(m, ano):
     # porque ele existe no plantel; o que falta é a avaliação dele.
     medio = float(x["valor_100"].sum()) / len(x) if len(x) else 0.0
     avaliados = int((x["valor_100"].fillna(0) > 0).sum())
-    sub_medio = ""
     if (ano, m) >= MEDIO_AVALIADOS_DESDE and avaliados:
         medio = float(x["valor_100"].sum()) / avaliados
-        sub_medio = f"{avaliados} animais avaliados"
     # O patrimônio do cartão é o saldo do Resumo Contábil liberado — o mesmo
     # número do slide de movimentação (jul/26: R$ 15.970.552,61, "R$ 16,0M").
     # A soma do parquet (15,94M) sai do cálculo por cota e não do divulgado.
@@ -1038,7 +1033,7 @@ def slide_estoque(m, ano):
             "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "DA PAO GRANDE + OUTROS",
                       "cor": "navy", "pt": 28},
                      {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "", "cor": "ouro", "pt": 20},
-                     {"v": brl_curto(medio), "l": "Valor Médio", "s": sub_medio, "cor": "azul", "pt": 24}],
+                     {"v": brl_curto(medio), "l": "Valor Médio", "s": "", "cor": "azul", "pt": 24}],
             "rows": _linhas_categoria(cat, len(x))}
 
 
@@ -1188,7 +1183,7 @@ def slide_movimentacao(m, ano):
         else:
             fonte = f"aba Plantel do hub ({', '.join(ABR[k - 1] for k in do_mapa)}: aba Resumo Contábil)"
         return {"t": "movimentacao", "n": 12, "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}",
-                "sub": f"Movimentação contábil Jan–{ab} {ano}  ·  Fonte: {fonte}",
+                "sub": f"Saldo mensal · Compras, produções, vendas e baixas  ·  Fonte: {fonte}",
                 "kpis": [{"v": ("+" if u.get("producao", 0) > 0 else "") + brl_curto(u.get("producao", 0)),
                           "l": f"Produção Emb. {ab}", "s": f"{mes_nome} {ano}", "cor": "navy"},
                          {"v": brl_curto(u.get("vendas", 0)), "l": f"Baixa Vendas {ab}",
@@ -1197,7 +1192,7 @@ def slide_movimentacao(m, ano):
                           "s": f"{mes_nome} {ano}", "cor": "vermelho"},
                          {"v": brl_curto(u.get("saldo_fim", 0)), "l": f"Saldo Final {ab}",
                           "s": "Haras PG", "cor": "azul"}],
-                "cols": ["MOVIMENTO"] + [ABR[k - 1] for k in meses], "rows": rows}
+                "cols": ["TÍTULO"] + [ABR[k - 1].upper() for k in meses], "rows": rows}
     f = PLANTEL_DIR / "mov_cascata.parquet"
     if not f.exists():
         return pend(12, f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}", "", f.name,
@@ -2108,10 +2103,10 @@ def slides_embrioes(m, ano):
               "Status: A fazer  ·  Pgto: Pausado" + (", Após confirmação ou A pagar" if tem_a_pagar
                                                     else " ou Após confirmação"), s33),
         # Até julho/2026 a coluna repetia o status do embrião ('Reposição'); o
-        # relatório de agosto mostra nela o PAGAMENTO, como nos outros três
-        # slides de contrato (Quitado, Troca/Direito)
+        # relatório de agosto (nas duas versões) mostra nela o PAGAMENTO, como
+        # nos outros três slides de contrato (Quitado, Troca/Direito)
         slide(34, "VENDAS — EMBRIÕES DE DIREITO / REPOSIÇÃO",
-              "Status: Reposição ou A fazer com Direito/Troca", s34),
+              "Status: Reposição ou A fazer  ·  Pgto: Direito / Troca", s34),
         slide(35, "ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER",
               'Status "A Fazer" — ainda não produzidos  ·  Fonte: aba RECEBER', [x for x in rec if af(x)],
               "VENDEDOR", "DOADORA (ORIGEM)"),
@@ -2477,22 +2472,115 @@ def slide_pendencias(c, m, ano):
     return {"t": "pendencias", "n": 3, "titulo": titulo, "itens": itens}
 
 
-def slides_exposicoes(c, ano):
+FONTE_RESULTADOS = "Fonte: WhatsApp equipe + site ABCCMM"
+
+
+def _ordinal_expo(t: str) -> str:
+    """'35° Exposição' -> '35ª Exposição' (exposição é feminino; o ° digitado
+    é o grau, não o ordinal)."""
+    return re.sub(r"(\d+)\s*[°º]\s*(?=EXPOSI|Exposi|exposi)", r"\1ª ", str(t or ""))
+
+
+def _data_expo(t: str) -> str:
+    """'06/04 a 12/04/2026' ou '24/09/2026 a 26/09/2026' -> '06 a 12/04/2026'."""
+    t = " ".join(str(t or "").split())
+    mm = re.fullmatch(r"(\d{1,2}/\d{2})/(\d{4}) a (\d{1,2}/\d{2})/(\d{4})", t)
+    if mm and mm.group(2) == mm.group(4):
+        t = f"{mm.group(1)} a {mm.group(3)}/{mm.group(4)}"
+    mm = re.fullmatch(r"(\d{1,2})/(\d{2}) a (\d{1,2})/(\d{2})/(\d{4})", t)
+    if mm and mm.group(2) == mm.group(4):
+        t = f"{mm.group(1)} a {mm.group(3)}/{mm.group(4)}/{mm.group(5)}"
+    return t
+
+
+def _chave_expo(t: str) -> str:
+    return _chave_dre(re.sub(r"(?i)^\s*RESULTADOS\s*[-—–]\s*", "", str(t or "")))
+
+
+def premio_txt(t: str) -> str:
+    """'1° Prêmio - Categoria Progênie de Mãe' -> '1º Prêmio — Categoria Progênie
+    de Mãe'; 'Campeã De Marcha' -> 'Campeã de Marcha' (como o relatório escreve)."""
+    t = " ".join(str(t or "").split())
+    t = re.sub(r"(\d+)\s*[°º]\s*(?=Pr[êe]mio|PR[ÊE]MIO)", lambda mm: mm.group(1) + "º ", t)
+    t = t.replace(" - ", " — ")
+    return re.sub(r"(?<=\S) (De|Da|Do|Das|Dos|E)(?= )", lambda mm: " " + mm.group(1).lower(), t)
+
+
+def expo_animais(animais: list) -> list:
+    return [dict(a, premios=[premio_txt(x) for x in (a.get("premios") or [])]) for a in (animais or [])]
+
+
+def expo_programacao(prog: list) -> list:
+    """Linhas da programação como o relatório as escreve: ordinal, data curta,
+    local vazio como travessão e sigla de estado em maiúscula. O conteúdo
+    guardado no hub não muda — é só a apresentação (o deck.js faz o mesmo)."""
+    out = []
+    for r in prog:
+        ev, dt, loc, st = (list(r) + ["", "", "", ""])[:4]
+        loc = str(loc or "").strip()
+        loc = loc.upper() if len(loc) == 2 else loc
+        out.append([_ordinal_expo(ev), _data_expo(dt), loc or "—", st])
+    return out
+
+
+def expo_resultado(r: dict, prog: list) -> tuple:
+    """Título com travessão e ordinal; sem subtítulo escrito, o da programação
+    (data do evento) e a fonte, como no relatório."""
+    tit = re.sub(r"^\s*RESULTADOS\s*[-–]\s*", "RESULTADOS — ", _ordinal_expo(r.get("titulo", "")), flags=re.I)
+    sub = str(r.get("sub") or "").strip()
+    if not sub:
+        k = _chave_expo(tit)
+        dt = next((_data_expo(p[1]) for p in prog if len(p) > 1 and _chave_expo(_ordinal_expo(p[0])) == k), "")
+        sub = f"{dt}  ·  {FONTE_RESULTADOS}" if dt else FONTE_RESULTADOS
+    return tit, sub
+
+
+def programacao_com_resultados(prog: list, res: list, todos, m, ano) -> list:
+    """Evento que tem slide de resultado no mês tem de estar no calendário. O
+    conteúdo de ago/26 trazia o resultado de Paracambi e a programação sem ela
+    (está na de julho): volta com a linha do mês mais recente que a tinha, no
+    lugar em que estava lá. Evento tirado da programação que NÃO tem resultado
+    (Expo do Criador, jun→jul) continua fora."""
+    tem = {_chave_expo(_ordinal_expo(r[0])) for r in prog if r}
+    faltam = [_chave_expo(_ordinal_expo(r.get("titulo", ""))) for r in res]
+    faltam = [k for k in faltam if k and k not in tem]
+    out = [list(r) for r in prog]
+    for k in faltam:
+        for mm in range(m - 1, 0, -1):
+            ant = ((todos.get(f"{ano}-{mm:02d}", {}).get("exposicoes") or {}).get("programacao")) or []
+            chaves = [_chave_expo(_ordinal_expo(r[0])) for r in ant]
+            if k not in chaves:
+                continue
+            i = chaves.index(k)
+            # entra logo depois do evento que o precedia lá, se ele está aqui
+            antes = next((chaves[j] for j in range(i - 1, -1, -1)
+                          if chaves[j] in {_chave_expo(_ordinal_expo(x[0])) for x in out}), None)
+            pos = 0 if antes is None else 1 + next(n for n, x in enumerate(out)
+                                                   if _chave_expo(_ordinal_expo(x[0])) == antes)
+            out.insert(pos, list(ant[i]))
+            break
+    return out
+
+
+def slides_exposicoes(c, ano, todos=None, m=None):
     exp = c.get("exposicoes") or {}
     prog, res = exp.get("programacao") or [], exp.get("resultados") or []
+    if todos is not None and m and prog:
+        prog = programacao_com_resultados(prog, res, todos, m, ano)
     out = []
     if prog:
         out.append({"t": "tabela", "n": 23, "titulo": f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO",
                     "sub": "Calendário de participações previstas",
-                    "cols": ["EVENTO", "DATA", "LOCAL", "STATUS"], "rows": prog})
+                    "cols": ["EVENTO", "DATA", "LOCAL", "STATUS"], "rows": expo_programacao(prog)})
     else:
         out.append(pend(23, f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO", "Calendário de participações",
                         "_docs/comite_conteudo.json → exposicoes.programacao", FALTA_CONTEUDO,
                         edita="exposicoes"))
     if res:
         for k, r in enumerate(res):
-            out.append({"t": "resultados", "n": 24 + k, "titulo": r["titulo"],
-                        "sub": r.get("sub", ""), "animais": r["animais"]})
+            tit, sub = expo_resultado(r, prog)
+            out.append({"t": "resultados", "n": 24 + k, "titulo": tit, "sub": sub,
+                        "animais": expo_animais(r["animais"])})
     else:
         out.append(pend(24, "RESULTADOS DAS EXPOSIÇÕES", "Animais, títulos e colocações",
                         "_docs/comite_conteudo.json → exposicoes.resultados", FALTA_CONTEUDO,
@@ -2697,6 +2785,13 @@ _RE_PATH_BUCKET = re.compile(r"^\d{4}-\d{2}/")
 _RE_VIDEO = re.compile(r"\.(mp4|webm|mov|m4v|ogv)$", re.I)
 
 
+def tema_foto(t: str) -> str:
+    """Tema digitado em caixa alta ('POÇO LUISINHO') sai como título ('Poço
+    Luisinho'), como o relatório escreve; o que já vem em caixa mista fica."""
+    t = " ".join(str(t or "").split())
+    return titulo_pt(t) if t and t == t.upper() else t
+
+
 def _fotos_grupo_por_tema(grupos, m, ano):
     """Um ou mais slides por TEMA, igual ao deck oficial — 'Obras e melhorias
     realizadas · Banqueta' com 1-6 fotos, nunca misturando tema no mesmo slide.
@@ -2722,7 +2817,8 @@ def _fotos_grupo_por_tema(grupos, m, ano):
         for k in range(n):
             bloco = embutidas[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]
             cols, rows = GRADE_FOTOS[len(bloco)]
-            sub = f"Obras e melhorias realizadas  ·  {tema}" if tema else f"Registros de {MESES[m-1]} {ano}"
+            sub = (f"Obras e melhorias realizadas  ·  {tema_foto(tema)}" if tema
+                   else f"Registros de {MESES[m-1]} {ano}")
             if n > 1:
                 sub += f" ({k+1}/{n})"
             out.append({"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
@@ -2845,8 +2941,7 @@ def oculto(slide):
     """Slide que existe no arquivo mas não entra na apresentação — o 'ocultar
     slide' do PowerPoint. O deck mantém no arquivo o que o relatório não
     apresenta (quem quiser, navega até eles) e o PPTX sai com eles marcados como
-    ocultos. O acumulado do Haras e o da Casa eram ocultos até julho/2026; o
-    relatório de agosto passou a apresentá-los."""
+    ocultos — é o caso do acumulado do Haras e do da Casa."""
     slide["oculto"] = True
     return slide
 
@@ -2899,16 +2994,18 @@ def monta_deck(m, ano, ctx):
                            linhas_analise(ano, m, pag), "analise"))
     face_ytd = _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
                                  gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
-    # o relatório de agosto/2026 passou a APRESENTAR o acumulado (em julho ele
-    # ficava oculto); os números são os das colunas YTD da própria face
-    s.append(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
-                 f"DRE {ano} | HPG  ·  Acumulado Jan–{ABR[m-1]}  ·  Fonte: aba Real x Orçado (Comp)",
-                 linhas_face(face_ytd, GAB_RESUMO), "resumo"))
+    # o acumulado fica no arquivo e fora da apresentação, como no relatório
+    # (jul/26 e a versão corrigida de ago/26); os números são os das colunas YTD
+    # da própria face
+    s.append(oculto(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
+                        f"DRE {ano} | HPG  ·  Competência  ·  Janeiro a {MESES[m-1]}  ·  "
+                        f"Fonte: aba Real x Orçado (Comp)",
+                        linhas_face(face_ytd, GAB_RESUMO), "resumo")))
     s += slides_comentarios(cont, m, ano)
     s.append(slide_investimentos(m, ano))
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
-                       f"DRE {ano} | HPG  ·  Caixa Mensal  ·  Fonte: aba Real x Orçado (Caixa)",
+                       f"FC {ano} | HPG  ·  Caixa Mensal  ·  Dados confirmados",
                        linhas_face(face_cx, GAB_CAIXA), "caixa"))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
@@ -2917,16 +3014,16 @@ def monta_deck(m, ano, ctx):
                        f"FC {ano} | FPG  ·  Caixa  ·  {MESES[m-1]} {ano}  ·  Fonte: aba Real x Orçado",
                        linhas_face(face_casa, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
     face_casa_ytd = _na_ordem_oficial(dre_ytd("FPG", "Caixa", ano, m), gabarito(DRE_CASA, "Real x Orçado"))
-    s.append(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
-                 f"FC {ano} | FPG  ·  Acumulado Jan–{ABR[m-1]}  ·  Fonte: aba Real x Orçado",
-                 linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
+    s.append(oculto(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
+                        f"FC {ano} | FPG  ·  Caixa  ·  Janeiro a {MESES[m-1]}  ·  Fonte: aba Real x Orçado",
+                        linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa")))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", f"Embriões  ·  Doadoras  ·  Garanhões  |  {safra}"))
     s += est_slides
     s.append(cob_slide)
 
     s.append(divisor(3, "EXPOSIÇÕES", f"Programação  ·  Resultados  |  {MES} {ano}"))
-    s += slides_exposicoes(cont, ano)
+    s += slides_exposicoes(cont, ano, ctx["conteudo"], m)
 
     s.append(divisor(4, "VENDAS", f"Pipeline Comercial  ·  Contratos {ano}  |  {MES} {ano}"))
     s += slides_vendas(m, ano)
