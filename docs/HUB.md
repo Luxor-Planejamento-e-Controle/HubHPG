@@ -125,7 +125,7 @@ Agendar (a cada 10 minutos):
 
 ```
 schtasks /create /tn "HPG - Agente do hub" /sc minute /mo 10 ^
-  /tr "python C:\Users\Arthur\repos\HubHPG\tools\agente_hub.py"
+  /tr "pythonw C:\Users\Arthur\repos\HubHPG\tools\agente_hub.py"
 ```
 
 O que o agente roda:

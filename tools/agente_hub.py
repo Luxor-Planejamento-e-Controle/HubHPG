@@ -12,7 +12,7 @@ Uso:
     python tools/agente_hub.py --status   # imprime a fila, sem executar
 
 Agendar (a cada 10 min, dia útil):
-    schtasks /create /tn "HPG - Agente do hub" /tr "python C:\\...\\tools\\agente_hub.py"
+    schtasks /create /tn "HPG - Agente do hub" /tr "pythonw C:\\...\\tools\\agente_hub.py"
              /sc minute /mo 10
 
 Duas garantias que o hub sozinho não daria:
