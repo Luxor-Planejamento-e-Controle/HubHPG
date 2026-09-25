@@ -2063,21 +2063,20 @@ def build_pendentes(rep: Report):
     # 5 marcados e o relatorio fechado diz "05 animais", reposicao inclusa. Fica so o
     # aviso, porque a natureza da saida e diferente e alguem pode querer separar.
     reposicoes = {_nucleo_nome(x["nome"]) for x in pend if x["reposicao"]}
-    if mensal["vendidos_pendentes"]:
-        marcados = mensal["vendidos_pendentes"]
-        repostos = [x for x in marcados if _nucleo_nome(x["nome"]) in reposicoes]
-        if repostos:
-            print("  [pendentes] entre os vendidos pendentes ha reposição (sai para "
-                  "repor outro animal, nao para comprador): "
-                  + "; ".join(x["nome"] for x in repostos))
-        vendidos = marcados + vend_embrioes
-        fonte_vendidos = "status_plantel"
-    else:
-        vendidos = [p for p in pend if p["tipo"] == "VENDA" and not p["reposicao"]]
-        fonte_vendidos = "animais_para_sair"
-        print(f"  [terceiros] nenhum '{STATUS_VENDIDO_PENDENTE}' no STATUS PLANTEL de "
-              f"{mensal['fonte']}; vendidos pendentes caindo no Animais para sair "
-              f"(congelado em 24/07/2026)")
+    # ZERO ANIMAL PENDENTE É ESTADO, NÃO FALTA DE DADO. Havia aqui um `else` que, sem
+    # nenhum 'VENDIDO PENDENTE' no STATUS PLANTEL, caía no 'Animais para sair' —
+    # arquivo que já tinha saído do pipeline (`pend` é sempre vazio) — e, de quebra,
+    # largava `vend_embrioes`. Em 25/09/2026 o haras entregou os 5 animais vendidos
+    # de uma vez e o LIBRA DA PAO GRANDE x OLIMPO DO MH (PG-E-064, 'Pronto -
+    # Aguardando Entrega') sumiu do card junto, sem ter mudado nada na planilha.
+    marcados = mensal["vendidos_pendentes"]
+    repostos = [x for x in marcados if _nucleo_nome(x["nome"]) in reposicoes]
+    if repostos:
+        print("  [pendentes] entre os vendidos pendentes ha reposição (sai para "
+              "repor outro animal, nao para comprador): "
+              + "; ".join(x["nome"] for x in repostos))
+    vendidos = marcados + vend_embrioes
+    fonte_vendidos = "status_plantel"
 
     # SOCIEDADE pendente = animais + embriões (regra do relatório desde 07/08/2026).
     # Até 28/08/2026 não havia marca viva pra animal em sociedade — só o "Animais
