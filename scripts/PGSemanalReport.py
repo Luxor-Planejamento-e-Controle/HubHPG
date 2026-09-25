@@ -2563,6 +2563,23 @@ def _refina_afeta_headcount(rep: Report):
 OBS_SEM_LANCAMENTO = "não consta o movimento da aba SAIDAS-ENTRADAS"
 
 
+def _saidas_anteriores(semana: str) -> dict:
+    """{animal: semana} de quem já saiu num fechamento ANTERIOR a `semana`.
+
+    Lê a lista publicada nos snapshots congelados — é o que o painel já mostrou como
+    saída. A semana que está sendo refeita não entra, senão rodar duas vezes o mesmo
+    fechamento tiraria da lista as saídas dele próprio."""
+    out = {}
+    for wid, snap in sorted(_load_hist().items()):
+        if not _is_iso(wid) or wid >= semana:
+            continue
+        for x in ((snap.get("detalhe") or {}).get("saidas") or []):
+            nome = _norm(x.get("animal"))
+            if nome:
+                out.setdefault(nome, wid)
+    return out
+
+
 def _data_na_janela(rep: Report, linha: dict) -> str | None:
     """Data de condição do roster, só se ela for desta semana.
 
@@ -2720,6 +2737,18 @@ def _compute_movimento(rep: Report):
         # mostra. Elas entram marcadas com a origem, e a falta do lançamento vira
         # aviso em vez de sumir.
         sai = sai + _saidas_por_mudanca_de_local(rep, sai)
+        # Saída não se repete. A MELISSA DA PAO GRANDE deixou o plantel no fechamento
+        # de 18/09/2026 (virou 'VENDIDO E ENTREGUE' e saiu pela regra do roster) e o
+        # lançamento oficial dela na aba veio com data de 25/09 — ela entrava de novo
+        # na lista, com 6 saídas numa semana de Δ −5. Quem já foi publicado como
+        # saída num fechamento anterior fica fora, com aviso.
+        ja_sairam = _saidas_anteriores(rep.semana_atual)
+        repetidas = [x for x in sai if _norm(x.get("animal")) in ja_sairam]
+        if repetidas:
+            print(f"  [saídas] {len(repetidas)} já contada(s) como saída em fechamento "
+                  f"anterior, fora da lista: " + "; ".join(
+                      f"{x['animal']} (em {ja_sairam[_norm(x['animal'])]})" for x in repetidas))
+            sai = [x for x in sai if _norm(x.get("animal")) not in ja_sairam]
         rep.saidas["saidas_semana"] = len(sai)
         rep.saidas["entradas_semana"] = len(ent)
         rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
