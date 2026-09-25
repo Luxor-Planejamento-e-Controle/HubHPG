@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import io
 import json
+import unicodedata
 import os
 import sys
 from datetime import datetime, timezone
@@ -41,7 +42,13 @@ RAIZ_DRIVE_ID = os.getenv("HPG_DRIVE_ROOT_ID", "1mBrSeztRwtBnMlkOMnq6aO4LQUkNjiT
 
 # Só estas pastas de primeiro nível. O drive inteiro tem muito mais coisa, e baixar
 # tudo toda sexta seria pagar banda por arquivo que ninguém abre.
-PASTAS = ("PLANTEL", "ATUALIZACAO SEMANAL")
+#
+# REPRODUÇÃO e VENDAS faltavam (lista conferida em 25/09/2026 contra os caminhos que
+# o PGSemanalReport de fato abre): a estação de monta — produção, confirmados,
+# acumulado — e o EMBRIOES A ENTREGAR moram em REPRODUÇÃO; o mapa de vendas, em
+# VENDAS. Nunca apareceu porque a Function morria antes, na credencial do Drive; com
+# ela resolvida, o fechamento na nuvem sairia sem produção.
+PASTAS = ("PLANTEL", "ATUALIZACAO SEMANAL", "REPRODUÇÃO", "VENDAS")
 
 # Só o que o pipeline sabe abrir. '~$' é lock de Excel aberto — o próprio pipeline
 # já os ignora, mas não faz sentido baixar.
@@ -153,8 +160,12 @@ def sincronizar(destino: Path | None = None, verboso: bool = True) -> Path:
     destino = Path(destino or os.getenv("HPG_DRIVE_CACHE")
                    or (Path(os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp") / "hpg-drive"))
     svc = _servico()
-    filhos = {f["name"]: f for f in _listar(svc, RAIZ_DRIVE_ID)}
-    faltando = [p for p in PASTAS if p not in filhos]
+    # NFC dos dois lados: 'REPRODUÇÃO' pode vir da API decomposto (C + cedilha
+    # combinante) e aí não bateria com o literal do código, abortando a sexta com
+    # "pasta ausente" para uma pasta que existe.
+    nfc = lambda t: unicodedata.normalize("NFC", t)
+    filhos = {nfc(f["name"]): f for f in _listar(svc, RAIZ_DRIVE_ID)}
+    faltando = [p for p in PASTAS if nfc(p) not in filhos]
     if faltando:
         # não seguir com fonte pela metade: o pipeline concluiria "arquivo não existe"
         # e cairia numa cópia antiga, que é o modo de falhar em silêncio que ele evita
@@ -162,7 +173,7 @@ def sincronizar(destino: Path | None = None, verboso: bool = True) -> Path:
                  f"A credencial enxerga: {sorted(filhos)}")
     baixados, pulados = [], []
     for nome in PASTAS:
-        _andar(svc, filhos[nome]["id"], destino / nome, baixados, pulados)
+        _andar(svc, filhos[nfc(nome)]["id"], destino / nome, baixados, pulados)
     if verboso:
         print(f"[drive] {len(baixados)} arquivo(s) baixado(s), {len(pulados)} já em cache "
               f"-> {destino}")
