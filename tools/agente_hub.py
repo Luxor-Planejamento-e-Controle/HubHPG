@@ -45,7 +45,12 @@ PIPELINES = {
     "semanal": [
         ("fecha a semana", [PY, "PGSemanal.py", "--no-open"]),
         ("monta o dashboard", [PY, "tools/build_semanal.py"]),
-        ("publica no bucket", [PY, "tools/publish_hub.py", "semanal"]),
+        # A auditoria sai do MESMO snapshot que acabou de ser congelado: sem este
+        # passo ela seguia mostrando a semana anterior. E `estado` leva os snapshots
+        # para o bucket — é a memória do pipeline, que não se reconstrói porque as
+        # planilhas do Drive são sobrescritas a cada semana (ver publish_hub.py).
+        ("monta a auditoria", [PY, "tools/build_auditoria.py"]),
+        ("publica no bucket", [PY, "tools/publish_hub.py", "semanal", "auditoria", "estado"]),
     ],
     "comite": [
         ("monta o deck", [PY, "tools/build_comite.py"]),
