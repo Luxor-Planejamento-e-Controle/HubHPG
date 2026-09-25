@@ -1269,6 +1269,15 @@ def _classificar_se(classif: str, animal: str = ""):
     return None, None
 
 
+def _txt(v) -> str | None:
+    """Texto livre da aba SAIDAS-ENTRADAS como vai para o painel: maiúsculas e
+    espaços colapsados, acentos preservados. A coluna de destino é digitada à mão e
+    chegou 'PEDRO ANTonio' na linha da PEDRITA em 25/09/2026, destoando de todas as
+    outras. A planilha é do haras e não se corrige lá — normaliza aqui, na leitura."""
+    t = _s(v)
+    return " ".join(t.split()).upper() if t else t
+
+
 # animal -> lançamento da aba SAIDAS-ENTRADAS, SEM filtro de janela. O fallback do
 # roster consulta aqui antes de dar a saída como sem data (ver _saidas_por_mudanca_de_local).
 _LANCAMENTOS_SAIDA: dict = {}
@@ -1295,7 +1304,7 @@ def _saidas_entradas_planilha(wb, ini: date, fim: date):
         # aparecia sem data nenhuma no painel.
         _LANCAMENTOS_SAIDA[_norm(r[1])] = {
             "data": d.isoformat() if d else None, "classificacao": _s(r[5]),
-            "local_saida": _s(r[2]), "local_entrada": _s(r[3])}
+            "local_saida": _txt(r[2]), "local_entrada": _txt(r[3])}
         if not d or not (ini <= d <= fim):
             continue
         classif = _norm(r[5])
@@ -1306,7 +1315,7 @@ def _saidas_entradas_planilha(wb, ini: date, fim: date):
             continue
         evs[alvo].append({"animal": _s(r[1]), "data": d.isoformat(),
                           "classificacao": _s(r[5]), "afeta_headcount": afeta,
-                          "local_saida": _s(r[2]), "local_entrada": _s(r[3])})
+                          "local_saida": _txt(r[2]), "local_entrada": _txt(r[3])})
     if desconhecidas:
         print(f"  [SAIDAS-ENTRADAS] classificação não reconhecida em "
               f"{len(desconhecidas)} linha(s) da janela — NÃO entraram na conta: "
