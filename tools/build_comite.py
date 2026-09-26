@@ -300,8 +300,10 @@ def _dre_hist():
         aviso(f"DRE_Historico é de {dia(DRE_HIST)}, mais antigo que "
               + ", ".join(f"{f.name} ({dia(f)})" for f in atrasos)
               + f" — o fechamento novo NÃO está na base. Rode LxDREdataExtractor.py "
-                f"em {DRE_DIR} e responda TUDO (o modo incremental não recalcula mês "
-                f"que já existe; _rebuild.py não serve, derruba Base DRE Geral e Base YTD)")
+                f"em {DRE_DIR} com o mês do fechamento (desde 25/09/2026 o incremental "
+                f"relê o mês que já existe e regera as bases longas inteiras) ou TUDO "
+                f"para refazer também a Base DRE dos outros meses; "
+                f"_rebuild.py não serve, derruba Base DRE Geral e Base YTD)")
     print(f"  [dre] base de {dia(DRE_HIST)} — {DRE_HIST}")
     _dre_hist_cache.append(_registra("DRE histórico", DRE_HIST))
     return DRE_HIST
