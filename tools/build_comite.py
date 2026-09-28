@@ -832,9 +832,10 @@ def linhas_analise(ano: int, m: int, pagina: list) -> list[dict]:
 # ------------------------------- análise a partir de ago/2026: fixas + aberturas
 # Pedido do Arthur em 28/09/2026. Os subgrupos são linhas fixas; as naturezas
 # embaixo de cada um entram quando o realizado se afasta do orçado em pelo menos
-# R$ 2 mil, para cima ou para baixo. Os dois arrendamentos viram uma linha só,
-# aberta nas naturezas de D. Lúdia e de Vassouras. Até julho vale a lista fixa
-# do relatório da Ana (ANALISE_CUSTOS/ANALISE_DESPESAS), como foi apresentado.
+# R$ 2 mil, para cima ou para baixo. Os dois arrendamentos são linhas fixas
+# separadas: D. Lúdia abre nas naturezas dele, Vassouras nos blocos dele. Até
+# julho vale a lista fixa do relatório da Ana (ANALISE_CUSTOS/ANALISE_DESPESAS),
+# como foi apresentado.
 ANALISE_DINAMICA_DESDE = (2026, 8)
 VARIACAO_MINIMA = 2000.0
 LINHAS_POR_PAGINA = 17
@@ -847,6 +848,8 @@ FIXAS_DESPESAS = [("Marketing", "MARKETING"), ("Manutenção", "MANUTENÇÃO"),
                   ("Consumo de Água e Luz", "CONSUMO DE ÁGUA E LUZ"),
                   ("Despesas com Pessoal", "DESPESAS COM PESSOAL"),
                   ("Desp. Administrativas", "DESPESAS ADMINISTRATIVAS")]
+# blocos de Vassouras na ordem em que o relatório os lista
+ORDEM_VASSOURAS = ["VOLUMES E CONCENTRADOS", "PESSOAL", "REPRODUÇÃO", "SANIDADE"]
 # o rótulo curto que o relatório já usava para a natureza; o resto sai do nome da base
 ROTULO_NATUREZA = {_chave_dre(nat): rot for pag in ANALISE_CUSTOS + ANALISE_DESPESAS
                    for rot, estilo, _g, _s, nat in pag if estilo == "folha" and isinstance(nat, str)}
@@ -895,7 +898,7 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
         r = c.loc[(c["_o"].abs() + c["_r"].abs()).idxmax()]
         return r["_o"], r["_r"]
 
-    def aberturas(grupo, subs, sufixo=""):
+    def aberturas(grupo, subs):
         c = df[(df["_g"] == _chave_dre(grupo)) & df["_s"].isin([_chave_dre(s) for s in subs])
                & ~df["É Subtotal"].astype(bool)]
         c = c.assign(_p=c["_o"].abs() + c["_r"].abs()).sort_values("_p", ascending=False) \
@@ -905,7 +908,7 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
             if abs(r["_r"] - r["_o"]) < VARIACAO_MINIMA:
                 continue
             nome = ROTULO_NATUREZA.get(r["_n"]) or titulo_pt(r["Natureza de Lançamento"])
-            out.append(_linha(nome + sufixo, "folha", r["_o"], r["_r"]))
+            out.append(_linha(nome, "folha", r["_o"], r["_r"]))
         return out
 
     blocos = []
@@ -919,13 +922,18 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
         topo = _linha("DESPESAS TOTAIS", "total", d[0] + lu[0] + va[0], d[1] + lu[1] + va[1])
         for rot, sub in FIXAS_DESPESAS:
             blocos.append([_linha(rot, "sub", *subtotal(_DES, sub))] + aberturas(_DES, [sub]))
-        # Vassouras não tem subgrupo próprio para as naturezas: são os blocos de
-        # Despesas que não são os principais nem o de D. Lúdia
+        blocos.append([_linha("Arrendamento D. Lúdia", "sub", *lu)] + aberturas(_DES, [_LUDIA]))
+        # Vassouras abre nos blocos dele (Volumes e Concentrados, Pessoal...), que
+        # na base são os subgrupos de Despesas que não são os principais nem o de
+        # D. Lúdia; entram pela mesma regra de variação
         principais = {_chave_dre(s) for _, s in FIXAS_DESPESAS} | {_chave_dre(_LUDIA), _chave_dre(_VASSOURAS)}
-        vass = sorted({s for s in df.loc[df["_g"] == _chave_dre(_DES), "Subgrupo"].dropna()
-                       if _chave_dre(s) not in principais})
-        blocos.append([_linha("Arrendamentos", "sub", lu[0] + va[0], lu[1] + va[1])]
-                      + aberturas(_DES, [_LUDIA], " (D. Lúdia)") + aberturas(_DES, vass, " (Vassouras)"))
+        vass = {s for s in df.loc[df["_g"] == _chave_dre(_DES), "Subgrupo"].dropna()
+                if _chave_dre(s) not in principais}
+        vass = sorted(vass, key=lambda s: (ORDEM_VASSOURAS.index(s) if s in ORDEM_VASSOURAS else 99, s))
+        abre = [_linha(ROTULO_NATUREZA.get(_chave_dre(s)) or titulo_pt(s), "folha", *subtotal(_DES, s))
+                for s in vass]
+        blocos.append([_linha("Arrendamento Vassouras", "sub", *va)]
+                      + [l for l in abre if abs(l["v"][1] - l["v"][0]) >= VARIACAO_MINIMA])
         fim = [_linha("Resultado Operacional", "banda", *subtotal("RESULTADO OPERACIONAL", "RESULTADO OPERACIONAL"))]
 
     # página: o total no topo e blocos inteiros; bloco maior que a página quebra
