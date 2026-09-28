@@ -112,6 +112,46 @@ function _ajustaAlturaEmbed(f){
   catch(e){ /* sem ResizeObserver, fica só na medida inicial + no load */ }
 }
 
+/* Estilo da barra "Atualizar dados" DENTRO do painel embutido. O iframe não
+   carrega o theme.css do hub, e o `button{}` genérico do painel pintaria o botão
+   de azul — por isso as regras vão junto, com as variáveis do próprio painel. */
+const HJ_CSS_EMBED=`
+.hj-slot{margin-right:auto;display:flex;align-items:center}
+.hj-barra{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.hj-btn{background:var(--amber,#CA9703);color:#1a1300;border:0;border-radius:8px;
+  padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer}
+.hj-btn:hover:not(:disabled){filter:brightness(1.08)}
+.hj-btn:disabled{opacity:.45;cursor:default}
+.hj-estado{font-size:12.5px;color:var(--mut,#93AABC)}
+.hj-estado.espera{color:var(--amber,#CA9703)}
+.hj-estado.ok{color:var(--pos,#4CC38A)}
+.hj-estado.erro{color:var(--neg,#F07A7A)}
+.hj-log{background:none;border:1px solid var(--line,#1B486B);color:var(--mut,#93AABC);
+  border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer}
+/* fora das exportações: "Exportar imagem" clona o <header> para dentro de #capa
+   levando os <style> da página (este incluso), e o PDF sai por @media print */
+#capa .hj-slot{display:none !important}
+@media print{.hj-slot{display:none !important}}`;
+
+/* Põe a barra na MESMA linha da barra de ferramentas do painel (seletor de
+   semana, Editar, Exportar…), no lado esquerdo que o build deixa vazio ao
+   esconder a marca. Antes ela vivia numa faixa própria acima do iframe e ficava
+   solta, desalinhada do resto. Devolve false se o painel não tem <header> — aí
+   quem chama cai na faixa de cima. */
+function _barraNoEmbed(f){
+  const doc=f.contentDocument;
+  const header=doc&&doc.querySelector('header');
+  if(!header) return false;
+  if(!doc.getElementById('hj-estilo')){
+    const st=doc.createElement('style'); st.id='hj-estilo'; st.textContent=HJ_CSS_EMBED;
+    doc.head.appendChild(st);
+  }
+  const slot=doc.createElement('div'); slot.className='hj-slot';
+  header.insertBefore(slot, header.firstChild);
+  window.HubJob.barra(slot,'semanal',{aoTerminar:()=>location.reload()});
+  return true;
+}
+
 function renderSemanal(el){
   el.classList.add('flush');
   /* Atualizar aqui = enfileirar um pedido (assets/hubjob.js). O pipeline lê o
@@ -119,25 +159,22 @@ function renderSemanal(el){
      botão não tem como retroagir semana nenhuma, porque não manda data — a
      janela sai do último snapshot congelado e o PGSemanal.py recusa refazer
      semana já fechada. */
-  if(window.HubJob){
-    const topo=document.createElement('div');
-    topo.className='hj-topo';
-    el.appendChild(topo);
-    window.HubJob.barra(topo,'semanal',{aoTerminar:()=>location.reload()});
-  }
-  const html=window.HUB&&window.HUB.semanalHtml;
-  if(!html){
-    const f=document.createElement('iframe');
-    f.className='embed auto-h'; f.title='Atualização Semanal';
-    f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
-    f.src='assets/semanal/dashboard.html';
-    el.appendChild(f);
-    return;
-  }
   const f=document.createElement('iframe');
   f.className='embed auto-h'; f.title='Atualização Semanal';
-  f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
-  f.srcdoc=html;
+  let montou=false;
+  f.addEventListener('load',()=>{
+    _ajustaAlturaEmbed(f);
+    if(!window.HubJob||montou) return;
+    montou=true;
+    if(!_barraNoEmbed(f)){
+      const topo=document.createElement('div');
+      topo.className='hj-topo';
+      el.insertBefore(topo,f);
+      window.HubJob.barra(topo,'semanal',{aoTerminar:()=>location.reload()});
+    }
+  });
+  const html=window.HUB&&window.HUB.semanalHtml;
+  if(html) f.srcdoc=html; else f.src='assets/semanal/dashboard.html';
   el.appendChild(f);
 }
 
