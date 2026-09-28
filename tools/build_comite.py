@@ -678,6 +678,33 @@ GAB_CASA = [
 CASA_EXTRAS = [("Marketing", "Marketing"), ("Hospedagem Família", "Hospedagem Familia")]
 
 
+# Cartões do slide YTD, como os do relatório: valor em milhões com duas casas e,
+# embaixo, a variação contra o orçado (em custo, variação positiva é economia).
+#   (linha do resumo, rótulo do cartão, cor, é custo)
+CARTOES_YTD = [("Receita Líquida", "Receita Líquida YTD", "navy", False),
+               ("Custos e Despesas", "Custos e Despesas YTD", "azul", True),
+               ("Resultado Operacional", "Res. Operacional YTD", "navy", False),
+               ("Resultado Patrimonial", "Res. Patrimonial YTD", "vinho", False)]
+
+
+def kpis_ytd(linhas: list[dict]) -> list[dict]:
+    por = {l["nome"]: l["v"] for l in linhas}
+    out = []
+    for rot, rotulo, cor, custo in CARTOES_YTD:
+        orc, real = (por.get(rot) or [0.0, 0.0])[:2]
+        d = (real or 0.0) - (orc or 0.0)
+        k = int(abs(d) / 1000 + 0.5)              # meio pra longe do zero, como o Excel
+        seta, sinal = ("▲", "+") if d > 0 and k else ("▼", "-") if d < 0 and k else ("", "")
+        cauda = " economia" if custo and d > 0 else " vs orç."
+        valor = f"{'-' if real < 0 else ''}R$ {abs(real) / 1e6:.2f}M".replace(".", ",")
+        c = {"v": valor, "l": rotulo, "s": f"{seta} {sinal}R${k:,}k{cauda}".replace(",", ".").strip(),
+             "cor": cor}
+        if cor != "vinho":                        # no vinho a linha fica rosa, como no relatório
+            c["sc"] = "99FF99" if d > 0 else "FF9999"
+        out.append(c)
+    return out
+
+
 def linhas_face(face: list[dict], gab: list, extras=None, depois_de=None) -> list[dict]:
     """Recorta a face oficial (saída de _na_ordem_oficial) no gabarito do slide."""
     por = {_chave_dre(l["nome"]): l for l in face}
@@ -1334,7 +1361,7 @@ def resumo_movimentacao(ano: int, m: int):
 
 
 def slide_movimentacao(m, ano):
-    rc, do_mapa = resumo_movimentacao(ano, m)
+    rc, _ = resumo_movimentacao(ano, m)
     meses = [k for k in range(1, m + 1) if k in rc]
     if meses:
         u = rc[meses[-1]]
@@ -3136,9 +3163,9 @@ def so_mensal(slides):
 
 def oculto(slide):
     """Slide que existe no arquivo mas não entra na apresentação — o 'ocultar
-    slide' do PowerPoint. O deck mantém no arquivo o que o relatório não
-    apresenta (quem quiser, navega até eles) e o PPTX sai com eles marcados como
-    ocultos — é o caso do acumulado do Haras e do da Casa."""
+    slide' do PowerPoint, e o PPTX sai com ele marcado assim. Desde 28/09/2026
+    só o slide de comentários sem texto no mês fica oculto; os acumulados e a
+    contagem por local voltaram à apresentação."""
     slide["oculto"] = True
     return slide
 
@@ -3181,8 +3208,7 @@ def monta_deck(m, ano, ctx):
     s += so_mensal(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
                        "",
                        linhas_face(face_comp, gab_resumo), "resumo"))
-    for n, tema, titulo, desc in ((5, "custos", "ANÁLISE DE CUSTOS", "Custos Indiretos de Produção"),
-                                  (6, "despesas", "ANÁLISE DE DESPESAS", "Despesas Operacionais")):
+    for n, tema, titulo in ((5, "custos", "ANÁLISE DE CUSTOS"), (6, "despesas", "ANÁLISE DE DESPESAS")):
         pags = paginas_analise(ano, m, tema)
         for k, linhas in enumerate(pags, 1):
             parte = f"Parte {k} de {len(pags)}" if len(pags) > 1 else ""
@@ -3190,12 +3216,17 @@ def monta_deck(m, ano, ctx):
                                parte, linhas, "analise"))
     face_ytd = _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
                                  gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
-    # o acumulado fica no arquivo e fora da apresentação, como no relatório
-    # (jul/26 e a versão corrigida de ago/26); os números são os das colunas YTD
-    # da própria face, nas mesmas linhas do resumo do mês. Sem subtítulo: o
-    # título já diz o período (pedido do Arthur, 28/09).
-    s.append(oculto(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)", "",
-                        linhas_face(face_ytd, gab_resumo), "resumo")))
+    # O acumulado entra na apresentação, com os cartões do relatório em cima; os
+    # números são os das colunas YTD da própria face, nas mesmas linhas do resumo
+    # do mês. O relatório deixava o YTD oculto; o Arthur pediu os três slides
+    # ocultos de volta à apresentação em 28/09. Sem subtítulo: o título já diz o
+    # período.
+    ytd = dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)", "",
+              linhas_face(face_ytd, gab_resumo), "resumo")
+    if ytd["t"] == "dre":
+        ytd.update(kpis=kpis_ytd(ytd["linhas"]),
+                   cab=["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"])
+    s.append(ytd)
     s += slides_comentarios(cont, m, ano)
     s += slides_investimentos(m, ano)
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
@@ -3210,9 +3241,9 @@ def monta_deck(m, ano, ctx):
                        "",
                        linhas_face(face_casa, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
     face_casa_ytd = _na_ordem_oficial(dre_ytd("FPG", "Caixa", ano, m), gabarito(DRE_CASA, "Real x Orçado"))
-    s.append(oculto(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
-                        "",
-                        linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa")))
+    s.append(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
+                 "",
+                 linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", f"Embriões  ·  Doadoras  ·  Garanhões  |  {safra}"))
     s += est_slides
@@ -3228,8 +3259,9 @@ def monta_deck(m, ano, ctx):
         s += divide_contratos(x)
 
     s.append(divisor(5, "DECISÕES E MANEJO", f"Plantel  ·  Obras  ·  Casa  |  {MES} {ano}"))
-    # a contagem por local não está no relatório dela; fica no arquivo, oculta
-    s.append(oculto(slide_contagem(m, ano)))
+    # a contagem por local não está no relatório dela; entra na apresentação
+    # desde 28/09 (antes ficava oculta)
+    s.append(slide_contagem(m, ano))
     s += slides_manejo(ctx["conteudo"], m, ano)
     s += slides_fotos(cont, m, ano)
     s.append({"t": "encerramento", "titulo": "HARAS PAO GRANDE",

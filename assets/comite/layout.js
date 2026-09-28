@@ -142,19 +142,22 @@
   const ORDEM_CARD = ['navy', 'azul', 'ouro', 'vinho'];
   /* cartões de indicador: blocos sólidos, valor branco centrado, rótulo em
      negrito e a linha de apoio embaixo */
-  function cartoes(P, ks, h, ptValor) {
+  function cartoes(P, ks, h, ptValor, y0 = 134.4) {
     const n = ks.length, gap = 7.7, w = (1190.4 - gap * (n - 1)) / n;
     ks.forEach((k, j) => {
-      const x = 44.8 + j * (w + gap), y = 134.4;
+      const x = 44.8 + j * (w + gap), y = y0;
       const [fundo, cl, cs] = CORES_CARD[k.cor || ORDEM_CARD[j % 4]] || CORES_CARD.navy;
       P.push(R(x, y, w, h, {fill: fundo}));
       const pv = k.pt || ptValor;
       const v = encaixa(k.v, pv, w - 24, true, 12);
       P.push(T(x, y + 7.7, w, h * 0.5, v.t, {pt: v.pt, b: 1, c: 'FFFFFF', al: 'c', va: 'm'}));
       P.push(C(x + 8, y + h * 0.522, w - 16, h * 0.28, k.l, {pt: 8.5, b: 1, c: cl, al: 'c', va: 'm', min: 7}));
-      if (k.s) P.push(C(x + 8, y + h * 0.782, w - 16, h * 0.2, k.s, {pt: 7.5, c: cs, al: 'c', va: 'm', min: 6.5}));
+      if (k.s) P.push(C(x + 8, y + h * 0.782, w - 16, h * 0.2, k.s, {pt: 7.5, c: k.sc || cs, al: 'c', va: 'm', min: 6.5}));
     });
   }
+  /* onde o conteúdo começa: abaixo da faixa do subtítulo; slide sem subtítulo
+     sobe para logo abaixo do logo, em vez de deixar a faixa vazia em cima */
+  const topo = s => s.sub ? 124.2 : 96;
   function cabecalho(P, y, h, cols, pt) {
     P.push(R(44.8, y, 1190.4, h, {fill: COR.navy}));
     cols.forEach(([x, w, al, t]) => { if (t) P.push(C(x, y + 3.8, w, h - 7.6, t, {pt: pt || 8, b: 1, c: 'FFFFFF', al, va: 'm'})); });
@@ -242,15 +245,21 @@
   L.dre = s => {
     const P = claro(s, []);
     const C5 = COLS_DRE[s.layout] || COLS_DRE.resumo;
-    const nomes = ['NATUREZA', 'ORÇADO', 'REALIZADO', '∆ R$ k', '∆ %'];
-    P.push(R(44.8, 124.2, 1190.4, 35.8, {fill: COR.navy}));
-    C5.forEach(([x, w, al], j) => P.push(T(x, 128, w, 28.2, nomes[j], {pt: 8, b: 1, c: 'FFFFFF', al, va: 'm'})));
-    const n = s.linhas.length;
-    const p = passo(n, 160, 712, s.layout === 'caixa' ? 32.6 : 31.8);
+    const nomes = s.cab || ['NATUREZA', 'ORÇADO', 'REALIZADO', '∆ R$ k', '∆ %'];
+    let y0 = topo(s);
+    // cartões do acumulado (o slide YTD do relatório): em cima da tabela
+    if (s.kpis && s.kpis.length) {
+      cartoes(P, s.kpis, 96, 18, y0);
+      y0 += 96 + 10;
+    }
+    P.push(R(44.8, y0, 1190.4, 35.8, {fill: COR.navy}));
+    C5.forEach(([x, w, al], j) => P.push(T(x, y0 + 3.8, w, 28.2, nomes[j], {pt: 8, b: 1, c: 'FFFFFF', al, va: 'm'})));
+    const n = s.linhas.length, yl = y0 + 35.8;
+    const p = passo(n, yl, 712, s.layout === 'caixa' ? 32.6 : 31.8);
     const esc = p < 26 ? p / 26 : 1;           // linha espremida: fonte acompanha
     s.linhas.forEach((l, i) => {
       const e = ESTILO[l.estilo] || ESTILO.grupo;
-      const y = 160 + i * p;
+      const y = yl + i * p;
       P.push(R(44.8, y, 1190.4, p, {fill: e.fill || (i % 2 ? COR.zebra : 'FFFFFF'), line: COR.linha}));
       const ty = y + p * 0.13, th = p * 0.74, pt = e.pt * Math.max(0.85, esc);
       const o = {pt, b: e.b, c: e.c, va: 'm'};
@@ -762,7 +771,7 @@
   const linhasP = (txt, pt, w) => String(txt || '').split('\n').reduce((a, par) => a + nLinhas(par, pt, w), 0);
   L.comentarios = s => {
     const P = claro(s, []);
-    const Y0 = 124.2, GAP = 1.2, W_TXT = 966.4;
+    const Y0 = topo(s), GAP = 1.2, W_TXT = 966.4;
     const alt = p => s.itens.map(i => Math.max(63.9, linhasP(i.txt, p, W_TXT) * altLinha(p) + 10.4));
     let pt = 7.63;
     while (pt > 6.25 && alt(pt).reduce((a, b) => a + b + GAP, 0) > 712 - Y0) pt -= 0.125;
