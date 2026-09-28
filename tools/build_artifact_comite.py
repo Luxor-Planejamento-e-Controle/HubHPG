@@ -110,7 +110,7 @@ POR_TIPO = {
     "funil": ("estacao de monta", "ESTAÇÃO",
               "Funil da safra do mês do deck: tentativas, lavados positivos, prenhez aos 15, 30, 45 e 60 dias, abortos e confirmados."),
     "garanhoes": ("estacao de monta", "GARANHOES + ESTAÇÃO",
-                  "Lavados e confirmados por garanhão. Quem tem tentativa na safra e não está na aba entra pela conta da ESTAÇÃO."),
+                  "Lavados e confirmados por garanhão. Quem tem tentativa na safra e não está na aba entra pela conta da ESTAÇÃO. Desde a safra 26/27, todos os garanhões da aba são listados e os três cartões de tipo de sêmen aparecem sempre."),
     "comparativo": ("estacao de monta", "ESTAÇÃO + masters das safras antigas",
                     "Confirmados por mês da IA nas quatro últimas safras; a meta é confirmados sobre a META TOTAL do PLANEJAMENTO."),
     "doadoras": ("estacao de monta", "PLANEJAMENTO + REC. EMBR.",

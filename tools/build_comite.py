@@ -1702,6 +1702,9 @@ def funil(wb, safra):
                      ["Confirmados", conf, ref(conf)]]}
 
 
+GARANHOES_TODOS_DESDE = "2026/2027"
+
+
 def garanhoes(wb, safra):
     """S17 — aba GARANHOES: 3 garanhão, 4 tipo de sêmen, 5 total lavados,
     6 lavados positivos, 7 %, 8 embriões confirmados, 9 prenhez, 10 aborto,
@@ -1734,10 +1737,10 @@ def garanhoes(wb, safra):
             # o nome vem da ESTAÇÃO junto com os números (a aba grafa 'MARADA')
             aba[k] = {**base, "nome": nome_animal(d["nome"], curto=False),
                       "lav": d["lav"], "pos": d["pos"], "conf": d["conf"]}
-    # Todos os garanhões da aba entram, com zero quando não tiveram tentativa —
-    # o relatório lista o plantel de garanhões da estação, não só quem trabalhou
-    # (pedido do Arthur, 28/09)
-    rows = list(aba.values())
+    # Da safra 26/27 em diante todos os garanhões da aba entram, com zero quando
+    # não tiveram tentativa — o relatório lista os garanhões da estação, não só
+    # quem trabalhou (pedido do Arthur, 28/09). A 25/26 fica como foi apresentada.
+    rows = [x for x in aba.values() if x["lav"] or safra >= GARANHOES_TODOS_DESDE]
     for x in rows:
         if not x["t"]:
             x["t"] = TIPO_SEMEN.get(_chave_garanhao(_norm(x["nome"])), "")
