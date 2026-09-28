@@ -76,13 +76,13 @@ def _historica(rotulo: str) -> bool:
 # duas páginas, slide vazio some e o que vem depois muda de lugar.
 DRE_POR_N = {
     4: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Comp)",
-        "As 19 linhas do relatório, com rótulo e ordem da face oficial e valor da base (CC HPG, Competência, mês), arredondado como o Excel."),
+        "Rótulo e ordem da face oficial, valor da base (CC HPG, Competência, mês), arredondado como o Excel. Desde agosto/2026 entram Outras Receitas com o Haras, Embriões Produzidos e Reavaliação de Plantel (abertura da Variação Patrimonial) e a abertura de Investimentos em máquinas com infraestrutura e animais e produtos."),
     5: ("DRE histórico", "Base DRE Geral · conferência na DRE-Compet",
-        "As naturezas de custo que o relatório acompanha, por subgrupo, em duas páginas com o total no topo. Cada linha é casada por grupo, subgrupo e natureza, porque o nome repete no bloco de Vassouras."),
+        "CUSTOS TOTAIS no topo de cada página e os cinco subgrupos fixos. Desde agosto/2026, embaixo de cada subgrupo entram as naturezas que variaram pelo menos R$ 2 mil contra o orçado, para cima ou para baixo; até julho, a lista fixa do relatório."),
     6: ("DRE histórico", "Base DRE Geral · conferência na DRE-Compet",
-        "Mesma regra, para as despesas. Desde agosto/2026 o DESPESAS TOTAIS soma Despesas e os dois arrendamentos, que as páginas listam embaixo dele. Fecha com Resultado Operacional."),
+        "Mesma regra, para as despesas: DESPESAS TOTAIS (Despesas e os dois arrendamentos), cinco subgrupos fixos e Arrendamentos numa linha só, com as aberturas de D. Lúdia e de Vassouras. Fecha com Resultado Operacional."),
     7: ("DRE histórico", "Base YTD + face Real x Orçado (Comp)",
-        "Acumulado do ano, com as mesmas linhas do resumo. Oculto na apresentação, como no relatório; fica no deck trimestral."),
+        "Acumulado do ano, com as mesmas linhas do resumo e sem subtítulo. Oculto na apresentação, como no relatório; fica no deck trimestral."),
     10: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Caixa)",
          "As 6 linhas do caixa do relatório (CC HPG, modelo Caixa)."),
     13: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Casa)",
@@ -99,8 +99,8 @@ CONTRATOS_POR_N = {
 POR_TIPO = {
     "pendencias": ("conteúdo do hub (comite_conteudo)", "pendencias",
                    "O que ficou combinado na apresentação anterior. Só existe quando há item escrito; para escrever, o Editar da agenda abre o editor."),
-    "investimentos": ("DRE anual (Haras)", "Investimentos",
-                      "Só o mês, com todos os blocos da aba (infraestrutura, máquinas e equipamentos, animais e produtos) e o total da seção. Lançamento repetido vira uma linha, marcada com 2×."),
+    "lista_mes": ("DRE anual (Haras)", "Investimentos",
+                  "Só o bloco Compra de Animais e Produtos, de janeiro até o mês do deck, um grupo por mês com o total do bloco. É a aba, que pode diferir da face do DRE."),
     "estoque": ("plantel consolidado (base_bi)", "fato_plantel",
                 "Status PLANTEL, sufixo exato Da PG ou Outro. Categoria pela coluna CATEGORIA do controle, todas abertas. Valor médio sobre os animais avaliados desde agosto/2026. Patrimônio é o saldo final da movimentação do hub."),
     "matriz": ("resumo contábil (mapa)", "Resumo Contábil",

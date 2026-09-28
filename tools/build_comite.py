@@ -593,10 +593,9 @@ def dre_ytd(cc, modelo, ano, m, **kw):
 # Cada linha aponta para o rótulo da aba "Real x Orçado", que é de onde o VALOR
 # sai (via _na_ordem_oficial, conferido 158/158 com a face em agosto/2026).
 #   (rótulo no slide, rótulo na face oficial, estilo)
-# Em ago/2026 o relatório chegou a abrir a Venda de Produtos (Embriões, Animais)
-# e o Caixa por bloco de investimento; a versão corrigida (v3, 25/09) voltou ao
-# recorte de julho — são essas as linhas, e nenhuma a mais.
-GAB_RESUMO = [
+# Até jul/2026: o recorte de julho, que a versão corrigida de agosto (v3, 25/09)
+# também usou.
+GAB_RESUMO_ATE_JUL26 = [
     ("Receita Bruta", "Receita Bruta", "grupo"),
     ("Venda de Produtos", "Venda de Produtos", "det"),
     ("Receitas Financeiras", "Receitas Financeiras", "det"),
@@ -617,6 +616,37 @@ GAB_RESUMO = [
     ("Investimentos", "Investimentos", "grupo"),
     ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
 ]
+# De ago/2026 em diante (pedido do Arthur, 28/09): entra Outras Receitas com o
+# Haras, a Variação Patrimonial abre em embriões produzidos (Ativos Biológicos na
+# face) e reavaliação, e Investimentos abre em dois — máquinas com
+# infraestrutura, e animais e produtos. Rótulo na face em lista = soma das linhas.
+GAB_RESUMO = [
+    ("Receita Bruta", "Receita Bruta", "grupo"),
+    ("Venda de Produtos", "Venda de Produtos", "det"),
+    ("Outras Receitas com o Haras", "Outras Receitas com o Haras", "det"),
+    ("Receitas Financeiras", "Receitas Financeiras", "det"),
+    ("Deduções e Cancelamentos", "Deduções e Cancelamentos", "grupo"),
+    ("Cancelamentos", "Cancelamentos", "det"),
+    ("Custos de Venda", "Custos de Venda", "det"),
+    ("Receita Líquida", "Receita operacional - Líquida", "banda"),
+    ("Custos e Despesas", "Custos E Despesas", "banda"),
+    ("Custos", "Custos", "det"),
+    ("Despesas", "Despesas", "det"),
+    ("Arrendamentos", "Despesas - Arrendamentos", "det"),
+    ("Resultado Operacional", "Resultado Operacional", "banda"),
+    ("Variação Patrimonial", "Variação Patrimonial", "grupo"),
+    ("Embriões Produzidos", "Ativos Biologicos", "det"),
+    ("Reavaliação de Plantel", "Reavaliação Do Plantel", "det"),
+    ("Baixas de Estoque", "Baixas De Estoque", "grupo"),
+    ("Por Venda", "Baixa De Estoque Por Venda", "det"),
+    ("Mortes e Doações", "Baixa De Estoque Por Mortes E Doações", "det"),
+    ("Resultado Patrimonial", "Resultado Patrimonial", "banda"),
+    ("Investimentos", "Investimentos", "grupo"),
+    ("Máquinas, Equipamentos e Infraestrutura", ["Máquinas e Equipamentos", "Infraestrutura"], "det"),
+    ("Animais e Produtos", "Animais E Produtos", "det"),
+    ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
+]
+RESUMO_NOVO_DESDE = (2026, 8)
 GAB_CAIXA = [
     ("Receita Bruta", "Receita Bruta", "grupo"),
     ("Receita Líquida", "Receita operacional - Líquida", "banda"),
@@ -656,8 +686,14 @@ def linhas_face(face: list[dict], gab: list, extras=None, depois_de=None) -> lis
         if rot_face is None:
             out.append({"nome": rot, "estilo": estilo, "v": [None, None, None, None]})
             continue
-        l = por.get(_chave_dre(rot_face))
-        v = list(l["v"]) if l else [0.0, 0.0, 0.0, None]
+        if isinstance(rot_face, list):
+            ls = [por.get(_chave_dre(x)) for x in rot_face]
+            o = sum(x["v"][0] or 0 for x in ls if x)
+            r = sum(x["v"][1] or 0 for x in ls if x)
+            v = [o, r, (r - o) / 1000.0, pct(o, r)]
+        else:
+            l = por.get(_chave_dre(rot_face))
+            v = list(l["v"]) if l else [0.0, 0.0, 0.0, None]
         out.append({"nome": rot, "estilo": estilo, "v": v})
         if extras and rot == depois_de:
             for rot_x, face_x in extras:
@@ -793,146 +829,195 @@ def linhas_analise(ano: int, m: int, pagina: list) -> list[dict]:
     return out
 
 
+# ------------------------------- análise a partir de ago/2026: fixas + aberturas
+# Pedido do Arthur em 28/09/2026. Os subgrupos são linhas fixas; as naturezas
+# embaixo de cada um entram quando o realizado se afasta do orçado em pelo menos
+# R$ 2 mil, para cima ou para baixo. Os dois arrendamentos viram uma linha só,
+# aberta nas naturezas de D. Lúdia e de Vassouras. Até julho vale a lista fixa
+# do relatório da Ana (ANALISE_CUSTOS/ANALISE_DESPESAS), como foi apresentado.
+ANALISE_DINAMICA_DESDE = (2026, 8)
+VARIACAO_MINIMA = 2000.0
+LINHAS_POR_PAGINA = 17
+_LUDIA = "DESPESAS - ARRENDAMENTO D. LÚDIA - HARAS"
+_VASSOURAS = "DESPESAS - ARRENDAMENTO Vassouras - HARAS"
+FIXAS_CUSTOS = [("Volumoso e Concentrado", "VOLUMOSO E CONCENTRADO"), ("Sanidade", "SANIDADE"),
+                ("Reprodução", "REPRODUÇÃO"), ("Pista", "PISTA"),
+                ("Registros e Transf.", "REGISTROS E TRANSFERENCIAS")]
+FIXAS_DESPESAS = [("Marketing", "MARKETING"), ("Manutenção", "MANUTENÇÃO"),
+                  ("Consumo de Água e Luz", "CONSUMO DE ÁGUA E LUZ"),
+                  ("Despesas com Pessoal", "DESPESAS COM PESSOAL"),
+                  ("Desp. Administrativas", "DESPESAS ADMINISTRATIVAS")]
+# o rótulo curto que o relatório já usava para a natureza; o resto sai do nome da base
+ROTULO_NATUREZA = {_chave_dre(nat): rot for pag in ANALISE_CUSTOS + ANALISE_DESPESAS
+                   for rot, estilo, _g, _s, nat in pag if estilo == "folha" and isinstance(nat, str)}
+
+
+def _linha(nome, estilo, orc, real):
+    return {"nome": nome, "estilo": estilo, "v": [orc, real, (real - orc) / 1000.0, pct(orc, real)]}
+
+
+def _base_analise(ano: int, m: int, ytd: bool = False):
+    """Linhas HPG/Competência do mês (ou do acumulado até o mês), com as colunas
+    Orçado/Realizado de nome fixo, para a análise ler igual nos dois casos."""
+    h = le_historico()
+    if not h:
+        return None
+    if not ytd:
+        g = h["geral"]
+        return g[(g["Centro de Custo"] == "HPG") & (g["Modelo"] == "Competência")
+                 & (g["ano"] == ano) & (g["mes"] == m)]
+    y = h["ytd"]
+    df = y[(y["Centro de Custo"] == "HPG") & (y["Modelo"] == "Competência") & (y["ano"] == ano)
+           & (y["Acumulado"] == f"{m:02d}-Jan a {ABR[m-1]}")]
+    return df.rename(columns={"Orçado YTD": "Orçado", "Realizado YTD": "Realizado"})
+
+
+def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list[dict]]:
+    """Páginas da análise de custos (tema 'custos') ou de despesas ('despesas'):
+    total no topo de cada página, subgrupos fixos, aberturas pela variação."""
+    if (ano, m) < ANALISE_DINAMICA_DESDE and not ytd:
+        fixas = ANALISE_CUSTOS if tema == "custos" else ANALISE_DESPESAS
+        return [linhas_analise(ano, m, pag) for pag in fixas]
+    df = _base_analise(ano, m, ytd)
+    if df is None or df.empty:
+        return []
+    ch = lambda x: _chave_dre(x) if isinstance(x, str) else ""
+    df = df.assign(_g=df["Grupo"].map(ch), _s=df["Subgrupo"].map(ch),
+                   _n=df["Natureza de Lançamento"].map(ch),
+                   _o=df["Orçado"].map(lambda x: num(x) or 0.0),
+                   _r=df["Realizado"].map(lambda x: num(x) or 0.0))
+
+    def subtotal(grupo, nat):
+        c = df[(df["_g"] == _chave_dre(grupo)) & (df["_n"] == _chave_dre(nat)) & df["É Subtotal"].astype(bool)]
+        if c.empty:
+            return 0.0, 0.0
+        # bloco repetido na base (o residual de Manutenção): vale o principal
+        r = c.loc[(c["_o"].abs() + c["_r"].abs()).idxmax()]
+        return r["_o"], r["_r"]
+
+    def aberturas(grupo, subs, sufixo=""):
+        c = df[(df["_g"] == _chave_dre(grupo)) & df["_s"].isin([_chave_dre(s) for s in subs])
+               & ~df["É Subtotal"].astype(bool)]
+        c = c.assign(_p=c["_o"].abs() + c["_r"].abs()).sort_values("_p", ascending=False) \
+             .drop_duplicates(["_s", "_n"]).sort_values(["Ordem", "_n"])
+        out = []
+        for _, r in c.iterrows():
+            if abs(r["_r"] - r["_o"]) < VARIACAO_MINIMA:
+                continue
+            nome = ROTULO_NATUREZA.get(r["_n"]) or titulo_pt(r["Natureza de Lançamento"])
+            out.append(_linha(nome + sufixo, "folha", r["_o"], r["_r"]))
+        return out
+
+    blocos = []
+    if tema == "custos":
+        topo = _linha("CUSTOS TOTAIS", "total", *subtotal(_CUS, "CUSTOS INDIRETOS DE PRODUÇÃO"))
+        for rot, sub in FIXAS_CUSTOS:
+            blocos.append([_linha(rot, "sub", *subtotal(_CUS, sub))] + aberturas(_CUS, [sub]))
+        fim = []
+    else:
+        d, lu, va = subtotal(_DES, "DESPESAS"), subtotal(_DES, _LUDIA), subtotal(_DES, _VASSOURAS)
+        topo = _linha("DESPESAS TOTAIS", "total", d[0] + lu[0] + va[0], d[1] + lu[1] + va[1])
+        for rot, sub in FIXAS_DESPESAS:
+            blocos.append([_linha(rot, "sub", *subtotal(_DES, sub))] + aberturas(_DES, [sub]))
+        # Vassouras não tem subgrupo próprio para as naturezas: são os blocos de
+        # Despesas que não são os principais nem o de D. Lúdia
+        principais = {_chave_dre(s) for _, s in FIXAS_DESPESAS} | {_chave_dre(_LUDIA), _chave_dre(_VASSOURAS)}
+        vass = sorted({s for s in df.loc[df["_g"] == _chave_dre(_DES), "Subgrupo"].dropna()
+                       if _chave_dre(s) not in principais})
+        blocos.append([_linha("Arrendamentos", "sub", lu[0] + va[0], lu[1] + va[1])]
+                      + aberturas(_DES, [_LUDIA], " (D. Lúdia)") + aberturas(_DES, vass, " (Vassouras)"))
+        fim = [_linha("Resultado Operacional", "banda", *subtotal("RESULTADO OPERACIONAL", "RESULTADO OPERACIONAL"))]
+
+    # página: o total no topo e blocos inteiros; bloco maior que a página quebra
+    # e repete o subgrupo
+    paginas, atual = [], [topo]
+    for b in blocos:
+        while b:
+            cabe = LINHAS_POR_PAGINA - len(atual)
+            if len(b) <= cabe:
+                atual += b
+                b = []
+            elif len(atual) > 1:
+                paginas.append(atual)
+                atual = [topo]
+            else:
+                atual += b[:cabe]
+                paginas.append(atual)
+                atual = [topo]
+                b = [dict(b[0], nome=b[0]["nome"] + " (cont.)")] + b[cabe:]
+    if len(atual) + len(fim) > LINHAS_POR_PAGINA and len(atual) > 1:
+        paginas.append(atual)
+        atual = [topo]
+    paginas.append(atual + fim)
+    return paginas
+
+
 # =========================================================== Investimentos (S09)
-def slide_investimentos(m, ano):
+def slides_investimentos(m, ano):
+    """Compra de animais e produtos, de janeiro até o mês do deck, mês a mês.
+
+    Em set/2026 o slide chegou a mostrar só o mês, com todos os blocos da aba;
+    o Arthur corrigiu em 28/09: o comitê olha só Animais e Produtos, e no
+    acumulado do ano — o formato do relatório (v3 de agosto inclusive). Obra e
+    máquina aparecem no resumo financeiro, na abertura de Investimentos."""
+    titulo = f"INVESTIMENTOS — COMENTÁRIOS {ano}"
+    sub = f"Compra de Animais e Produtos  ·  Janeiro a {MESES[m-1]}"
     if not DRE_HARAS.exists():
-        return pend(9, f"INVESTIMENTOS — COMENTÁRIOS {MESES[m-1].upper()} {ano}", "", DRE_HARAS.name,
-                    "arquivo não encontrado")
+        return [pend(9, titulo, sub, DRE_HARAS.name, "arquivo não encontrado")]
     import openpyxl
     # único slide que não sai do DRE_Historico; sem registrar, o caminho dele não
     # aparecia na auditoria — e foi por isso que a cópia de março passou meses despercebida
     _registra("DRE anual (Haras)", DRE_HARAS)
     wb = openpyxl.load_workbook(DRE_HARAS, data_only=True, read_only=True)
     ws = wb["Investimentos"]
-    # O relatório de agosto/2026 passou a mostrar SÓ o mês, com todos os blocos
-    # da aba (infraestrutura, máquinas, animais e produtos) e o total — antes era
-    # o acumulado do ano, só de animais e produtos, e o haras sentia falta das
-    # obras e das máquinas.
-    meses, atual, bl = [], None, None
+    idx = {nm.lower(): i + 1 for i, nm in enumerate(MESES)}
+    por_mes, k, bloco = {}, None, None
     for r in ws.iter_rows(values_only=True):
         a = str(r[0]).strip().upper() if r[0] is not None else ""
         b = str(r[1]).strip() if len(r) > 1 and r[1] is not None else ""
         v = num(r[2]) if len(r) > 2 else None
         if a.startswith("INVESTIMENTOS -"):
-            nome = a.split("-", 1)[1].strip().split("/")[0].title()
-            atual = {"mes": nome, "total": v or 0.0, "blocos": []}
-            meses.append(atual); bl = None
+            k = idx.get(a.split("-", 1)[1].strip().split("/")[0].lower())
+            bloco = None
             continue
-        if atual is None:
+        if k is None:
             continue
         if a in BLOCOS_INVEST:
-            bl = {"nome": BLOCOS_INVEST[a], "total": v or 0.0, "itens": []}
-            atual["blocos"].append(bl)
+            bloco = BLOCOS_INVEST[a]
+            if bloco == "ANIMAIS E PRODUTOS":
+                por_mes[k] = {"total": v or 0.0, "itens": []}
             continue
-        if bl is not None and v is not None and a:
-            animal = bl["nome"] == "ANIMAIS E PRODUTOS"
-            it = {"quem": quem_investimento(a),
-                  "desc": desc_investimento(b, None) if animal else desc_obra(b), "valor": v}
-            # o mesmo lançamento repetido (kit de diesel 2×) vira uma linha só
-            igual = next((x for x in bl["itens"] if (x["quem"], x["desc"]) == (it["quem"], it["desc"])), None)
-            if igual:
-                igual["valor"] += v
-                igual["n"] = igual.get("n", 1) + 1
-            else:
-                bl["itens"].append(it)
+        if bloco == "ANIMAIS E PRODUTOS" and v is not None and a:
+            por_mes[k]["itens"].append({"desc": desc_investimento(b, a), "valor": v})
     wb.close()
-    idx = {nm.lower(): i + 1 for i, nm in enumerate(MESES)}
-    mes = next((x for x in meses if idx.get(x["mes"].lower()) == m), None)
-    titulo = f"INVESTIMENTOS — COMENTÁRIOS {MESES[m-1].upper()} {ano}"
-    sub = f"DRE {ano} | HPG  ·  Compras e obras realizadas  ·  Fonte: aba Investimentos"
-    if not mes or not any(b["itens"] for b in mes["blocos"]):
-        return pend(9, titulo, sub, f"{DRE_HARAS.name} → aba Investimentos",
-                    f"a aba não tem a seção INVESTIMENTOS - {MESES[m-1].upper()}/{str(ano)[2:]}")
-    for b in mes["blocos"]:
-        for it in b["itens"]:
-            if it.get("n", 1) > 1:
-                it["desc"] += f" ({it.pop('n')}×)"
-    return {"t": "investimentos", "n": 9, "titulo": titulo, "sub": sub,
-            "blocos": [b for b in mes["blocos"] if b["itens"]], "total": mes["total"],
-            "rotulo_total": f"TOTAL INVESTIMENTOS {MESES[m-1].upper()}"}
-
+    meses = []
+    for k in range(1, m + 1):
+        x = por_mes.get(k) or {"total": 0.0, "itens": []}
+        meses.append({"mes": MESES[k - 1], "rotulo": f"{ABR[k-1]}/{str(ano)[2:]}", "atual": k == m,
+                      "total": x["total"],
+                      "itens": x["itens"] or [{"desc": "Sem compra de animais e produtos registrada no mês",
+                                               "valor": 0.0}]})
+    # Página: a altura que o layout dá a cada mês (faixa + linhas) contra o que
+    # cabe sem a fonte encolher além do mínimo dele; ano cheio vira duas páginas.
+    cabe = (712 - 124.2) / 0.85
+    paginas, atual, alt = [], [], 0.0
+    for x in meses:
+        h = 31.2 + 28.9 * len(x["itens"]) + 3.3
+        if atual and alt + h > cabe:
+            paginas.append(atual)
+            atual, alt = [], 0.0
+        atual.append(x)
+        alt += h
+    paginas.append(atual)
+    return [{"t": "lista_mes", "n": 9,
+             "titulo": titulo + (f" ({i}/{len(paginas)})" if len(paginas) > 1 else ""),
+             "sub": sub, "meses": pg} for i, pg in enumerate(paginas, 1)]
 
 # bloco da aba Investimentos -> rótulo do slide
 BLOCOS_INVEST = {"INFRAESTRUTURA": "INFRAESTRUTURA", "INSTALAÇÕES": "INSTALAÇÕES",
                  "FORMAÇÃO DE PASTAGEM": "FORMAÇÃO DE PASTAGEM",
                  "MÁQUINAS E EQUIPAMENTOS": "MÁQUINAS E EQUIPAMENTOS",
                  "COMPRA DE ANIMAIS E PRODUTOS": "ANIMAIS E PRODUTOS"}
-# acento que a descrição da controladoria perde (vem sem, em caixa alta)
-ACENTOS_OBRA = {
-    "MATERIAS": "MATERIAIS", "FUNCIONARIOS": "FUNCIONÁRIOS", "CONSTRUCAO": "CONSTRUÇÃO",
-    "CONSTRUCA": "CONSTRUÇÃO", "REPRODUCAO": "REPRODUÇÃO", "REFEITORIO": "REFEITÓRIO",
-    "MANUTENCAO": "MANUTENÇÃO", "AGUA": "ÁGUA", "IDENTIFICACAO": "IDENTIFICAÇÃO",
-    "ESCRITORIO": "ESCRITÓRIO", "ADUBACAO": "ADUBAÇÃO", "FORMACAO": "FORMAÇÃO", "ANALISE": "ANÁLISE",
-    "ANALISES": "ANÁLISES", "AREAS": "ÁREAS", "MAO": "MÃO", "MOVEL": "MÓVEL", "COMERCIO": "COMÉRCIO",
-    "CARTOES": "CARTÕES", "CREDITO": "CRÉDITO", "QUIMICAS": "QUÍMICAS", "FISICAS": "FÍSICAS",
-    "GESTAO": "GESTÃO", "AGRONEGOCIO": "AGRONEGÓCIO", "DUZIAS": "DÚZIAS",
-    "MAQUINAS": "MÁQUINAS", "VEICULOS": "VEÍCULOS", "ESTACAO": "ESTAÇÃO", "NECESSARIAS": "NECESSÁRIAS",
-    "EFRIGERADOR": "REFRIGERADOR", "DOMEST": "DOMÉSTICO", "INSTALACAO": "INSTALAÇÃO",
-    "INSTALACOES": "INSTALAÇÕES", "GALPAO": "GALPÃO", "ELETRICA": "ELÉTRICA", "HIDRAULICA": "HIDRÁULICA",
-}
-# lugar da fazenda que a descrição cita (fica com inicial maiúscula) e sigla;
-# nome de pessoa não entra em lista aqui (repo público): o que vem depois de
-# "SR."/"SRA." é que ganha maiúscula
-PROPRIOS_OBRA = {"FURNAS", "LUISINHO", "LUIZINHO", "LÚDIA", "VASSOURAS"}
-SIGLAS_OBRA = {"PG", "FPG", "RJ"}
-
-
-def desc_obra(desc: str) -> str:
-    """Descrição de obra/compra de equipamento em frase: 'REFERENTE A COMPRA DE
-    CAL, PARA AS BAIAS - AGOSTO/2026: ...' -> 'Compra de cal, para as baias'.
-    Tira o 'referente a', o mês colado no fim, o 'solicitado pelo Fulano' e a
-    ficha técnica do produto (2DOORS 332L 127V); o resto é o texto dela."""
-    d = " ".join(str(desc or "").split())
-    d = re.sub(r"(?i)^REFERENTE\s+(?:(?:AOS|AO|ÀS|AS|À|A)\s+)?", "", d)
-    d = re.sub(r"(?i)\s*[-–]?\s*\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[A-ZÇ]*[/ ]?20\d\d\b.*$", "", d)
-    d = re.sub(r"(?i)[\s,.-]*(\bOBS:|\(OBS|\bFICA AJUSTADO\b).*$", "", d)
-    d = re.sub(r"(?i),?\s*\bSOLICITAD[OA]S?\s+PEL[OA]S?\s+[A-ZÀ-Ú]+(\s+E\s+[A-ZÀ-Ú]+)?\s*,?", " ", d)
-    # período e conta do serviço ('do dia 30/3/26 a 9/4/2026; R$23,0 por achas')
-    d = re.sub(r"(?i),?\s*\b(DO DIA|ATE O DIA|ATÉ O DIA)\b.*$|;\s*R\$.*$", "", d)
-    d = re.sub(r"\s*-?\s*\d{2}/\d{2}/\d{4}\s*$", "", d)
-    # a observação que vem depois do ponto não cabe na linha
-    if len(d) > 95:
-        d = re.split(r"(?<=[A-ZÀ-Úa-zà-ú]{4})\s*\.\s+", d)[0]
-    partes = [p.strip(" ,.;:") for p in re.split(r"\s+-\s+|\s+-$", d) if p.strip(" ,.;:-")]
-    if not partes:
-        return ""
-    # a ficha técnica colada na primeira parte ('EFRIGERADOR DOMEST 2DOORS 332L
-    # 127V BR CL-C') corta ali: do primeiro código letra+número em diante
-    ws = partes[0].split()
-    corte = next((i for i, w in enumerate(ws) if i > 1 and re.fullmatch(r"\d+[A-Z]+\d*|[A-Z]+\d+[A-Z]*", w.upper())), None)
-    partes[0] = " ".join(ws[:corte]) if corte else partes[0]
-    d = partes[0]
-    for p in partes[1:]:
-        if len(d) + len(p) > 90:
-            break
-        d += " — " + p
-    ps, ant = [], ""
-    for p in d.upper().split():
-        p = ACENTOS_OBRA.get(p, ACENTOS.get(p, p))
-        nu = re.sub(r"[^A-ZÀ-Ú-]", "", p)
-        nome = nu in PROPRIOS_OBRA or ant in ("SR.", "SRA.", "SR", "SRA")
-        ps.append(p if nu in SIGLAS_OBRA else p.title() if nome else p.lower())
-        ant = p
-    t = re.sub(r"\b0(\d)\b", r"\1", " ".join(ps))      # '02 refrigeradores' -> '2 ...'
-    return t[:1].upper() + t[1:]
-
-
-def quem_investimento(quem: str) -> str:
-    """Favorecido curto: sem CPF/CNPJ colado, sem 'LTDA' e sem o que vem depois
-    do traço — exceto o cartão, que o relatório chama pela bandeira."""
-    q = re.sub(r"\d{6,}", "", str(quem or "")).strip()
-    mm = re.match(r"(?i)CART[ÃA]O DE CR[ÉE]DITO\s*-\s*(\S+)", q)
-    if mm:
-        return "Cartão " + titulo_pt(mm.group(1))
-    partes = [x.strip() for x in re.split(r"\s+-\s+", q) if x.strip()]
-    q = partes[0] if partes else q
-    if len(partes) > 1 and len(q) < 14:            # 'FUNDO FIXO - ESCRITORIO FAZENDA PG'
-        q = f"{q} — {partes[1]}"
-    q = re.sub(r"(?i)\s+(LTDA|ME|EIRELI|S/?A)\.?$", "", q)
-    t = " ".join(ACENTOS_OBRA.get(p, p) for p in q.upper().split())
-    return titulo_pt(t)
-
-
 def desc_investimento(desc: str, quem: str) -> str:
     """Linha da compra como o relatório escreve: 'Ref. Canc. 25% Nióbio da PG — IV
     Semana de Negócios PG (Vitor Bezerra de Menezes Picanço)'. Tira a data que a
@@ -3089,32 +3174,29 @@ def monta_deck(m, ano, ctx):
             return pend(n, titulo, sub, "DRE_Historico.xlsx", "sem linha para esse recorte no histórico")
         return {"t": "dre", "n": n, "titulo": titulo, "sub": sub, "layout": layout, "linhas": linhas}
 
+    gab_resumo = GAB_RESUMO if (ano, m) >= RESUMO_NOVO_DESDE else GAB_RESUMO_ATE_JUL26
     face_comp = _na_ordem_oficial(dre_mes("HPG", "Competência", ano, m),
                                   gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
     s += so_mensal(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
                        "DRE 2026 | HPG  ·  Competência Mensal  ·  Fonte: aba Real x Orçado (Comp)",
-                       linhas_face(face_comp, GAB_RESUMO), "resumo"))
-    for k, pag in enumerate(ANALISE_CUSTOS, 1):
-        s += so_mensal(dre(5, f"ANÁLISE DE CUSTOS — {MES} {ano}",
-                           f"DRE Haras  ·  Custos Indiretos de Produção  ·  Fonte: DRE-Compet  ·  "
-                           f"Parte {k} de {len(ANALISE_CUSTOS)}",
-                           linhas_analise(ano, m, pag), "analise"))
-    for k, pag in enumerate(ANALISE_DESPESAS, 1):
-        s += so_mensal(dre(6, f"ANÁLISE DE DESPESAS — {MES} {ano}",
-                           f"DRE Haras  ·  Despesas Operacionais  ·  Fonte: DRE-Compet  ·  "
-                           f"Parte {k} de {len(ANALISE_DESPESAS)}",
-                           linhas_analise(ano, m, pag), "analise"))
+                       linhas_face(face_comp, gab_resumo), "resumo"))
+    for n, tema, titulo, desc in ((5, "custos", "ANÁLISE DE CUSTOS", "Custos Indiretos de Produção"),
+                                  (6, "despesas", "ANÁLISE DE DESPESAS", "Despesas Operacionais")):
+        pags = paginas_analise(ano, m, tema)
+        for k, linhas in enumerate(pags, 1):
+            parte = f"  ·  Parte {k} de {len(pags)}" if len(pags) > 1 else ""
+            s += so_mensal(dre(n, f"{titulo} — {MES} {ano}",
+                               f"DRE Haras  ·  {desc}  ·  Fonte: DRE-Compet{parte}", linhas, "analise"))
     face_ytd = _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
                                  gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
     # o acumulado fica no arquivo e fora da apresentação, como no relatório
     # (jul/26 e a versão corrigida de ago/26); os números são os das colunas YTD
-    # da própria face
-    s.append(oculto(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
-                        f"DRE {ano} | HPG  ·  Competência  ·  Janeiro a {MESES[m-1]}  ·  "
-                        f"Fonte: aba Real x Orçado (Comp)",
-                        linhas_face(face_ytd, GAB_RESUMO), "resumo")))
+    # da própria face, nas mesmas linhas do resumo do mês. Sem subtítulo: o
+    # título já diz o período (pedido do Arthur, 28/09).
+    s.append(oculto(dre(7, f"HARAS COMPETÊNCIA — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)", "",
+                        linhas_face(face_ytd, gab_resumo), "resumo")))
     s += slides_comentarios(cont, m, ano)
-    s.append(slide_investimentos(m, ano))
+    s += slides_investimentos(m, ano)
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
                        f"FC {ano} | HPG  ·  Caixa Mensal  ·  Dados confirmados",
