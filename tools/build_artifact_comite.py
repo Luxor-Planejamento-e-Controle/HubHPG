@@ -16,102 +16,140 @@ from __future__ import annotations
 import html
 import json
 import os
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / "assets" / "comite" / "spec.json"
-CONTEUDO = ROOT / "_docs" / "comite_conteudo.json"
 
 TITULO = "Auditoria de Fontes do Comitê"
 
 # Fonte mensal parada há mais de isto não descreve o mês que o deck publica.
 DIAS_VELHA = 45
 
-# Onde cada fonte mora, em uma palavra — o caminho completo já vai na coluna ao lado,
-# e "Controladoria" vs "Haras" é o que responde de quem é o arquivo.
+# De quem é cada fonte — o caminho completo já vai na coluna ao lado; esta coluna
+# responde a quem pedir quando o número sai errado.
 DONO = {
-    "DRE histórico": "Controladoria",
-    "inadimplência (KPI)": "Controladoria",
-    "inadimplência (faixas)": "Controladoria",
-}
-
-# Slide -> (rótulo da fonte, aba, regra). Metadado ESTÁVEL, chaveado pelo número do
-# slide, que não muda de mês para mês — a posição muda, porque tabela longa vira duas
-# ou três páginas conforme o volume.
-POR_SLIDE = {
-    4:  ("DRE histórico", "Base DRE Geral",
-         "CC = HPG, modelo Competência, mês da referência. Só linhas marcadas 'É Subtotal', que é o resumo que o comitê discute."),
-    5:  ("DRE histórico", "Base DRE Geral",
-         "Grupo = CUSTOS E DESPESAS OPERACIONAIS, aberto por natureza. Natureza zerada no mês fica de fora — encheria o slide de linha sem informação."),
-    6:  ("DRE histórico", "Base DRE Geral",
-         "Grupo = DESPESAS, mesma regra do slide de custos."),
-    7:  ("DRE histórico", "Base YTD",
-         "Acumulado do ano até o mês da referência, só subtotais. É o número que o comitê trimestral olha — por isso este slide fica nos dois decks."),
-    8:  ("_docs/comite_conteudo.json", "comentarios",
-         "Escrito à mão por mês. Não sai de planilha: é a leitura de quem fechou o mês sobre as variações do YTD."),
-    9:  ("DRE anual (Haras)", "Investimentos",
-         "Única parte do financeiro fora do histórico: a descrição de cada compra só existe no arquivo do ano. Lia a cópia em 'Ambiente de testes', parada em 18/03/2026; passou a ler o original em Relatórios Gerenciais."),
-    10: ("DRE histórico", "Base DRE Geral",
-         "CC = HPG, modelo Caixa, mês da referência. Regime de caixa, não competência."),
-    11: ("base_bi.parquet", "fato_plantel",
-         "Consolidado dos controles mensais do plantel: uma linha por animal por mês, com cota e avaliação."),
-    12: ("mov_cascata.parquet", "—",
-         "Movimentação do ano em cascata. Vem de outro repositório (LuxorMonthlyP-CRoutines): se aquele não rodar, este slide congela."),
-    13: ("DRE histórico", "Base DRE Geral",
-         "Organização FPG, modelo Caixa. Só linhas com valor no mês."),
-    14: ("DRE histórico", "Base YTD",
-         "Casa/FPG acumulado no ano. Também fica no deck trimestral."),
-    16: ("estacao de monta", "ESTAÇÃO",
-         "Funil da safra: coberturas, confirmados aos 60 dias, absorções e abortos. Absorção é perda antes dos 60d; aborto é embrião já confirmado."),
-    17: ("estacao de monta", "GARANHOES",
-         "Embriões por garanhão na safra corrente."),
-    18: ("estacao de monta", "ESTAÇÃO",
-         "Mesma contagem aplicada às safras anteriores, para comparar o ritmo."),
-    19: ("estacao de monta", "PLANEJAMENTO",
-         "Doadoras do time A: meta contra realizado. O time vem da coluna TIME da própria planilha."),
-    20: ("estacao de monta", "PLANEJAMENTO", "Doadoras do time B, mesma regra."),
-    21: ("coberturas de fora", "Planilha2",
-         "Saldo de cobertura comprada ou de direito, por garanhão de fora."),
-    23: ("_docs/comite_conteudo.json", "exposicoes.programacao",
-         "Escrito à mão. A fonte declarada no próprio slide é o grupo da equipe mais o site da ABCCMM."),
-    24: ("_docs/comite_conteudo.json", "exposicoes.resultados",
-         "Escrito à mão, uma tabela por exposição."),
-    29: ("mapa de vendas", "MAPA VENDAS",
-         "Filtro do guia: vendedor CARLA, sem contrato cancelado. Meta anual de R$ 4,5M."),
-    30: ("mapa de vendas", "MAPA VENDAS",
-         "Mesmo filtro, aberto por mês e evento."),
-    31: ("inadimplência (KPI)", "—",
-         "Só agregados — nenhum nome de devedor entra no deck. A saída vem do repositório controle-de-inadimplencia, o mesmo que o hub do P&C lê; havia uma cópia no Drive e o build escolhe a mais recente."),
-    32: ("embriões a entregar", "ENTREGAR",
-         "Embrião vendido e ainda não gestado, com pagamento quitado ou em curso."),
-    33: ("embriões a entregar", "ENTREGAR",
-         "Mesma aba, recorte de pagamento pausado ou após confirmação."),
-    34: ("embriões a entregar", "ENTREGAR",
-         "Embrião de direito, troca ou reposição — não é venda."),
-    35: ("embriões a entregar", "RECEBER",
-         "Embrião que a PG comprou e ainda vai receber."),
-    37: ("snapshot local", "semanal_snapshots.json",
-         "Último fechamento semanal DO MÊS do deck. Era a aba CONTAGEM, que não tem dimensão de mês e trazia a contagem de hoje para qualquer deck."),
-    38: ("_docs/comite_conteudo.json", "manejo", "Escrito à mão."),
-    39: ("fotos do mês", "ATA & APRESENTACOES MENSAIS/<ano>/FOTOS",
-         "12 por mês (2 slides), embutidas no spec. Mês vem da data no nome do arquivo do WhatsApp — que é a data do encaminhamento, não da foto: nenhum dos 80 arquivos tem EXIF e 9 pares são byte-idênticos com nomes de dias diferentes. Dedup por hash; com mais de 12 fotos, escolhe um dia por vez para o slide cobrir o mês. Antes vinha de 28 imagens extraídas do PPTX de junho e declaradas à mão, e TODO mês herdava as de junho."),
+    "DRE histórico": "P&C (extrator)",
+    "DRE anual (Haras)": "Controladoria",
+    "DRE anual (Casa)": "Controladoria",
+    "Comentários do DRE (Trello)": "Controladoria",
+    "resumo contábil (mapa)": "Controladoria",
+    "resumo do plantel (aba Plantel do hub)": "P&C (hub)",
+    "plantel consolidado (base_bi)": "P&C (extrator)",
+    "inadimplência (foto do mês)": "P&C (controle de inadimplência)",
+    "inadimplência (KPI do dash)": "P&C (controle de inadimplência)",
+    "conteúdo do hub (comite_conteudo)": "Haras (escrito no hub)",
+    "fotos do mês": "Haras (escrito no hub)",
 }
 
 # O que cada fonte alimenta. Metadado estável: muda quando a origem muda.
 ALIMENTA = {
-    "DRE histórico": "Haras competência, custos, despesas, YTD, caixa e Casa/FPG",
-    "DRE anual (Haras)": "Investimentos do ano, com a descrição de cada compra",
-    "fotos do mês": "Registros de manejo do mês",
-    "estacao de monta": "Embriões e prenhezes, garanhões, comparativo, doadoras A e B",
+    "DRE histórico": "Valores do resumo, das análises, do YTD, do caixa e da Casa/FPG",
+    "DRE anual (Haras)": "Rótulos e ordem das linhas (abas Real x Orçado) e a aba Investimentos",
+    "DRE anual (Casa)": "Rótulos e ordem das linhas da Casa/FPG",
+    "Comentários do DRE (Trello)": "Comentários do mês, por categoria",
+    "resumo do plantel (aba Plantel do hub)": "Movimentação do plantel e patrimônio do estoque",
+    "resumo contábil (mapa)": "Reserva da movimentação para mês que o hub não fechou",
+    "plantel consolidado (base_bi)": "Estoque: animais por categoria e valor médio",
+    "estacao de monta": "Embriões e prenhezes, garanhões, comparativo e doadoras",
     "coberturas de fora": "Coberturas disponíveis por garanhão de fora",
-    "mapa de vendas": "Resultado acumulado e detalhamento por mês e evento",
-    "inadimplência (KPI)": "Inadimplências e recebíveis — agregados",
-    "inadimplência (faixas)": "Inadimplências por faixa de atraso",
+    "mapa de vendas": "Resultado acumulado, média mensal e detalhamento por evento",
+    "inadimplência (foto do mês)": "Painel de inadimplência: cartões, rosca e índice por ano",
+    "inadimplência (KPI do dash)": "Conferência dos cartões contra o dash do hub P&C",
     "embriões a entregar": "Embriões vendidos a fazer, de direito e a receber",
+    "contagem do fechamento": "Plantel por local (slide oculto)",
+    "receptoras do fechamento": "Receptoras por local (slide oculto)",
+    "conteúdo do hub (comite_conteudo)": "Exposições, manejo, pendências e comentários sem Trello",
+    "fotos do mês": "Fotos e registros de manejo, por tema",
 }
+
+
+def _historica(rotulo: str) -> bool:
+    """Master de safra encerrada: não muda mais, idade grande ali não é atraso."""
+    return rotulo.startswith("estação ")
+
+
+# Regra de cada slide, pelo TIPO (e, no DRE e nos contratos, pelo número que o
+# build dá a cada recorte). Chavear pela posição não serve: tabela longa vira
+# duas páginas, slide vazio some e o que vem depois muda de lugar.
+DRE_POR_N = {
+    4: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Comp)",
+        "As 19 linhas do relatório, com rótulo e ordem da face oficial e valor da base (CC HPG, Competência, mês), arredondado como o Excel."),
+    5: ("DRE histórico", "Base DRE Geral · conferência na DRE-Compet",
+        "As naturezas de custo que o relatório acompanha, por subgrupo, em duas páginas com o total no topo. Cada linha é casada por grupo, subgrupo e natureza, porque o nome repete no bloco de Vassouras."),
+    6: ("DRE histórico", "Base DRE Geral · conferência na DRE-Compet",
+        "Mesma regra, para as despesas. Desde agosto/2026 o DESPESAS TOTAIS soma Despesas e os dois arrendamentos, que as páginas listam embaixo dele. Fecha com Resultado Operacional."),
+    7: ("DRE histórico", "Base YTD + face Real x Orçado (Comp)",
+        "Acumulado do ano, com as mesmas linhas do resumo. Oculto na apresentação, como no relatório; fica no deck trimestral."),
+    10: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Caixa)",
+         "As 6 linhas do caixa do relatório (CC HPG, modelo Caixa)."),
+    13: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Casa)",
+         "CC FPG, modelo Caixa. Marketing e Hospedagem Família entram quando têm valor; sem elas os detalhes não fecham com Despesas Gerais."),
+    14: ("DRE histórico", "Base YTD + face Real x Orçado (Casa)",
+         "Acumulado da Casa/FPG. Oculto, como no relatório."),
+}
+CONTRATOS_POR_N = {
+    32: "Vendido e ainda a fazer, com pagamento quitado ou em curso.",
+    33: "Vendido e ainda a fazer, com pagamento pausado, após confirmação ou a pagar.",
+    34: "Reposição, ou a fazer com direito ou troca. A coluna PGTO mostra o pagamento.",
+    35: "Aba RECEBER: embrião que a PG comprou e ainda vai receber.",
+}
+POR_TIPO = {
+    "pendencias": ("conteúdo do hub (comite_conteudo)", "pendencias",
+                   "O que ficou combinado na apresentação anterior. Só existe quando há item escrito; para escrever, o Editar da agenda abre o editor."),
+    "investimentos": ("DRE anual (Haras)", "Investimentos",
+                      "Só o mês, com todos os blocos da aba (infraestrutura, máquinas e equipamentos, animais e produtos) e o total da seção. Lançamento repetido vira uma linha, marcada com 2×."),
+    "estoque": ("plantel consolidado (base_bi)", "fato_plantel",
+                "Status PLANTEL, sufixo exato Da PG ou Outro. Categoria pela coluna CATEGORIA do controle, todas abertas. Valor médio sobre os animais avaliados desde agosto/2026. Patrimônio é o saldo final da movimentação do hub."),
+    "matriz": ("resumo contábil (mapa)", "Resumo Contábil",
+               "Reserva: o hub não tem nenhum mês do ano fechado, e a movimentação sai do mapa da controladoria."),
+    "movimentacao": ("resumo do plantel (aba Plantel do hub)", "tools/resumo_plantel_hub.js",
+                     "O mesmo motor da aba Plantel do hub, sobre os meses importados e as movimentações classificadas. Só entra mês fechado no hub; o que faltar sai do Resumo Contábil do mapa, e o subtítulo avisa."),
+    "funil": ("estacao de monta", "ESTAÇÃO",
+              "Funil da safra do mês do deck: tentativas, lavados positivos, prenhez aos 15, 30, 45 e 60 dias, abortos e confirmados."),
+    "garanhoes": ("estacao de monta", "GARANHOES + ESTAÇÃO",
+                  "Lavados e confirmados por garanhão. Quem tem tentativa na safra e não está na aba entra pela conta da ESTAÇÃO."),
+    "comparativo": ("estacao de monta", "ESTAÇÃO + masters das safras antigas",
+                    "Confirmados por mês da IA nas quatro últimas safras; a meta é confirmados sobre a META TOTAL do PLANEJAMENTO."),
+    "doadoras": ("estacao de monta", "PLANEJAMENTO + REC. EMBR.",
+                 "Meta contra realizado por doadora, com as colunas lidas pelo cabeçalho. Sem coluna TIME na safra, sai um slide só."),
+    "coberturas": ("coberturas de fora", "Planilha2",
+                   "Só saldo maior que zero, do maior para o menor. A leitura para em ARQUIVO MORTO."),
+    "tabela": ("conteúdo do hub (comite_conteudo)", "exposicoes.programacao",
+               "Escrito no hub. Evento com resultado no mês que sumiu da programação volta com a linha do mês anterior."),
+    "resultados": ("conteúdo do hub (comite_conteudo)", "exposicoes.resultados",
+                   "Escrito no hub, um slide por exposição. O subtítulo traz a data da programação."),
+    "vendas_acum": ("mapa de vendas", "MAPA VENDAS",
+                    "Mapa do fechamento do mês (a primeira versão gerada depois do fim do mês), vendedor CARLA, sem cancelado. Média mensal é o acumulado dividido pelos meses decorridos."),
+    "vendas_mes": ("mapa de vendas", "MAPA VENDAS", "Mesmo filtro, aberto por mês e evento."),
+    "inadimplencia": ("inadimplência (foto do mês)", "fato_titulos do fim do mês",
+                      "Carteira CAR inteira desde agosto/2026, como o dash do hub P&C mostra (até julho, carteira Carla). O build confere os cartões contra o histórico de KPIs do dash. Só agregados."),
+    "kpis_tabela": ("contagem do fechamento", "PLANTEL",
+                    "Plantel por local no fechamento do mês. Oculto: o relatório não tem esse slide."),
+    "manejo": ("conteúdo do hub (comite_conteudo)", "manejo",
+               "Um slide por semestre, juntando o manejo escrito em todos os meses. Para cada mês vale o texto mais recente."),
+    "fotos": ("fotos do mês", "fotos (bucket do hub)",
+              "Por tema, quantos slides forem precisos. Tema digitado em caixa alta sai como título."),
+}
+
+
+def _meta(sl: dict):
+    t, n = sl.get("t"), sl.get("n")
+    if t == "dre":
+        return DRE_POR_N.get(n, ("DRE histórico", "Base DRE Geral", ""))
+    if t == "contratos":
+        return ("embriões a entregar", "RECEBER" if n == 35 else "ENTREGAR", CONTRATOS_POR_N.get(n, ""))
+    if t == "pendente":
+        return (sl.get("fonte") or "—", "—", "")
+    if t == "comentarios":
+        if sl.get("origem") == "trello":
+            return ("Comentários do DRE (Trello)", "card DRE Haras - <mês>",
+                    "Comentário da controladoria no card do mês (quadro Fluxo de Caixa), uma faixa por categoria. O Δ de cada categoria sai da face Real x Orçado (Caixa), porque o comentário é sobre o caixa.")
+        return ("conteúdo do hub (comite_conteudo)", "comentarios",
+                "Escrito no hub. Vale só em mês sem comentário no Trello.")
+    return POR_TIPO.get(t, ("—", "—", ""))
 
 
 def _idade(iso: str | None):
@@ -121,13 +159,18 @@ def _idade(iso: str | None):
     return dias, f"{dias} dia{'s' if dias != 1 else ''}"
 
 
+def _velha(rotulo: str, f: dict) -> bool:
+    dias = _idade(f.get("modificado"))[0]
+    return dias is not None and dias > DIAS_VELHA and not _historica(rotulo)
+
+
 def _linha_fonte(rotulo: str, f: dict) -> str:
-    dias, txt = _idade(f.get("modificado"))
-    marca = (f'<span class="chip warn">{html.escape(txt)}</span>'
-             if dias is not None and dias > DIAS_VELHA else html.escape(txt))
+    txt = _idade(f.get("modificado"))[1]
+    marca = f'<span class="chip warn">{html.escape(txt)}</span>' if _velha(rotulo, f) else html.escape(txt)
     quando = (f.get("modificado") or "—").replace("T", " ")
+    alimenta = ALIMENTA.get(rotulo) or ("Comparativo: safra encerrada" if _historica(rotulo) else "—")
     return f"""        <tr>
-          <td>{html.escape(ALIMENTA.get(rotulo, "—"))}</td>
+          <td>{html.escape(alimenta)}</td>
           <td class="file">{html.escape(f.get("arquivo") or "—")}</td>
           <td class="tight">{html.escape(DONO.get(rotulo, "Haras"))}</td>
           <td class="file">{html.escape(f.get("caminho") or "—")}</td>
@@ -137,27 +180,22 @@ def _linha_fonte(rotulo: str, f: dict) -> str:
 
 
 def _linha_slide(sl: dict, fontes: dict) -> str:
-    """Uma linha por slide com dado: de onde vem, por qual regra, e se saiu.
-
-    Mesmo formato da auditoria semanal — lá a chave é o indicador, aqui é o número
-    do slide."""
+    """Uma linha por slide com dado: de onde vem, por qual regra, e se saiu."""
     n = sl.get("n")
-    rotulo, aba, regra = POR_SLIDE.get(n, ("—", "—", ""))
-    pendente = sl.get("t") == "pendente"
-    if pendente:
+    rotulo, aba, regra = _meta(sl)
+    if sl.get("t") == "pendente":
         situacao = '<span class="chip bad">pendente</span>'
-        regra = f'<b>{html.escape(sl.get("motivo") or "")}</b><br>{html.escape(regra)}'
+        regra = f'<b>{html.escape(sl.get("motivo") or "")}</b>'
+    elif sl.get("oculto"):
+        situacao = '<span class="chip warn">oculto</span>'
+        regra = html.escape(regra)
     else:
         situacao = '<span class="chip ok">com dado</span>'
         regra = html.escape(regra)
-    # caminho e data vêm do que o build LEU; fonte escrita à mão não tem registro
     f = fontes.get(rotulo) or {}
     caminho = f.get("caminho") or rotulo
-    dias, idade = _idade(f.get("modificado"))
-    if dias is not None and dias > DIAS_VELHA:
-        idade = f'<span class="chip warn">{html.escape(idade)}</span>'
-    else:
-        idade = html.escape(idade)
+    idade = _idade(f.get("modificado"))[1]
+    idade = f'<span class="chip warn">{html.escape(idade)}</span>' if _velha(rotulo, f) else html.escape(idade)
     return f"""        <tr>
           <td class="num">{n}</td>
           <td>{html.escape((sl.get("titulo") or "").split(" (")[0])}</td>
@@ -170,78 +208,158 @@ def _linha_slide(sl: dict, fontes: dict) -> str:
         </tr>"""
 
 
-def _cartoes_limite(fontes: dict, pendentes: list, meses_conteudo: list) -> str:
+def _cartoes_limite(fontes: dict, pendentes: list) -> str:
     cartoes = []
-    velhas = [(r, f) for r, f in fontes.items()
-              if (_idade(f.get("modificado"))[0] or 0) > DIAS_VELHA]
+    velhas = [(r, f) for r, f in fontes.items() if _velha(r, f)]
     if velhas:
-        itens = " · ".join(f"{html.escape(r)} {_idade(f['modificado'])[1]}"
-                           for r, f in velhas)
+        itens = " · ".join(f"{html.escape(r)} {_idade(f['modificado'])[1]}" for r, f in velhas)
         cartoes.append(f"""    <div class="card">
       <h3>Fonte parada há mais de {DIAS_VELHA} dias</h3>
-      <p>O deck publica o mês corrente, mas estas fontes não foram atualizadas desde
-      então — o número sai, e sai velho. Nenhum código conserta isso: alguém precisa
-      rodar a rotina de origem.</p>
+      <p>O deck publica o mês, mas estas fontes não mudaram desde então. O número
+      sai, e sai velho; quem resolve é a rotina de origem.</p>
       <div class="figures">{itens}</div>
     </div>""")
     if pendentes:
+        nomes = ", ".join((p.get("titulo") or "")[:40] for p in pendentes)
         cartoes.append(f"""    <div class="card">
-      <h3>Conteúdo manual do mês não escrito</h3>
-      <p>Comentários do YTD, exposições, decisões de manejo e fotos não saem de
-      planilha: são escritos a cada mês em <code>_docs/comite_conteudo.json</code>.
-      Sem isso o slide vira pendência explícita — que é melhor que herdar o texto de
-      outro mês, mas não preenche o deck.</p>
-      <div class="figures">{len(pendentes)} pendente(s) · meses com conteúdo: {
-          ", ".join(meses_conteudo) or "nenhum"}</div>
+      <h3>Slide sem conteúdo</h3>
+      <p>Exposições, manejo e fotos são escritos no hub a cada mês. Sem isso o slide
+      fica marcado como pendente em vez de herdar o texto de outro mês.</p>
+      <div class="figures">{len(pendentes)} pendente(s): {html.escape(nomes)}</div>
+    </div>""")
+    dre, anual = fontes.get("DRE histórico"), fontes.get("DRE anual (Haras)")
+    if dre and anual and dre.get("modificado") and anual.get("modificado"):
+        atras = anual["modificado"] > dre["modificado"]
+        situ = ("a base está atrás do arquivo da controladoria: rode o extrator"
+                if atras else "a base está em dia com o arquivo da controladoria")
+        cartoes.append(f"""    <div class="card">
+      <h3>A base do DRE é derivada</h3>
+      <p>O deck lê o <code>DRE_Historico.xlsx</code>, que o extrator gera a partir dos
+      arquivos anuais. A controladoria corrige meses já fechados; o incremental do mês
+      relê o período e regera as bases longas, e o build avisa quando o anual fica mais
+      novo que a base.</p>
+      <div class="figures">base {html.escape(dre["modificado"].replace("T", " "))} · anual {html.escape(anual["modificado"].replace("T", " "))} · {situ}</div>
     </div>""")
     cartoes.append("""    <div class="card">
-      <h3>Duas cópias do mesmo derivado</h3>
-      <p>O <code>DRE_Historico.xlsx</code> é derivado, e o extractor grava a saída ao
-      lado de si mesmo — duas cópias do extractor, duas saídas. O build escolhe a mais
-      recente e diz no log qual usou, mas nada garante que as duas andem juntas. Uma
-      saída única resolveria de vez.</p>
-      <div class="figures">o log do build diz qual cópia venceu</div>
+      <h3>A categoria do estoque é a da planilha</h3>
+      <p>O deck conta pela coluna CATEGORIA do controle de plantel. O relatório do
+      haras reclassifica alguns animais à mão, sem regra na planilha; a divisão por
+      categoria pode diferir enquanto o total, o patrimônio e o valor médio batem.</p>
+      <div class="figures">jul/26 · total, patrimônio e valor médio batem</div>
     </div>""")
     return "\n".join(cartoes)
 
 
-# Prosa que não envelhece: o que já estava errado e foi corrigido. Fica escrita porque
-# é história — nenhum build sabe disso.
+# Prosa que não envelhece: o que já estava errado e foi corrigido, e onde o
+# relatório montado à mão diverge. Fica escrita porque é história; nenhum
+# build sabe disso. Sem valor em reais nem nome de animal: este arquivo é público.
 HISTORICO = """<section>
   <h2>O que já estava errado</h2>
-  <p class="lede">O deck monta sozinho e reportava 54 slides sem nenhuma pendência,
-  então nada denunciava os problemas abaixo. Os quatro foram corrigidos; ficam
-  registrados porque explicam por que o build hoje avisa em vez de calar.</p>
+  <p class="lede">Cada item foi corrigido e fica registrado porque explica uma regra
+  que hoje pode parecer arbitrária. Os de agosto são da primeira rodada; os de
+  setembro vieram da conferência do deck de agosto com o haras.</p>
 
   <div class="cards">
     <div class="card">
+      <h3>Análise de custos contra a DRE-Compet</h3>
+      <p>No relatório de agosto do haras as colunas estavam deslocadas. Conferido
+      linha a linha, por grupo, subgrupo e natureza, o deck bate com a DRE-Compet.</p>
+      <div class="figures">set/26 · 59 de 59 linhas batem</div>
+    </div>
+    <div class="card">
+      <h3>Arredondamento diferente da planilha</h3>
+      <p>O navegador arredondava o meio para cima e a planilha para longe do zero:
+      valor negativo terminado em ,5 saía com 1 real de diferença, e variação que
+      arredonda a zero perdia o sinal que a planilha mostra.</p>
+      <div class="figures">set/26 · 76 de 76 valores das faces batem</div>
+    </div>
+    <div class="card">
+      <h3>Deduções da Casa zeradas no acumulado</h3>
+      <p>A face chama a linha de Deduções e a base de Deduções e Impostos. Sem o
+      sinônimo, a linha saía zerada enquanto a Receita Líquida já vinha descontada.</p>
+      <div class="figures">set/26</div>
+    </div>
+    <div class="card">
+      <h3>Inadimplência de outra carteira</h3>
+      <p>O painel filtrava a carteira da Carla. Desde agosto mostra a carteira CAR
+      inteira, como o dash do hub P&amp;C, e o build confere os cartões contra o
+      histórico de KPIs do dash.</p>
+      <div class="figures">set/26 · julho mantém a regra com que foi apresentado</div>
+    </div>
+    <div class="card">
+      <h3>Movimentação fora do hub</h3>
+      <p>O slide lia o mapa da controladoria, e o fechamento do plantel já era feito
+      na aba Plantel do hub. Agora roda o mesmo motor da aba sobre os dados do hub.</p>
+      <div class="figures">set/26</div>
+    </div>
+    <div class="card">
+      <h3>Comentários genéricos</h3>
+      <p>O slide trazia um resumo digitado no hub. A controladoria já escreve todo mês,
+      no Trello, a explicação de cada variação; o deck passou a ler o card do mês.</p>
+      <div class="figures">set/26 · quadro Fluxo de Caixa</div>
+    </div>
+    <div class="card">
+      <h3>ETL que não via correção retroativa</h3>
+      <p>Com o mês já na base, o extrator do DRE respondia que não havia nada a
+      atualizar, e o do fluxo de caixa trocava só o mês pedido. A reestruturação de
+      investimentos que a controladoria fez em 25/09 em todos os meses de 2026 só
+      entraria com rebuild completo. Os dois passaram a reler o período.</p>
+      <div class="figures">set/26 · incremental igual ao rebuild completo, 0 diferenças</div>
+    </div>
+    <div class="card">
       <h3>O deck lia a cópia velha do DRE</h3>
-      <p>Duas cópias do extractor, duas saídas: a do repo de rotinas tinha julho
-      fechado, a do Drive estava em 15/07 com julho zerado — e era a do Drive que o
-      comitê lia. O build passou a escolher a mais recente e a dizer no log qual usou.</p>
-      <div class="figures">Drive 15/07 → 18/08 · deck 06/2026 → 07/2026</div>
+      <p>Havia duas saídas do extrator e o comitê lia a do Drive, parada em julho sem
+      realizado. Hoje há uma base só, e o build avisa quando o arquivo anual fica mais
+      novo que ela.</p>
+      <div class="figures">ago/26 · deck 06/2026 → 07/2026</div>
     </div>
     <div class="card">
-      <h3>Um slide dizia junho e mostrava agosto</h3>
-      <p>Lia a aba <code>CONTAGEM</code> do CONTROLE PLANTEL, que é retrato ao vivo e
-      não tem dimensão de mês: o deck de junho exibia a contagem de 14/08. Agora usa o
-      snapshot datado do fechamento semanal, e o subtítulo diz de qual data o número
-      veio.</p>
-      <div class="figures">antes 203 (100/44/1/58) · agora 206 (104/43/1/58)</div>
+      <h3>Contagem de hoje em deck de outro mês</h3>
+      <p>O slide do plantel lia a aba CONTAGEM, que não tem dimensão de mês: o deck de
+      junho mostrava a contagem de agosto. Passou a ler o fechamento do próprio mês.</p>
+      <div class="figures">ago/26</div>
     </div>
     <div class="card">
-      <h3>Julho não estava na base do plantel</h3>
-      <p>O controle de julho estava no Drive desde 13/08 sem parquet extraído, então o
-      <code>base_bi</code> parava em junho.</p>
-      <div class="figures">29 → 30 meses · 391 animais em julho</div>
+      <h3>Fotos herdadas de junho</h3>
+      <p>As fotos vinham de imagens extraídas do deck de junho, e todo mês herdava as
+      mesmas. Hoje vêm do conteúdo de cada mês no hub, agrupadas por tema.</p>
+      <div class="figures">ago/26</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Onde o relatório do haras diverge</h2>
+  <p class="lede">Conferido com a versão corrigida de agosto (v3). Nestes pontos o
+  deck segue a fonte, e a diferença é do relatório montado à mão.</p>
+  <div class="cards">
+    <div class="card">
+      <h3>Análise de custos e despesas</h3>
+      <p>Colunas deslocadas: o valor de uma natureza aparece na linha de outra.</p>
+      <div class="figures">fonte: DRE-Compet</div>
     </div>
     <div class="card">
-      <h3>Rótulo de fonte adivinhado</h3>
-      <p>O resolvedor decidia o rótulo pelo padrão do nome do arquivo: o mapa de vendas
-      era registrado como "controle mensal". Não mudava número — só o comitê chama
-      aquela função —, mas ia direto para esta página, que existe para dizer de onde
-      veio o dado. Agora quem chama passa o rótulo.</p>
-      <div class="figures">9 fontes com rótulo duplicado → 7 corretas</div>
+      <h3>Acumulado do ano</h3>
+      <p>Números de julho no acumulado de agosto. O deck usa as colunas YTD da face
+      do mês.</p>
+      <div class="figures">fonte: Real x Orçado (Comp), colunas YTD</div>
+    </div>
+    <div class="card">
+      <h3>Contratos de embrião</h3>
+      <p>Linhas repetidas no lugar de outras, que sumiram. Na planilha cada contrato
+      aparece uma vez.</p>
+      <div class="figures">fonte: EMBRIOES A ENTREGAR - A RECEBER</div>
+    </div>
+    <div class="card">
+      <h3>Vendas</h3>
+      <p>Julho fora do acumulado. O mapa do fechamento tem o mês completo.</p>
+      <div class="figures">fonte: mapa de vendas do fechamento</div>
+    </div>
+    <div class="card">
+      <h3>Movimentação e inadimplência</h3>
+      <p>Saldo da movimentação deslocado de mês, e o painel de inadimplência rotulado
+      31/07 com os números de 31/08.</p>
+      <div class="figures">fonte: aba Plantel do hub · dash de inadimplência</div>
     </div>
   </div>
 </section>"""
@@ -256,6 +374,7 @@ def build(destino: Path | None = None) -> Path:
     deck = (spec.get("decks") or {}).get(mes) or []
     fontes = spec.get("fontes") or {}
     pendentes = [s for s in deck if s.get("t") == "pendente"]
+    ocultos = [s for s in deck if s.get("oculto")]
     com_fonte = [s for s in deck
                  if s.get("t") not in ("capa", "agenda", "divisor", "encerramento")]
     meses = spec.get("meses") or []
@@ -272,14 +391,6 @@ def build(destino: Path | None = None) -> Path:
         vistos.add(n)
         por_slide.append(x)
 
-    conteudo = []
-    if CONTEUDO.exists():
-        try:
-            conteudo = [k for k in json.loads(CONTEUDO.read_text(encoding="utf-8"))
-                        if re.fullmatch(r"\d{4}-\d{2}", k)]
-        except Exception:
-            conteudo = []
-
     gerado = datetime.now().strftime("%d/%m/%Y %H:%M")
     css = (ROOT / "tools" / "_artifact_comite.css")
     estilo = css.read_text(encoding="utf-8") if css.exists() else ESTILO
@@ -294,7 +405,7 @@ def build(destino: Path | None = None) -> Path:
   <h1>Auditoria de Fontes do Comitê</h1>
   <div class="runstamp">
     <span>Deck de <b>{html.escape(rotulo_mes)}</b></span>
-    <span>{len(deck)} slides · {len(pendentes)} pendentes</span>
+    <span>{len(deck)} slides · {len(ocultos)} ocultos · {len(pendentes)} pendentes</span>
     <span>Meses no deck <b>{html.escape((meses[0] if meses else "") + " – " + (meses[-1] if meses else ""))}</b></span>
     <span>Gerada em <b>{gerado}</b></span>
   </div>
@@ -347,10 +458,10 @@ def build(destino: Path | None = None) -> Path:
 
 <section>
   <h2>O que limita o deck hoje</h2>
-  <p class="lede">Nenhuma é problema de código. São fontes que atrasam ou dependem de
-  alguém escrever, cada uma travando uma parte diferente.</p>
+  <p class="lede">Fontes que atrasam, conteúdo que depende de alguém escrever e regras
+  da planilha que o relatório do haras não segue.</p>
   <div class="cards">
-{_cartoes_limite(fontes, pendentes, conteudo)}
+{_cartoes_limite(fontes, pendentes)}
   </div>
 </section>
 
@@ -383,11 +494,11 @@ ESTILO = """
 --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
 --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#121614;--surface:#1A1F1C;
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--ground:#121614;--surface:#1A1F1C;
 --surface-alt:#222824;--line:#333B36;--line-soft:#272E2A;--ink:#E6EAE5;--ink-soft:#AFB8B1;
 --ink-mute:#838D86;--accent:#CE8462;--accent-soft:#35231B;--ok:#6FBE8F;--ok-bg:#1B2E23;
 --warn:#D6A947;--warn-bg:#322913;--bad:#E08078;--bad-bg:#33201E;--zebra:#1D2320}}
-:root[data-theme="dark"]{--ground:#121614;--surface:#1A1F1C;--surface-alt:#222824;--line:#333B36;
+:root[data-theme="dark"]{color-scheme:dark;--ground:#121614;--surface:#1A1F1C;--surface-alt:#222824;--line:#333B36;
 --line-soft:#272E2A;--ink:#E6EAE5;--ink-soft:#AFB8B1;--ink-mute:#838D86;--accent:#CE8462;
 --accent-soft:#35231B;--ok:#6FBE8F;--ok-bg:#1B2E23;--warn:#D6A947;--warn-bg:#322913;
 --bad:#E08078;--bad-bg:#33201E;--zebra:#1D2320}
