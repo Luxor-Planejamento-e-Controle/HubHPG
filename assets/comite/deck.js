@@ -402,7 +402,7 @@ function slidesManejo(hist, mNum, ano){
     const ks = Object.keys(hist).map(Number).filter(k => k >= a && k <= fim).sort((x, y) => x - y);
     if (!ks.length) return;
     out.push({t:'manejo', n:38, titulo:'MANEJO — PONTOS DE MELHORIA E DECISÕES',
-      sub:`Histórico de intervenções ${a === fim ? ABR_PT[a-1] : ABR_PT[a-1] + '–' + ABR_PT[fim-1]} ${ano}  ·  ${j + 1}º semestre`,
+      sub:`${a === fim ? ABR_PT[a-1] : ABR_PT[a-1] + '–' + ABR_PT[fim-1]} ${ano}  ·  ${j + 1}º semestre`,
       itens: ks.map(k => [ABR_PT[k-1], hist[k]]), atual: mNum >= a && mNum <= b ? ABR_PT[mNum-1] : ''});
   });
   return out;
@@ -419,7 +419,7 @@ async function montaSlidesAoVivo(mes){
   // o do spec e não pode trocar de cara no meio da apresentação
   if (c.comentarios && c.comentarios.length) {
     out.comentarios = [{t:'comentarios', n:8, titulo:`COMENTÁRIOS — ${MES.toUpperCase()} ${ano}`,
-      sub:'DRE 2026 | HPG  ·  Principais destaques do mês por categoria', itens: c.comentarios}];
+      sub:'', itens: c.comentarios}];
   }
 
   // lista vazia TIRA o slide (quem apagou tudo no editor quer ele fora)
@@ -447,7 +447,7 @@ async function montaSlidesAoVivo(mes){
   if (prog.length || res.length) {
     const s = [];
     if (prog.length) s.push({t:'tabela', n:23, titulo:`EXPOSIÇÕES ${ano} — PROGRAMAÇÃO`,
-      sub:'Calendário de participações previstas', cols:['EVENTO','DATA','LOCAL','STATUS'], rows: expoProgramacao(prog)});
+      sub:'', cols:['EVENTO','DATA','LOCAL','STATUS'], rows: expoProgramacao(prog)});
     res.forEach((r, k) => { const [titulo, sub] = expoResultado(r, prog);
       s.push({t:'resultados', n:24+k, titulo, sub, animais:expoAnimais(r.animais)}); });
     out.exposicoes = s;
@@ -484,8 +484,8 @@ async function montaSlidesAoVivo(mes){
       const n = Math.ceil(itens.length / FOTOS_POR_SLIDE);
       for (let k = 0; k < n; k++) {
         const bloco = itens.slice(k * FOTOS_POR_SLIDE, (k + 1) * FOTOS_POR_SLIDE);
-        let sub = g.tema ? `Obras e melhorias realizadas  ·  ${temaFoto(g.tema)}` : `Registros de ${MES} ${ano}`;
-        if (n > 1) sub += ` (${k+1}/${n})`;
+        let sub = g.tema ? temaFoto(g.tema) : '';
+        if (n > 1) sub += sub ? ` (${k+1}/${n})` : `${k+1}/${n}`;
         s.push({t:'fotos', n:39, titulo:'MANEJO — FOTOS E REGISTROS', sub, fotos:bloco});
       }
     }

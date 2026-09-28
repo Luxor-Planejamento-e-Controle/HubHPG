@@ -84,9 +84,9 @@ DRE_POR_N = {
     7: ("DRE histórico", "Base YTD + face Real x Orçado (Comp)",
         "Acumulado do ano, com as mesmas linhas do resumo, sem subtítulo e com os quatro cartões do relatório em cima; em seguida, a análise de custos e de despesas do acumulado, com a mesma regra da análise do mês (desde agosto/2026). Entra na apresentação (o relatório deixa oculto); fica também no deck trimestral."),
     10: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Caixa)",
-         "As 6 linhas do caixa do relatório (CC HPG, modelo Caixa)."),
+         "CC HPG, modelo Caixa. Desde agosto/2026, o mesmo modelo do resumo de competência sem a parte patrimonial; até julho, as 6 linhas do relatório."),
     13: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Casa)",
-         "CC FPG, modelo Caixa. Marketing e Hospedagem Família entram quando têm valor; sem elas os detalhes não fecham com Despesas Gerais."),
+         "CC FPG, modelo Caixa. Desde agosto/2026 a Receita Bruta abre em Receita Casa e Receita Financeira, e a Receita Líquida da face vira duas linhas: Receita Casa – Locação (locação menos deduções) e Receita Líquida (bruta menos deduções). Marketing e Hospedagem Família entram quando têm valor."),
     14: ("DRE histórico", "Base YTD + face Real x Orçado (Casa)",
          "Acumulado da Casa/FPG. Entra na apresentação (o relatório deixa oculto)."),
 }

@@ -880,7 +880,20 @@
 
   const ESCUROS = new Set(['capa', 'agenda', 'divisor', 'encerramento']);
   const fundo = s => ESCUROS.has(s.t) ? COR.navy : 'FFFFFF';
-  const prims = (s, ctx) => (L[s.t] || L.pendente)(s, ctx || {});
+  /* Slide sem subtítulo: a faixa dele (até y≈124) ficava vazia e o conteúdo
+     parecia baixo. DRE e comentários já começam mais alto (topo()); nos outros
+     o conteúdo sobe inteiro, até logo abaixo do logo. */
+  const PROPRIO_TOPO = new Set(['dre', 'comentarios', 'capa', 'agenda', 'divisor', 'encerramento', 'fotos', 'pendente']);
+  const sobe = (s, P) => {
+    if (s.sub || PROPRIO_TOPO.has(s.t)) return P;
+    const ys = P.map(p => p.k === 'a' ? p.cy - p.r : p.y).filter(y => y > 100);
+    if (!ys.length) return P;
+    const d = Math.max(0, Math.min(124.2 - 96, Math.min(...ys) - 96));
+    if (!d) return P;
+    return P.map(p => p.k === 'a' ? (p.cy - p.r > 100 ? Object.assign({}, p, {cy: p.cy - d}) : p)
+                                  : (p.y > 100 ? Object.assign({}, p, {y: p.y - d}) : p));
+  };
+  const prims = (s, ctx) => sobe(s, (L[s.t] || L.pendente)(s, ctx || {}));
 
   /* ---------------- saída HTML ---------------- */
   const escH = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));

@@ -41,8 +41,14 @@ fotos (S39).
 
 ---
 
-Subtítulo de slide não cita fonte de dado (pedido do Arthur, 28/09/2026): a fonte
-de cada número fica nesta tabela e na auditoria.
+Subtítulo de slide não cita fonte, regra, filtro nem descrição do conteúdo (pedido do
+Arthur, 28/09/2026): isso fica nesta tabela e na auditoria. Sobra no subtítulo só o que o
+slide não mostra em outro lugar — período ou data, tema da foto, números das doadoras e
+dos garanhões, contagem de contratos, "Parte x de y". Slide sem subtítulo sobe o
+conteúdo para logo abaixo do logo. Desde ago/26 o caixa segue o modelo do resumo sem a
+parte patrimonial, e a Casa abre a Receita Bruta em Receita Casa e Receita Financeira e
+separa Receita Casa – Locação (locação menos deduções) de Receita Líquida (bruta menos
+deduções).
 
 ## Seção 01 — Financeiro (S04–S14)
 

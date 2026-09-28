@@ -647,6 +647,34 @@ GAB_RESUMO = [
     ("Resultado após Invest.", "Resultado após Investimentos", "fim"),
 ]
 RESUMO_NOVO_DESDE = (2026, 8)
+# Caixa e Casa no mesmo pedido (28/09), valendo também de ago/2026:
+#  - o caixa segue o modelo do resumo, sem a parte patrimonial (não existe no caixa);
+#  - na Casa, a Receita Bruta abre em Receita Casa e Receita Financeira, e a
+#    "Receita Líquida - Locação" da face, que é a bruta menos as deduções (com a
+#    financeira dentro), vira duas linhas: a locação líquida da comissão e a
+#    receita líquida total.
+GAB_CAIXA_NOVO = [l for l in GAB_RESUMO if l[0] not in (
+    "Variação Patrimonial", "Embriões Produzidos", "Reavaliação de Plantel", "Baixas de Estoque",
+    "Por Venda", "Mortes e Doações", "Resultado Patrimonial")]
+GAB_CASA_NOVO = [
+    ("CASA", None, "rotulo"),
+    ("Receita Bruta", "Receita Bruta", "grupo"),
+    ("Receita Casa", "Receitas - Casa", "det"),
+    ("Receita Financeira", "Receitas Financeiras", "det"),
+    ("Deduções", "Deduções", "det"),
+    ("Receita Casa – Locação", ["Receitas - Casa", "Deduções"], "det"),
+    ("Receita Líquida", "Receita Liquida - Locação", "banda"),
+    ("Despesas Gerais", "Despesas Gerais", "grupo"),
+    ("Desp. com Pessoal", "Despesa Com Pessoal", "det"),
+    ("Manutenção", "Manutenção ( Servicos E Materiais)", "det"),
+    ("Contas de Consumo", "Contas De Consumo", "det"),
+    ("Materiais de Consumo", "Materiais De Consumo", "det"),
+    ("Desp. Administrativas", "Despesas Administrativas", "det"),
+    ("Tributos", "Tributos", "det"),
+    ("Resultado Operacional", "Resultado Operacional", "banda"),
+    ("Investimentos", "Investimentos", "grupo"),
+    ("Resultado após Investimentos", "Resultado após Investimentos", "fim"),
+]
 GAB_CAIXA = [
     ("Receita Bruta", "Receita Bruta", "grupo"),
     ("Receita Líquida", "Receita operacional - Líquida", "banda"),
@@ -1010,7 +1038,7 @@ def slides_investimentos(m, ano):
     acumulado do ano — o formato do relatório (v3 de agosto inclusive). Obra e
     máquina aparecem no resumo financeiro, na abertura de Investimentos."""
     titulo = f"INVESTIMENTOS — COMENTÁRIOS {ano}"
-    sub = f"Compra de Animais e Produtos  ·  Janeiro a {MESES[m-1]}"
+    sub = ""
     if not DRE_HARAS.exists():
         return [pend(9, titulo, sub, DRE_HARAS.name, "arquivo não encontrado")]
     import openpyxl
@@ -1191,9 +1219,8 @@ def slide_estoque(m, ano):
     # sufixo embaixo. Quantos estão sem avaliação não aparece no slide — o valor
     # médio já é sobre todos (ver acima).
     return {"t": "estoque", "n": 11, "titulo": "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE",
-            "sub": (f"Composição patrimonial do plantel  ·  {MESES[m-1].upper()} {ano}  ·  "
-                    f"{len(x)} animais  ·  Status PLANTEL  ·  Sufixo: Da PG / Outros"),
-            "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "DA PAO GRANDE + OUTROS",
+            "sub": "",
+            "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "",
                       "cor": "navy", "pt": 28},
                      {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "", "cor": "ouro", "pt": 20},
                      {"v": brl_curto(medio), "l": "Valor Médio", "s": "", "cor": "azul", "pt": 24}],
@@ -1383,7 +1410,7 @@ def slide_movimentacao(m, ano):
         rows = [[rot] + [rc[k].get(campo, 0.0) for k in meses] for campo, rot in MOV_LINHAS_ANA]
         ab = ABR[meses[-1] - 1]
         return {"t": "movimentacao", "n": 12, "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}",
-                "sub": "Saldo mensal · Compras, produções, vendas e baixas",
+                "sub": "",
                 "kpis": [{"v": ("+" if u.get("producao", 0) > 0 else "") + brl_curto(u.get("producao", 0)),
                           "l": f"Produção Emb. {ab}", "s": f"{mes_nome} {ano}", "cor": "navy"},
                          {"v": brl_curto(u.get("vendas", 0)), "l": f"Baixa Vendas {ab}",
@@ -1407,7 +1434,7 @@ def slide_movimentacao(m, ano):
     rows = [[rot] + [a[k].tolist()[i] for i in range(len(a))] for k, rot in MOV_LINHAS]
     u = a.iloc[-1]
     return {"t": "matriz", "n": 12, "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}",
-            "sub": "Saldo mensal · compras, produções, vendas e baixas",
+            "sub": "",
             "kpis": [{"v": brl_curto(u["producao"]), "l": "Produção Emb.", "s": cols[-1]},
                      {"v": brl_curto(u["venda"]), "l": "Baixa Vendas", "s": cols[-1]},
                      {"v": brl_curto(u["morte"] + u["doacao"]), "l": "Mortes/Doações", "s": cols[-1]},
@@ -1517,7 +1544,7 @@ def slide_contagem(m, ano):
            "s": f"{r[-1]/total*100:.0f}% do total" if total else "—"} for r in rows[:3]]
     kp.append({"v": f"{total}", "l": "TOTAL GERAL", "s": "sob responsabilidade da PG"})
     return {"t": "kpis_tabela", "n": 37, "titulo": "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
-            "sub": f"{MESES[m-1].upper()} {ano} · fechamento mensal do haras",
+            "sub": "",
             "kpis": kp,
             "tabela": {"cols": ["LOCAL", "ANIMAIS", "RECEPTORAS", "TOTAL"], "rows": rows}}
 
@@ -1614,8 +1641,7 @@ def funil(wb, safra):
     curta = f"{safra[2:4]}/{safra[-2:]}"
     taxa = f"{lav/tent*100:.0f}%" if tent else "—"
     return {"t": "funil", "n": 16, "titulo": f"ESTAÇÃO DE MONTA {safra} — EMBRIÕES E PRENHEZES",
-            "sub": (f"{conf} embriões confirmados  ·  Taxa recuperação: {taxa}  ·  {tent} tentativas"
-                    if tent else "sem tentativas na safra"),
+            "sub": "" if tent else "sem tentativas na safra",
             "kpis": [{"v": str(conf), "l": "EMBRIÕES CONF.", "s": f"Estação {curta}", "cor": "navy"},
                      {"v": str(lav), "l": "LAVADOS +", "s": f"{taxa} de positivos", "cor": "azul"},
                      {"v": taxa, "l": "TAXA RECUP.", "s": curta, "cor": "ouro"},
@@ -1852,7 +1878,7 @@ def comparativo(wb, safra: str):
     curtas = [b["curta"] for b in blocos]
     lista = (", ".join(curtas[:-1]) + f" e {curtas[-1]}") if len(curtas) > 1 else curtas[0]
     return {"t": "comparativo", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES",
-            "sub": f"Embriões confirmados por mês  ·  Estações {lista}",
+            "sub": "",
             "meses": [ABR[mm - 1] for mm in MESES_ESTACAO], "safras": blocos}
 
 
@@ -1996,7 +2022,7 @@ def slide_coberturas(safra):
     rows.sort(key=lambda x: -x["saldo"])
     return {"t": "coberturas", "n": 21,
             "titulo": f"ESTAÇÃO DE MONTA {safra} — COBERTURAS DISPONÍVEIS",
-            "sub": "Coberturas de garanhões de fora com saldo disponível",
+            "sub": "",
             "rows": rows}
 
 
@@ -2197,8 +2223,7 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
              for mm in sorted(por_mes)]
     return [
         {"t": "vendas_acum", "n": 29, "titulo": f"VENDAS {ano} — RESULTADO ACUMULADO — {VENDEDOR_COMITE}",
-         "sub": (f"Meta anual: {brl_cheio(meta_anual)}  ·  Acumulado Jan–{ABR[m-1]}: {brl_curto(ytd)}"
-                 f"  ·  Vendedor: {VENDEDOR_COMITE.title()}"),
+         "sub": "",
          "kpis": [{"v": brl_cheio(mes_v), "l": f"Vendas {mes_nome}", "s": "Realizado no mês", "cor": "ouro"},
                   {"v": brl_curto(ytd), "l": "Acumulado YTD", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "navy"},
                   # o relatório de agosto/2026 passou a trazer a média do ano
@@ -2211,7 +2236,7 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
          "colunas": [{"rot": x["abr"], "v": x["total"]} for x in meses]},
         {"t": "vendas_mes", "n": 30,
          "titulo": f"VENDAS — JANEIRO A {mes_nome.upper()}/{str(ano)[2:]} — {VENDEDOR_COMITE}",
-         "sub": f"Detalhamento por mês e evento  ·  Filtro: Vendedor = {VENDEDOR_COMITE.title()}",
+         "sub": "",
          "meses": meses},
     ]
 
@@ -2288,7 +2313,7 @@ def slides_embrioes(m, ano):
 
     def slide(n, titulo, sub, lst, rotulo_contra="COMPRADOR", col_doadora="DOADORA", pgto=None):
         return {"t": "contratos", "n": n, "titulo": titulo,
-                "sub": f"{len(lst)} contratos  ·  {sub}",
+                "sub": f"{len(lst)} contratos",
                 "cols": [col_doadora, "GARANHÃO", "DATA", rotulo_contra, "CT", "VALOR", "PGTO"],
                 "rows": [[x["doadora"], x["garanhao"], x["data"], x["contraparte"], x["cota"],
                           x["valor"], (pgto(x) if pgto else x["pgto"])] for x in lst]}
@@ -2691,7 +2716,7 @@ def slide_comentarios(c, m, ano):
                     "_docs/comite_conteudo.json → comentarios", FALTA_CONTEUDO,
                     edita="comentarios")
     return {"t": "comentarios", "n": 8, "titulo": titulo,
-            "sub": "Principais destaques do mês por categoria",
+            "sub": "",
             "itens": itens}
 
 
@@ -2808,7 +2833,7 @@ def slides_exposicoes(c, ano, todos=None, m=None):
     out = []
     if prog:
         out.append({"t": "tabela", "n": 23, "titulo": f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO",
-                    "sub": "Calendário de participações previstas",
+                    "sub": "",
                     "cols": ["EVENTO", "DATA", "LOCAL", "STATUS"], "rows": expo_programacao(prog)})
     else:
         out.append(pend(23, f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO", "Calendário de participações",
@@ -2863,8 +2888,7 @@ def slides_manejo(todos, m, ano):
         if not ks:
             continue
         out.append({"t": "manejo", "n": 38, "titulo": "MANEJO — PONTOS DE MELHORIA E DECISÕES",
-                    "sub": f"Histórico de intervenções {ABR[a-1] if a == fim else ABR[a-1] + '–' + ABR[fim-1]} {ano}"
-                           f"  ·  {sem}º semestre",
+                    "sub": f"{ABR[a-1] if a == fim else ABR[a-1] + '–' + ABR[fim-1]} {ano}  ·  {sem}º semestre",
                     "itens": [[ABR[k - 1], hist[k]] for k in ks],
                     "atual": ABR[m - 1] if a <= m <= b else ""})
     return out
@@ -3055,10 +3079,9 @@ def _fotos_grupo_por_tema(grupos, m, ano):
         for k in range(n):
             bloco = embutidas[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]
             cols, rows = GRADE_FOTOS[len(bloco)]
-            sub = (f"Obras e melhorias realizadas  ·  {tema_foto(tema)}" if tema
-                   else f"Registros de {MESES[m-1]} {ano}")
+            sub = tema_foto(tema) if tema else ""
             if n > 1:
-                sub += f" ({k+1}/{n})"
+                sub = f"{sub} ({k+1}/{n})" if sub else f"{k+1}/{n}"
             out.append({"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
                         "sub": sub, "grade": [cols, rows], "fotos": bloco})
     return out
@@ -3138,7 +3161,7 @@ def slides_fotos(c, m, ano):
         bloco = fs[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]
         cols, rows = GRADE_FOTOS[len(bloco)]
         out.append({"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
-                    "sub": f"Registros de {MESES[m-1]} {ano}" + (f" · {k+1}/{n}" if n > 1 else ""),
+                    "sub": f"{k+1}/{n}" if n > 1 else "",
                     "grade": [cols, rows], "fotos": bloco})
     return out
 
@@ -3216,7 +3239,9 @@ def monta_deck(m, ano, ctx):
             return pend(n, titulo, sub, "DRE_Historico.xlsx", "sem linha para esse recorte no histórico")
         return {"t": "dre", "n": n, "titulo": titulo, "sub": sub, "layout": layout, "linhas": linhas}
 
-    gab_resumo = GAB_RESUMO if (ano, m) >= RESUMO_NOVO_DESDE else GAB_RESUMO_ATE_JUL26
+    novo = (ano, m) >= RESUMO_NOVO_DESDE
+    gab_resumo = GAB_RESUMO if novo else GAB_RESUMO_ATE_JUL26
+    gab_caixa, gab_casa = (GAB_CAIXA_NOVO, GAB_CASA_NOVO) if novo else (GAB_CAIXA, GAB_CASA)
     face_comp = _na_ordem_oficial(dre_mes("HPG", "Competência", ano, m),
                                   gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
     s += so_mensal(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
@@ -3257,18 +3282,18 @@ def monta_deck(m, ano, ctx):
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
                        "",
-                       linhas_face(face_cx, GAB_CAIXA), "caixa"))
+                       linhas_face(face_cx, gab_caixa), "caixa"))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
     face_casa = _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m),
                                   gabarito(_registra("DRE anual (Casa)", DRE_CASA), "Real x Orçado"))
     s += so_mensal(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano_ext}",
                        "",
-                       linhas_face(face_casa, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
+                       linhas_face(face_casa, gab_casa, CASA_EXTRAS, "Tributos"), "casa"))
     face_casa_ytd = _na_ordem_oficial(dre_ytd("FPG", "Caixa", ano, m), gabarito(DRE_CASA, "Real x Orçado"))
     s.append(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
                  "",
-                 linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
+                 linhas_face(face_casa_ytd, gab_casa, CASA_EXTRAS, "Tributos"), "casa"))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", f"Embriões  ·  Doadoras  ·  Garanhões  |  {safra}"))
     s += est_slides
