@@ -1082,7 +1082,8 @@ function topo(){
     ST.ordem = {plantel: {col: null, dir: 1}, mov: {col: null, dir: 1}};
     ST.filtros = {plantel: {}, mov: {}};
     ST.pop = null;
-    pinta();
+    // o topo também: a tag aberto/fechado e o botão são do mês escolhido
+    topo(); pinta();
   };
   const arq = document.getElementById('arq');
   if (arq) arq.onchange = importa;
@@ -2264,9 +2265,14 @@ function liga(){
 }
 
 (async function boot(){
-  // quem edita tem de ser sabido ANTES da primeira pintura: o topo já nasce com
-  // (ou sem) Importar e Fechar mês
-  [ST.disponiveis] = await Promise.all([listaMeses(), checaEditor()]);
+  /* Quem edita e o status dos meses têm de ser sabidos ANTES da primeira
+     pintura: o topo nasce com (ou sem) Importar e Fechar mês, e com a tag
+     aberto/fechado — e o topo não é redesenhado pelo pinta(). O status vinha
+     depois, num carregaDecisoes().then(pinta): o painel se corrigia e o topo
+     ficava no corte histórico, então todo mês fechado pela tela voltava a
+     aparecer 'aberto' (com o botão Fechar mês) a cada recarga. São duas
+     tabelas pequenas, em paralelo com a lista de meses. */
+  [ST.disponiveis] = await Promise.all([listaMeses(), checaEditor(), carregaDecisoes()]);
   ST.mes = ST.disponiveis[ST.disponiveis.length - 1] || null;
   topo(); liga(); pinta();              // pinta já, mesmo sem o mês na mão
   /* O mês pedido primeiro e sozinho: é o que a aba Plantel precisa pra mostrar
@@ -2275,5 +2281,4 @@ function liga(){
   await garanteMeses([ST.mes]);
   pinta();
   garanteMeses([mesAnterior(ST.mes)]).then(pinta);
-  carregaDecisoes().then(pinta);
 })();
