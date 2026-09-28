@@ -128,6 +128,24 @@ function hub(){ try { return window.parent.HUB || null; } catch (e) { return nul
 function sb(){ const h = hub(); return h && h.sb; }
 function eu(){ const h = hub(); return (h && h.email) || null; }
 
+/* Ver a aba não é mexer nela: importar, classificar, lançar, limpar e
+   fechar/reabrir o mês é só de quem está em plantel_editores (e do admin). Quem
+   só vê não recebe os controles — a trava de verdade é a RLS
+   (hub_plantel_editor); isto só evita oferecer botão que o banco recusaria.
+   Mesma receita do checaEditor do comitê (assets/comite/deck.js). */
+let souEditor = false;
+async function checaEditor(){
+  const h = hub();
+  // demo offline não tem banco: tudo fica na memória da aba, então não há o que travar
+  if (h && (h.role === 'admin' || h.offline)) { souEditor = true; return; }
+  const c = sb(), email = eu();
+  if (!c || !email) { souEditor = false; return; }
+  try {
+    const { data } = await c.from('plantel_editores').select('email').eq('email', email).maybeSingle();
+    souEditor = !!data;
+  } catch (e) { souEditor = false; }
+}
+
 /* Espaço sobrando é sujeira, não informação: o arquivo do haras é digitado à
    mão e jul/26 tem 'DA PAO GRANDE' (292 linhas) convivendo com 'DA PAO GRANDE '
    (15, espaço no fim). Como valor de texto, os dois são diferentes: viravam duas
@@ -1042,12 +1060,12 @@ function topo(){
         <select id="selMes">${meses.map(m => `<option value="${m}"${m === ST.mes ? ' selected' : ''}>${rotMes(m)}</option>`).join('')}</select>
       </label>
       ${!ST.mes ? '' : `<span class="tag ${fechado ? '' : 'ok'}">${fechado ? 'fechado' : 'aberto'}</span>
-      <button type="button" class="botao-acao${fechado ? '' : ' primario'}"
+      ${!souEditor ? '' : `<button type="button" class="botao-acao${fechado ? '' : ' primario'}"
         data-mes-status="${ST.mes}:${fechado ? 'abrir' : 'fechar'}">${
-        fechado ? 'Reabrir mês' : 'Fechar mês'}</button>`}
-      <label class="botao-arquivo">Importar arquivo
+        fechado ? 'Reabrir mês' : 'Fechar mês'}</button>`}`}
+      ${!souEditor ? '' : `<label class="botao-arquivo">Importar arquivo
         <input type="file" id="arq" accept=".xlsx,.xlsm" hidden>
-      </label>
+      </label>`}
       ${!ST.mes ? '' : '<button type="button" class="botao-acao" id="btExporta">Exportar Excel</button>'}
       <span id="statusImp"></span>
     </div>`;
@@ -1066,7 +1084,8 @@ function topo(){
     ST.pop = null;
     pinta();
   };
-  document.getElementById('arq').onchange = importa;
+  const arq = document.getElementById('arq');
+  if (arq) arq.onchange = importa;
   const bt = document.getElementById('btExporta');
   if (bt) bt.onclick = exportaExcel;
 }
@@ -1692,11 +1711,13 @@ function fichaMov(m){
     ${(m.log || []).map(l => `<p class="ficha-log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</p>`).join('')}
     ${!origem ? '' : `<p class="ficha-log sem-log">${esc(origem)}</p>`}
     ${avisos.map(a => `<p class="ficha-aviso">⚠ ${esc(a)}</p>`).join('')}
-    <div class="ficha-perg">
+    <div class="ficha-perg">${souEditor ? `
       <span class="ficha-perg-rot${m.sugestao ? '' : ' sem-palpite'}">${m.sugestao
         ? 'Confirma movimentação:' : 'Sem sugestão — classifique:'}</span>
       <select class="cls-sel" data-sel="${esc(m.chave)}">${opcoes}</select>
-      <button type="button" class="cls-ok" data-ok="${esc(m.chave)}">OK</button>
+      <button type="button" class="cls-ok" data-ok="${esc(m.chave)}">OK</button>`
+      : `<span class="ficha-perg-rot${m.sugestao ? '' : ' sem-palpite'}">${m.sugestao
+        ? `Sugerido: <b>${esc(m.sugestao)}</b>` : 'Sem sugestão'}</span>`}
     </div>
   </div>`;
 }
@@ -1715,8 +1736,8 @@ function subMovimentacoes(){
   const fechado = mesFechado(ST.mes);
   if (fechado) {
     return `<div class="ok-vazio">${rotMes(ST.mes)} está fechado — não há fila.
-      As ${todas.length} movimentações do mês estão na aba <b>Conciliação</b>.
-      Para mexer, use <b>Reabrir mês</b> no topo.</div>`;
+      As ${todas.length} movimentações do mês estão na aba <b>Conciliação</b>.${
+      souEditor ? ' Para mexer, use <b>Reabrir mês</b> no topo.' : ''}</div>`;
   }
   const base = todas.filter(m => !ST.decisoes[`${ST.mes}|${m.chave}`]);
   ST.ctx.mov = {base, txtDe: txtMov, ordDe: ordMov,
@@ -1776,14 +1797,17 @@ function subConciliacao(){
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
   const bloco = (titulo, itens, render) => !itens.length ? '' :
     `<h3>${titulo} <span class="cont">${itens.length}</span></h3>${itens.map(render).join('')}`;
-  const trancado = mesFechado(ST.mes);
+  /* trancado = sem escrita: mês fechado, ou quem só vê a aba — que lê a
+     Conciliação como se o mês estivesse fechado (sem formulário, sem remover,
+     sem trocar classe) */
+  const trancado = mesFechado(ST.mes) || !souEditor;
   const manuais = manuaisDoMes(ST.mes);
   return `
-    <div class="barra-mes">
+    ${!souEditor ? '' : `<div class="barra-mes">
       <span class="nota-acao">${trancado
         ? `${rotMes(ST.mes)} está fechado. Reabrir (no topo) mantém tudo que já foi classificado.`
         : `${rotMes(ST.mes)} está aberto. Fechar (no topo) trava o registro; dá pra reabrir depois.`}</span>
-    </div>
+    </div>`}
     ${trancado ? '' : `
       <h3>Lançar movimentação à mão</h3>
       <div class="item form-manual">
@@ -2065,7 +2089,8 @@ function exportaExcel(){
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-const semArquivo = () => `<div class="aviso">Nenhum arquivo importado. Use <b>Importar arquivo</b> e escolha o
+const semArquivo = () => !souEditor ? '<div class="aviso">Nenhum arquivo importado.</div>'
+  : `<div class="aviso">Nenhum arquivo importado. Use <b>Importar arquivo</b> e escolha o
   plantel enviado pelo haras (ou o mapa de movimentação, que traz a atribuição Carla/Eduardo).</div>`;
 
 /* ---------- casca ---------- */
@@ -2239,7 +2264,9 @@ function liga(){
 }
 
 (async function boot(){
-  ST.disponiveis = await listaMeses();
+  // quem edita tem de ser sabido ANTES da primeira pintura: o topo já nasce com
+  // (ou sem) Importar e Fechar mês
+  [ST.disponiveis] = await Promise.all([listaMeses(), checaEditor()]);
   ST.mes = ST.disponiveis[ST.disponiveis.length - 1] || null;
   topo(); liga(); pinta();              // pinta já, mesmo sem o mês na mão
   /* O mês pedido primeiro e sozinho: é o que a aba Plantel precisa pra mostrar

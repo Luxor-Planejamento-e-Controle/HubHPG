@@ -29,9 +29,15 @@
     try { return window.parent.HUB && window.parent.HUB.sb; } catch (e) { return null; }
   }
 
-  const hhmm = t => {
-    try { return new Date(t).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}); }
-    catch (e) { return ''; }
+  // Data e hora completas: "às 09:27" sozinho não dizia de que dia — e o último
+  // pedido pode ser de uma semana atrás, que é justamente o que se quer saber.
+  const quandoTxt = t => {
+    try {
+      const d = new Date(t);
+      const dia = d.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'});
+      const hora = d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+      return `em ${dia} às ${hora}`;
+    } catch (e) { return ''; }
   };
 
   async function ultimo(tipo) {
@@ -72,7 +78,7 @@
       if (!job) { est.textContent = ''; est.className = 'hj-estado'; verLog.hidden = true; btn.disabled = false; return; }
       const [txt, cls] = ESTADO[job.status] || ['', ''];
       const quando = job.terminado_em || job.pedido_em;
-      est.textContent = txt + (job.status === 'ok' && quando ? ` às ${hhmm(quando)}` : '');
+      est.textContent = txt + (job.status === 'ok' && quando ? ` ${quandoTxt(quando)}` : '');
       est.className = 'hj-estado ' + cls;
       verLog.hidden = !(job.log && job.status === 'erro');
       btn.disabled = job.status === 'fila' || job.status === 'rodando';
