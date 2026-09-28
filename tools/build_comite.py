@@ -1215,16 +1215,63 @@ def slide_estoque(m, ano):
     if rc.get("saldo_fim"):
         patrim = rc["saldo_fim"]
     cat = x["categoria"].value_counts()
-    # Cartões como os dela: só valor e rótulo, e o de animais com a regra do
-    # sufixo embaixo. Quantos estão sem avaliação não aparece no slide — o valor
-    # médio já é sobre todos (ver acima).
+    # Cartões como os dela: só valor e rótulo. Quantos estão sem avaliação não
+    # aparece no slide — o valor médio já é sobre todos (ver acima).
+    kpis = [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "", "cor": "navy", "pt": 28},
+            {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "", "cor": "ouro", "pt": 20},
+            {"v": brl_curto(medio), "l": "Valor Médio", "s": "", "cor": "azul", "pt": 24}]
+    est = estacao_no_estoque(ano, m, d[d["mes"] == alvo]) if (ano, m) >= ESTACAO_NO_ESTOQUE_DESDE else None
+    if est:
+        safra = safra_do_deck(ano, m)
+        curta = f"Estação {safra[2:4]}/{safra[-2:]}"
+        kpis += [{"v": str(est[0]), "l": "Garanhões na Estação", "s": curta, "cor": "ardosia", "pt": 24},
+                 {"v": str(est[1]), "l": "Doadoras na Estação", "s": curta, "cor": "ardosia", "pt": 24}]
     return {"t": "estoque", "n": 11, "titulo": "ESTOQUE EM EQUINOS — FAZENDA PAO GRANDE",
-            "sub": "",
-            "kpis": [{"v": f"{len(x)}", "l": "Animais Ativos", "s": "",
-                      "cor": "navy", "pt": 28},
-                     {"v": brl_curto(patrim), "l": "Patrimônio HPG", "s": "", "cor": "ouro", "pt": 20},
-                     {"v": brl_curto(medio), "l": "Valor Médio", "s": "", "cor": "azul", "pt": 24}],
-            "rows": _linhas_categoria(cat, len(x))}
+            "sub": "", "kpis": kpis, "rows": _linhas_categoria(cat, len(x))}
+
+
+# Estoque, desde ago/2026 (decisão do Arthur, 28/09): as categorias continuam as
+# da coluna CATEGORIA do controle — são elas que somam o patrimônio — e a estação
+# da safra entra em dois cartões à parte. Garanhão da estação é linha da aba
+# GARANHOES com tipo de sêmen preenchido (vazio é garanhão que não é da PG).
+# Doadora da estação é a do PLANEJAMENTO que no controle não é POTRA: potra que
+# já serve de doadora segue contada como potra. É a conta que dá o número do
+# relatório de ago/26 (8 e 7); a lista inclui garanhão e doadora que não estão
+# no plantel da PG, por isso não entra na tabela de categorias.
+ESTACAO_NO_ESTOQUE_DESDE = (2026, 8)
+
+
+def estacao_no_estoque(ano: int, m: int, plantel_mes):
+    """(garanhões, doadoras) da estação da safra do deck; None se não abrir."""
+    try:
+        wb = _load(_master_da_safra(safra_do_deck(ano, m)))
+    except Exception as e:
+        aviso(f"estoque: estação de monta não abriu ({e!r}) — cartões da estação fora do slide")
+        return None
+    gar = 0
+    for i, r in enumerate(wb["GARANHOES"].iter_rows(values_only=True), 1):
+        if i < 4 or len(r) < 4 or r[2] is None:
+            continue
+        n = _norm(r[2])
+        tipo = _s(r[3]) or ""
+        if n.startswith("TOTAL") or n in ("FRESCO", "REFRIGERADO", "CONGELADO") or tipo.startswith("#"):
+            continue
+        gar += bool(tipo)
+    ws = wb["PLANEJAMENTO"]
+    cab = [re.sub(r"\s+", "", _norm(x or "")) for x in
+           next(ws.iter_rows(min_row=3, max_row=3, values_only=True))]
+    c_nome = next((j for j, h in enumerate(cab) if h == "NOME"), None)
+    if c_nome is None:
+        return gar, 0
+    base = lambda nome: re.sub(r"\s*\(.*?\)\s*", " ", _norm(nome)).strip()
+    potras = {base(n) for n, c in zip(plantel_mes["nome"], plantel_mes["categoria"])
+              if _norm(c) == "POTRA"}
+    doadoras = set()
+    for i, r in enumerate(ws.iter_rows(values_only=True), 1):
+        if i < 4 or c_nome >= len(r) or not _s(r[c_nome]) or _norm(r[c_nome]).startswith("TOTAL"):
+            continue
+        doadoras.add(base(r[c_nome]))
+    return gar, len(doadoras - potras)
 
 
 MOV_LINHAS = [("saldo_ini", "Saldo Inicial"), ("compra", "(+) Compras"), ("producao", "(+) Prod. Emb."),

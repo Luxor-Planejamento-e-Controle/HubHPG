@@ -102,7 +102,7 @@ POR_TIPO = {
     "lista_mes": ("DRE anual (Haras)", "Investimentos",
                   "Só o bloco Compra de Animais e Produtos, de janeiro até o mês do deck, um grupo por mês com o total do bloco. É a aba, que pode diferir da face do DRE."),
     "estoque": ("plantel consolidado (base_bi)", "fato_plantel",
-                "Status PLANTEL, sufixo exato Da PG ou Outro. Categoria pela coluna CATEGORIA do controle, todas abertas. Valor médio sobre os animais avaliados desde agosto/2026. Patrimônio é o saldo final da movimentação do hub."),
+                "Status PLANTEL, sufixo exato Da PG ou Outro. Categoria pela coluna CATEGORIA do controle, todas abertas. Valor médio sobre os animais avaliados desde agosto/2026. Patrimônio é o saldo final da movimentação do hub. Desde agosto/2026, dois cartões da estação de monta: garanhões com tipo de sêmen na aba GARANHOES e doadoras do PLANEJAMENTO que não são potras no controle."),
     "matriz": ("resumo contábil (mapa)", "Resumo Contábil",
                "Reserva: o hub não tem nenhum mês do ano fechado, e a movimentação sai do mapa da controladoria."),
     "movimentacao": ("resumo do plantel (aba Plantel do hub)", "Resumo contábil",
