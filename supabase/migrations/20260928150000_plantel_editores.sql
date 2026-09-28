@@ -2,15 +2,15 @@
 --
 -- Até aqui toda escrita da aba (importar o mês, classificar, lançar à mão,
 -- limpar, fechar/reabrir) exigia só hub_can('plantel'): quem tinha a aba podia
--- tudo. Decisão do Arthur (28/09/2026): movimentação só ele e a Aline; os
--- demais com a aba são leitura.
+-- tudo. Decisão de 28/09/2026: movimentação só o admin e quem estiver em
+-- plantel_editores; os demais com a aba são leitura.
 --
 -- Mesma receita do comite_editores (migration 20260831190000): allowlist
 -- própria, admin edita por definição. E-mail real NÃO entra aqui — vai no
 -- sql/seed_allowlist.local.sql (gitignored).
 --
--- Até 28/09/2026 só o Arthur tinha gravado (41 classificações, o snapshot e o
--- status de ago/26), então fechar a porta não deixa linha órfã de ninguém.
+-- Até 28/09/2026 só o admin tinha gravado na aba, então fechar a porta não
+-- deixa linha órfã de ninguém.
 
 -- ---------------------------------------------------------------------
 -- 1) Quem edita
