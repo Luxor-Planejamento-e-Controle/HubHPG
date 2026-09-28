@@ -80,7 +80,7 @@ DRE_POR_N = {
     5: ("DRE histórico", "Base DRE Geral · conferência na DRE-Compet",
         "CUSTOS TOTAIS no topo de cada página e os cinco subgrupos fixos. Desde agosto/2026, embaixo de cada subgrupo entram as naturezas que variaram pelo menos R$ 2 mil contra o orçado, para cima ou para baixo; até julho, a lista fixa do relatório."),
     6: ("DRE histórico", "Base DRE Geral · conferência na DRE-Compet",
-        "Mesma regra, para as despesas: DESPESAS TOTAIS (Despesas e os dois arrendamentos), cinco subgrupos fixos e Arrendamentos numa linha só, com as aberturas de D. Lúdia e de Vassouras. Fecha com Resultado Operacional."),
+        "Mesma regra, para as despesas: DESPESAS TOTAIS (Despesas e os dois arrendamentos), cinco subgrupos fixos e os dois arrendamentos em linhas próprias. D. Lúdia abre nas naturezas dele e Vassouras nos blocos dele (Volumes e Concentrados, Pessoal, Reprodução, Sanidade). Fecha com Resultado Operacional."),
     7: ("DRE histórico", "Base YTD + face Real x Orçado (Comp)",
         "Acumulado do ano, com as mesmas linhas do resumo e sem subtítulo. Oculto na apresentação, como no relatório; fica no deck trimestral."),
     10: ("DRE histórico", "Base DRE Geral + face Real x Orçado (Caixa)",
