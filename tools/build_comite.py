@@ -882,6 +882,21 @@ ROTULO_NATUREZA = {_chave_dre(nat): rot for pag in ANALISE_CUSTOS + ANALISE_DESP
                    for rot, estilo, _g, _s, nat in pag if estilo == "folha" and isinstance(nat, str)}
 
 
+# a base escreve a natureza em caixa alta e sem acento; estas são as palavras
+# que aparecem nela (o nome de animal e de pessoa tem tratamento próprio)
+ACENTOS_DRE = {"VERMIFUGO": "VERMÍFUGO", "VETERINARIO": "VETERINÁRIO", "VETERINARIOS": "VETERINÁRIOS",
+               "VEICULOS": "VEÍCULOS", "MAQUINAS": "MÁQUINAS", "JURIDICOS": "JURÍDICOS",
+               "JURIDICA": "JURÍDICA", "CLINICA": "CLÍNICA", "CLINICOS": "CLÍNICOS",
+               "HONORARIOS": "HONORÁRIOS", "SERVICOS": "SERVIÇOS", "ESCRITORIO": "ESCRITÓRIO"}
+SIGLAS_DRE = {"IR", "ABCMM", "ABCCMM", "TI", "RJ", "PG", "GTA", "DNA", "CTE", "EPI", "EPIS"}
+
+
+def _rotulo_dre(nat: str) -> str:
+    t = titulo_pt(" ".join(ACENTOS_DRE.get(w, w) for w in str(nat).upper().split()))
+    t = re.sub(r"\((\w)", lambda mm: "(" + mm.group(1).upper(), t)
+    return " ".join(w.upper() if w.upper().strip("()") in SIGLAS_DRE else w for w in t.split())
+
+
 def _linha(nome, estilo, orc, real):
     return {"nome": nome, "estilo": estilo, "v": [orc, real, (real - orc) / 1000.0, pct(orc, real)]}
 
@@ -934,7 +949,7 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
         for _, r in c.iterrows():
             if abs(r["_r"] - r["_o"]) < VARIACAO_MINIMA:
                 continue
-            nome = ROTULO_NATUREZA.get(r["_n"]) or titulo_pt(r["Natureza de Lançamento"])
+            nome = ROTULO_NATUREZA.get(r["_n"]) or _rotulo_dre(r["Natureza de Lançamento"])
             out.append(_linha(nome, "folha", r["_o"], r["_r"]))
         return out
 
@@ -957,7 +972,7 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
         vass = {s for s in df.loc[df["_g"] == _chave_dre(_DES), "Subgrupo"].dropna()
                 if _chave_dre(s) not in principais}
         vass = sorted(vass, key=lambda s: (ORDEM_VASSOURAS.index(s) if s in ORDEM_VASSOURAS else 99, s))
-        abre = [_linha(ROTULO_NATUREZA.get(_chave_dre(s)) or titulo_pt(s), "folha", *subtotal(_DES, s))
+        abre = [_linha(ROTULO_NATUREZA.get(_chave_dre(s)) or _rotulo_dre(s), "folha", *subtotal(_DES, s))
                 for s in vass]
         blocos.append([_linha("Arrendamento Vassouras", "sub", *va)]
                       + [l for l in abre if abs(l["v"][1] - l["v"][0]) >= VARIACAO_MINIMA])
@@ -980,9 +995,8 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
                 paginas.append(atual)
                 atual = [topo]
                 b = [dict(b[0], nome=b[0]["nome"] + " (cont.)")] + b[cabe:]
-    if len(atual) + len(fim) > LINHAS_POR_PAGINA and len(atual) > 1:
-        paginas.append(atual)
-        atual = [topo]
+    # o Resultado Operacional fecha a última página mesmo que passe uma linha do
+    # limite: sozinho numa página, com o total, ele era um slide vazio
     paginas.append(atual + fim)
     return paginas
 
@@ -3227,6 +3241,17 @@ def monta_deck(m, ano, ctx):
         ytd.update(kpis=kpis_ytd(ytd["linhas"]),
                    cab=["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"])
     s.append(ytd)
+    # a análise do acumulado: a mesma regra da do mês (subgrupos fixos, aberturas
+    # por variação de R$ 2 mil), sobre o YTD
+    if (ano, m) >= ANALISE_DINAMICA_DESDE:
+        for tema, titulo in (("custos", "ANÁLISE DE CUSTOS"), ("despesas", "ANÁLISE DE DESPESAS")):
+            pags = paginas_analise(ano, m, tema, ytd=True)
+            for k, linhas in enumerate(pags, 1):
+                x = dre(7, f"{titulo} — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
+                        f"Parte {k} de {len(pags)}" if len(pags) > 1 else "", linhas, "analise")
+                if x["t"] == "dre":
+                    x["cab"] = ["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"]
+                s.append(x)
     s += slides_comentarios(cont, m, ano)
     s += slides_investimentos(m, ano)
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
