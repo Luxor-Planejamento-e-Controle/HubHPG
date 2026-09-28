@@ -51,14 +51,14 @@ de cada número fica nesta tabela e na auditoria.
 | **04** | Resumo financeiro Haras — competência, orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, Modelo=Competência; rótulo e ordem da face `Real x Orçado (Comp)`. Desde ago/26, 24 linhas: entra Outras Receitas com o Haras, a Variação Patrimonial abre em Embriões Produzidos (Ativos Biológicos da face) e Reavaliação de Plantel, e Investimentos abre em Máquinas, Equipamentos e Infraestrutura (soma das duas linhas da face) e Animais e Produtos. Até jul/26, as 19 linhas do relatório. Conferido contra a face com o arredondamento do Excel (meio pra longe do zero; variação que arredonda a zero mantém o sinal: `-0k`) | auto |
 | **05** | Análise de **custos** do mês, aberta por natureza | `DRE_Historico.xlsx` | `Base DRE Geral`, `Grupo = CUSTOS E DESPESAS OPERACIONAIS`. Desde ago/26: CUSTOS TOTAIS no topo de cada página e os subgrupos fixos (Volumoso e Concentrado, Sanidade, Reprodução, Pista, Registros e Transf.); embaixo de cada um, as naturezas com variação de pelo menos R$ 2 mil (para cima ou para baixo), na ordem da base; páginas de até 17 linhas, subgrupo inteiro. Até jul/26, a lista fixa do relatório | auto |
 | **06** | Análise de **despesas** do mês, aberta por natureza | `DRE_Historico.xlsx` | `Base DRE Geral`, `Grupo = DESPESAS`. Desde ago/26: DESPESAS TOTAIS (Despesas + os dois arrendamentos) no topo; fixos Marketing, Manutenção, Consumo de Água e Luz, Despesas com Pessoal, Desp. Administrativas, Arrendamento D. Lúdia e Arrendamento Vassouras; aberturas pela mesma regra dos R$ 2 mil (variação ≥ 2 mil, positiva ou negativa) — D. Lúdia abre nas naturezas dele, Vassouras nos blocos dele (Volumes e Concentrados, Pessoal, Reprodução, Sanidade); fecha com Resultado Operacional. Até jul/26, a lista fixa do relatório, com o total só de Despesas | auto |
-| **07** | Haras competência — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, faixa `NN-Jan a <Mês>`; mesmas linhas do S04, sem subtítulo. **Oculto** (no arquivo, fora da apresentação), como no relatório de jul/26 e na versão corrigida de ago/26; os números batem com as colunas YTD da face | auto |
+| **07** | Haras competência — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, faixa `NN-Jan a <Mês>`; mesmas linhas do S04, sem subtítulo, com os quatro cartões do relatório em cima (Receita Líquida, Custos e Despesas, Res. Operacional e Res. Patrimonial YTD, com a variação contra o orçado). Entra na apresentação desde 28/09/2026 (o relatório deixa oculto); os números batem com as colunas YTD da face | auto |
 | **08** | Comentários das variações do mês | **Trello** — quadro `Fluxo de Caixa`, card `DRE Haras - <Mês> <ano>`, comentário `COMENTÁRIOS DRE (HPG) – <MÊS>/<AA>` da controladoria (arquivado em `_cache/trello/`) | uma faixa por categoria, na ordem do DRE; texto = cada natureza com o valor e a explicação dela; ∆ da categoria = face **Real x Orçado (Caixa)** (o comentário é sobre o caixa); quantos slides o texto pedir | auto — sem comentário no Trello, vale o escrito no hub (`comite_conteudo.comentarios`); o slide do Trello não abre o editor |
 | **09** | Investimentos — compra de animais e produtos, janeiro até o mês | `DRE 2026 HPG - HARAS v3.xlsx` aba `Investimentos` | de cada seção `INVESTIMENTOS - <MÊS>/<AA>`, só o bloco COMPRA DE ANIMAIS E PRODUTOS (A=favorecido, B=descrição, C=valor), um grupo por mês com o total do bloco; mês sem compra sai com "Sem compra…"; ano cheio vira duas páginas. Obra e máquina ficam no resumo (S04) | auto — é a aba, que pode diferir da face: em ago/26 uma compra de animais que está na face não aparece na aba |
 | **10** | Haras **caixa** — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, `Modelo = Caixa`; as 6 linhas do relatório (Receita Bruta, Receita Líquida, Custos e Despesas, Resultado Operacional, Investimentos, Resultado após) | auto |
 | **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) + aba `Resumo Contabil` do mapa de movimentações | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO` (o `E 100%` do Eduardo NÃO entra — vale só pro semanal); **patrimônio = saldo final do Resumo Contábil do mês** (o mesmo número do S12; jul/26 R$ 15.970.552,61), valor médio = soma `valor_100` ÷ **avaliados** desde ago/26 (até jul/26 ÷ todos, como foi apresentado); todas as categorias abertas (coluna CATEGORIA da aba PLANTEL — a divisão do relatório de ago/26 tem reclassificação manual, sem regra na planilha) | auto |
 | **12** | Resumo da movimentação do plantel — saldo mensal | **aba Plantel do hub** — `tools/resumo_plantel_hub.js` roda o motor dela (`assets/plantel/plantel.js`) sobre `plantel.<AAAA-MM>.json` do bucket + `plantel_mov_classificacao` (arquivado em `_cache/plantel_hub/`) | Saldo inicial, (+) Compras, (+) Produção embriões, (−) Baixa vendas, (−) Baixa mortes e doações, (+/−) Reavaliações, Saldo final — só mês fechado (ou 100% classificado) no hub; jan–jul/26 idênticos ao Resumo Contábil divulgado | auto — mês que o hub não fechou sai da aba `Resumo Contabil` do mapa |
 | **13** | Resumo financeiro Casa/FPG — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, **CC=FPG**, `Modelo = Caixa`; Marketing e Hospedagem Família entram quando têm valor (senão os detalhes não fecham com Despesas Gerais) | auto |
-| **14** | Casa/FPG — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, CC=FPG. **Oculto**, como no relatório; `Deduções` = DEDUÇÕES E IMPOSTOS da base (saía zerada) | auto |
+| **14** | Casa/FPG — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, CC=FPG. Entra na apresentação desde 28/09/2026 (o relatório deixa oculto); `Deduções` = DEDUÇÕES E IMPOSTOS da base (saía zerada) | auto |
 
 > **Slide oculto — programação da casa.** Existe no arquivo mas fica escondido porque
 > a casa não tem meta. Assim que houver orçado da casa, é o mesmo tratamento de S13/S14.
@@ -155,7 +155,7 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
 
 | Slide | Conteúdo | Fonte | Status |
 |---|---|---|---|
-| **37** | Plantel — Pao Grande / Arrendamento / Sócios, com total | `CONTROLE_DE_PLANTEL` do fechamento do mês (`headcount_de`) | auto — **oculto**: o relatório de jul/26 não tem esse slide; ele fica no arquivo, fora da apresentação |
+| **37** | Plantel — Pao Grande / Arrendamento / Sócios, com total | `CONTROLE_DE_PLANTEL` do fechamento do mês (`headcount_de`) | auto — o relatório não tem esse slide; entra na apresentação desde 28/09/2026 (antes ficava oculto) |
 | **38** | Manejo — histórico de intervenções e decisões, **um slide por semestre** | `comite_conteudo.manejo` de **todos** os meses até o do deck (o texto mais recente de cada mês vale) | manual estruturado — o deck ao vivo remonta com a mesma regra |
 | **39+** | Fotos e registros do mês | `comite_conteudo.fotos` (bucket) | manual — por tema, quantos slides forem precisos; tema digitado em caixa alta sai como título (`POÇO LUISINHO` → `Poço Luisinho`) |
 
@@ -221,10 +221,10 @@ filtros são mutuamente exclusivos e é onde o processo manual mais erra.
 O desenho de cada slide é o do relatório da Ana (`RELATORIO_MENSAL_PG_JULHO26`),
 na geometria dela — posições, corpos de fonte e cores tirados do próprio PPTX —,
 em `assets/comite/layout.js`. A mesma lista de primitivas vira o HTML do hub e o
-PPTX exportado; o PDF é a impressão do HTML. Sem rodapé. Três slides saem
-**ocultos** (existem no arquivo, fora da apresentação, como no dela): Haras YTD,
-Casa YTD e a contagem por local (S37); os comentários ficam ocultos só quando
-estão vazios.
+PPTX exportado; o PDF é a impressão do HTML. Sem rodapé. Desde 28/09/2026 nenhum
+slide sai oculto: Haras YTD, Casa YTD e a contagem por local (S37), que eram ocultos
+como no dela, entram na apresentação. Só os comentários ficam ocultos, quando estão
+vazios. Slide sem subtítulo começa o conteúdo logo abaixo do logo.
 
 - **S03 Pendências da apresentação anterior** — novo, conteúdo manual em
   `comite_conteudo.pendencias` (migration 20260924150000), editável pelo hub.
