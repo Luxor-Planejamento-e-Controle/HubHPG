@@ -955,7 +955,7 @@ _base_bi_cache = None
 def base_bi():
     global _base_bi_cache
     if _base_bi_cache is None and BASE_BI.exists():
-        d = pd.read_parquet(BASE_BI)
+        d = pd.read_parquet(_registra("plantel consolidado (base_bi)", BASE_BI))
         d["mes"] = pd.to_datetime(d["mes_referencia"]).dt.strftime("%Y-%m")
         _base_bi_cache = d
     return _base_bi_cache
@@ -1869,7 +1869,7 @@ def _confere_kpi_dash(dia: date, k: dict):
     if not INAD_KPI_HIST.exists():
         return
     try:
-        h = pd.read_excel(INAD_KPI_HIST)
+        h = pd.read_excel(_registra("inadimplência (KPI do dash)", INAD_KPI_HIST))
         h = h[pd.to_datetime(h["data_referencia"]).dt.date == dia]
         if h.empty:
             return
@@ -2125,6 +2125,7 @@ def slides_embrioes(m, ano):
 # alguém editar pelo hub — sem isso o slide vira placeholder à toa se o
 # conteúdo já existe no JSON de uma migração antiga).
 CONTEUDO = REPO / "_docs" / "comite_conteudo.json"
+CONTEUDO_HUB = REPO / "_cache" / "comite_conteudo_hub.json"
 CAMPOS_CONTEUDO = ("comentarios", "exposicoes", "manejo", "fotos", "pendencias")
 FALTA_CONTEUDO = "escreva o conteúdo desse mês pelo hub (aba Comitê) ou em _docs/comite_conteudo.json"
 
@@ -2160,6 +2161,15 @@ def le_conteudo():
     except Exception as exc:
         print(f"  [conteudo] Supabase indisponível ({exc!r}) — usando só o JSON local")
         return local
+
+    # a cópia do que o hub tinha nesta rodada: é o que a auditoria cita como fonte
+    # do conteúdo escrito (fica em _cache, fora do Git — tem nome de animal)
+    try:
+        CONTEUDO_HUB.parent.mkdir(parents=True, exist_ok=True)
+        CONTEUDO_HUB.write_text(json.dumps(remoto, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        _registra("conteúdo do hub (comite_conteudo)", CONTEUDO_HUB)
+    except OSError as exc:
+        print(f"  [conteudo] não gravei a cópia local ({exc!r})")
 
     # remoto manda; mês que só existe no JSON (não migrado/editado ainda) sobrevive
     faltando_no_remoto = sorted(set(local) - set(remoto))
@@ -2854,7 +2864,7 @@ def slides_fotos(c, m, ano):
         # do PPTX oficial do mês
         out = _fotos_grupo_por_tema(legado, m, ano)
         if out:
-            _registra("fotos do mês", CONTEUDO)
+            _registra("fotos do mês", CONTEUDO_HUB if CONTEUDO_HUB.exists() else CONTEUDO)
             n_fotos = sum(len(g["fotos"]) for g in out)
             print(f"  [fotos] {MESES[m-1]}: {n_fotos} fotos em "
                   f"{len({g['sub'].split(' (')[0] for g in out})} temas "
@@ -2866,7 +2876,7 @@ def slides_fotos(c, m, ano):
         # sem tema, mesmo caminho do formato novo (baixa do bucket).
         out = _fotos_grupo_por_tema([{"tema": "", "arquivos": legado}], m, ano)
         if out:
-            _registra("fotos do mês", CONTEUDO)
+            _registra("fotos do mês", CONTEUDO_HUB if CONTEUDO_HUB.exists() else CONTEUDO)
             n_fotos = sum(len(g["fotos"]) for g in out)
             print(f"  [fotos] {MESES[m-1]}: {n_fotos} fotos (comite_conteudo.json, sem tema)")
             return out
@@ -3014,7 +3024,8 @@ def monta_deck(m, ano, ctx):
                        linhas_face(face_cx, GAB_CAIXA), "caixa"))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
-    face_casa = _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m), gabarito(DRE_CASA, "Real x Orçado"))
+    face_casa = _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m),
+                                  gabarito(_registra("DRE anual (Casa)", DRE_CASA), "Real x Orçado"))
     s += so_mensal(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano_ext}",
                        f"FC {ano} | FPG  ·  Caixa  ·  {MESES[m-1]} {ano}  ·  Fonte: aba Real x Orçado",
                        linhas_face(face_casa, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
