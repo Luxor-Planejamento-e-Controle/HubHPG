@@ -276,6 +276,33 @@ def _registra(rotulo, caminho):
     return caminho
 
 
+# Fonte que não é arquivo no disco: tabela do Supabase, arquivo da aba Plantel no
+# bucket, card do Trello. A auditoria mostra de onde veio e quando mudou LÁ. Antes
+# ela citava a cópia que o build guarda em _cache, e a idade saía "0 dias" porque
+# era a data do build, não a do dado.
+_FONTES_REMOTAS: dict = {}
+
+
+def _iso_local(s):
+    """ISO do Supabase/Trello (UTC, com 'Z' ou fuso) para a hora local sem fuso,
+    como a data de arquivo das outras fontes."""
+    if not s:
+        return None
+    try:
+        d = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo:
+        d = d.astimezone().replace(tzinfo=None)
+    return d.isoformat(timespec="minutes")
+
+
+def _registra_remoto(rotulo, arquivo, caminho, quando):
+    _FONTES.pop(rotulo, None)
+    _FONTES_REMOTAS[rotulo] = {"arquivo": arquivo, "caminho": caminho, "pasta": "",
+                               "modificado": _iso_local(quando)}
+
+
 _dre_hist_cache = []
 
 
@@ -1141,11 +1168,11 @@ def resumo_plantel_hub(ano: int, m: int) -> dict:
             print(f"  [plantel] motor do hub falhou: {(p.stderr or '').strip()[-300:]}")
     except Exception as exc:
         print(f"  [plantel] motor do hub indisponível ({exc!r}) — usando o último apurado")
-    if bruto is None and cache.exists():
+    do_cache = bruto is None and cache.exists()
+    if do_cache:
         bruto = json.loads(cache.read_text(encoding="utf-8"))
     out = {}
     if bruto:
-        _registra("resumo do plantel (aba Plantel do hub)", cache)
         for mes, v in bruto.get("meses", {}).items():
             if int(mes[:4]) != ano:
                 continue
@@ -1156,8 +1183,51 @@ def resumo_plantel_hub(ano: int, m: int) -> dict:
                                  "producao": c.get("embriao", 0.0), "vendas": c.get("venda", 0.0),
                                  "mortes": c.get("morte", 0.0) + c.get("doacao", 0.0),
                                  "reaval": c.get("reavaliacao", 0.0), "saldo_fim": v["fim"]}
+    if out:
+        # a fonte é o controle que a aba importou para o último mês fechado, com a
+        # data em que foi importado e a do fechamento — não o JSON que o build grava
+        k = max(out)
+        mes = f"{ano}-{k:02d}"
+        imp, fech = _datas_plantel_hub(mes)
+        partes = [f"Hub HPG › aba Plantel › {MESES[k - 1].lower()}/{ano}"]
+        dia = lambda d: datetime.fromisoformat(_iso_local(d)).strftime("%d/%m/%Y")
+        partes += [f"{rot} {dia(d)}" for rot, d in (("importado", imp), ("fechado", fech))
+                   if _iso_local(d)]
+        if do_cache:
+            partes.append("último apurado (o motor não rodou nesta rodada)")
+        quando = max((d for d in (_iso_local(imp), _iso_local(fech)) if d), default=None)
+        _registra_remoto("resumo do plantel (aba Plantel do hub)",
+                         bruto["meses"][mes].get("arquivo") or "—", " · ".join(partes), quando)
     _plantel_hub_memo[(ano, m)] = out
     return out
+
+
+_datas_plantel_memo: dict = {}
+
+
+def _datas_plantel_hub(mes: str):
+    """(importado, fechado) do mês na aba Plantel: a data do arquivo do mês no
+    bucket e a da última mudança de status. Mês fechado pela constante do módulo
+    (até jul/2026) não tem linha de status, e o fechamento sai None."""
+    if mes in _datas_plantel_memo:
+        return _datas_plantel_memo[mes]
+    imp = fech = None
+    url, key = _supabase_env()
+    if url:
+        h = {"apikey": key, "Authorization": f"Bearer {key}"}
+        try:
+            r = requests.post(f"{url}/storage/v1/object/list/hpg-data", headers=h, timeout=15,
+                              json={"prefix": "", "search": f"plantel.{mes}", "limit": 5})
+            imp = next((o.get("updated_at") for o in r.json() if o.get("name") == f"plantel.{mes}.json"), None)
+            r = requests.get(f"{url}/rest/v1/plantel_mes_status?select=fechado,em&mes=eq.{mes}",
+                             headers=h, timeout=15)
+            linha = (r.json() or [None])[0]
+            if linha and linha.get("fechado"):
+                fech = linha.get("em")
+        except Exception as exc:
+            print(f"  [plantel] sem data de importação/fechamento ({exc!r})")
+    _datas_plantel_memo[mes] = (imp, fech)
+    return imp, fech
 
 
 def resumo_movimentacao(ano: int, m: int):
@@ -2158,16 +2228,17 @@ def le_conteudo():
         )
         r.raise_for_status()
         remoto = {row["mes"]: {k: row.get(k) for k in CAMPOS_CONTEUDO} for row in r.json()}
+        _CONTEUDO_EDITADO.update({row["mes"]: row.get("updated_at") for row in r.json()})
     except Exception as exc:
         print(f"  [conteudo] Supabase indisponível ({exc!r}) — usando só o JSON local")
         return local
 
-    # a cópia do que o hub tinha nesta rodada: é o que a auditoria cita como fonte
-    # do conteúdo escrito (fica em _cache, fora do Git — tem nome de animal)
+    # a cópia do que o hub tinha nesta rodada (fica em _cache, fora do Git — tem
+    # nome de animal). A auditoria cita a tabela, com a data de edição do mês do
+    # deck (ver _registra_conteudo), e não esta cópia.
     try:
         CONTEUDO_HUB.parent.mkdir(parents=True, exist_ok=True)
         CONTEUDO_HUB.write_text(json.dumps(remoto, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-        _registra("conteúdo do hub (comite_conteudo)", CONTEUDO_HUB)
     except OSError as exc:
         print(f"  [conteudo] não gravei a cópia local ({exc!r})")
 
@@ -2177,6 +2248,20 @@ def le_conteudo():
         print(f"  [conteudo] só no JSON local (não migrado pro Supabase ainda): "
               f"{', '.join(faltando_no_remoto)}")
     return {**local, **remoto}
+
+
+_CONTEUDO_EDITADO: dict = {}
+
+
+def _registra_conteudo(rotulo, chave):
+    """Conteúdo escrito no hub: a linha do mês na tabela, com a data da última
+    edição. Mês que só existe no JSON local (não migrado) cita o JSON."""
+    if chave in _CONTEUDO_EDITADO:
+        _registra_remoto(rotulo, f"comite_conteudo · {chave}",
+                         "Supabase › tabela comite_conteudo (aba Comitê do hub)",
+                         _CONTEUDO_EDITADO[chave])
+    elif CONTEUDO.exists():
+        _registra(rotulo, CONTEUDO)
 
 
 def conteudo_do_mes(todos, chave):
@@ -2271,7 +2356,7 @@ def comentario_trello(m: int, ano: int):
                 # o quadro do fluxo de caixa primeiro: o Kanban do P&C tem card
                 # com o mesmo nome, mas sem o comentário
                 quadros.sort(key=lambda b: b["name"].strip() != TRELLO_QUADRO)
-                _trello_cards["lista"] = [c for b in quadros
+                _trello_cards["lista"] = [dict(c, quadro=b["name"]) for b in quadros
                                           for c in get(f"/boards/{b['id']}/cards/all", fields="name")]
             for card in [c for c in _trello_cards["lista"] if _card_do_mes(c["name"], m, ano)]:
                 acoes = get(f"/cards/{card['id']}/actions", filter="commentCard", limit=100)
@@ -2281,17 +2366,27 @@ def comentario_trello(m: int, ano: int):
                     txt = a["data"]["text"]
                     if _chave_dre(txt[:60]).startswith("COMENTARIOSDRE"):
                         TRELLO_CACHE.mkdir(parents=True, exist_ok=True)
-                        cache.write_text(json.dumps({"card": card["name"], "data": a["date"], "texto": txt},
-                                                    ensure_ascii=False, indent=1), encoding="utf-8")
-                        _registra("Comentários do DRE (Trello)", cache)
+                        salvo = {"card": card["name"], "quadro": card.get("quadro"),
+                                 "data": a["date"], "texto": txt}
+                        cache.write_text(json.dumps(salvo, ensure_ascii=False, indent=1), encoding="utf-8")
+                        _registra_trello(salvo)
                         return txt
             return None
         except Exception as exc:
             print(f"  [trello] indisponível ({exc!r}) — usando o comentário arquivado")
     if cache.exists():
-        _registra("Comentários do DRE (Trello)", cache)
-        return json.loads(cache.read_text(encoding="utf-8")).get("texto")
+        salvo = json.loads(cache.read_text(encoding="utf-8"))
+        _registra_trello(salvo, arquivado=True)
+        return salvo.get("texto")
     return None
+
+
+def _registra_trello(salvo: dict, arquivado: bool = False):
+    """O card e a data do comentário — não a cópia em _cache/trello."""
+    caminho = f"Trello › quadro {salvo.get('quadro') or TRELLO_QUADRO} › comentário COMENTÁRIOS DRE (HPG)"
+    if arquivado:
+        caminho += " · cópia arquivada (Trello indisponível nesta rodada)"
+    _registra_remoto("Comentários do DRE (Trello)", salvo.get("card") or "—", caminho, salvo.get("data"))
 
 
 def _item_trello(linha: str):
@@ -2864,7 +2959,7 @@ def slides_fotos(c, m, ano):
         # do PPTX oficial do mês
         out = _fotos_grupo_por_tema(legado, m, ano)
         if out:
-            _registra("fotos do mês", CONTEUDO_HUB if CONTEUDO_HUB.exists() else CONTEUDO)
+            _registra_conteudo("fotos do mês", f"{ano}-{m:02d}")
             n_fotos = sum(len(g["fotos"]) for g in out)
             print(f"  [fotos] {MESES[m-1]}: {n_fotos} fotos em "
                   f"{len({g['sub'].split(' (')[0] for g in out})} temas "
@@ -2876,7 +2971,7 @@ def slides_fotos(c, m, ano):
         # sem tema, mesmo caminho do formato novo (baixa do bucket).
         out = _fotos_grupo_por_tema([{"tema": "", "arquivos": legado}], m, ano)
         if out:
-            _registra("fotos do mês", CONTEUDO_HUB if CONTEUDO_HUB.exists() else CONTEUDO)
+            _registra_conteudo("fotos do mês", f"{ano}-{m:02d}")
             n_fotos = sum(len(g["fotos"]) for g in out)
             print(f"  [fotos] {MESES[m-1]}: {n_fotos} fotos (comite_conteudo.json, sem tema)")
             return out
@@ -2964,6 +3059,8 @@ def oculto(slide):
 
 def monta_deck(m, ano, ctx):
     cont = conteudo_do_mes(ctx["conteudo"], f"{ano}-{m:02d}")
+    # um registro por mês montado; o do último (o deck padrão) é o que fica
+    _registra_conteudo("conteúdo do hub (comite_conteudo)", f"{ano}-{m:02d}")
     safra = safra_do_deck(ano, m)
     if safra not in ctx["estacao_por_safra"]:
         ctx["estacao_por_safra"][safra] = (slides_estacao(safra), slide_coberturas(safra))
@@ -3114,6 +3211,7 @@ def build(so_mes=None):
             quando = None
         fontes[rotulo] = {"arquivo": p.name, "caminho": caminho_curto(p),
                           "pasta": p.parent.name, "modificado": quando}
+    fontes.update(_FONTES_REMOTAS)
 
     payload = {"meses": chaves, "padrao": chaves[-1], "avisos": avisos,
                "labels": {k: f"{MESES[int(k[5:]) - 1]} {k[:4]}" for k in chaves},

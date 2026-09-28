@@ -268,7 +268,7 @@ def main():
     # 2) calcula a semana
     _log("2/4 CALC", "lendo planilhas e calculando a semana...")
     try:
-        rep = R.build_report(ini, fim)
+        rep = R.build_report(ini, fim, forcar='--forcar' in args)
     except RuntimeError as exc:
         # fonte velha nao e crash: e recusa deliberada de publicar numero errado
         _log("2/4 CALC", "ABORTADO")

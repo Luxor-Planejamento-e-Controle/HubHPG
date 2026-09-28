@@ -49,7 +49,9 @@ def main():
     for i, w in enumerate(weeks):
         ref = _d(w["ref"])
         ini = (_d(weeks[i - 1]["ref"]) + timedelta(days=1)) if i > 0 else (ref - timedelta(days=7))
-        rep = build_report(ini, ref)
+        # congela=False: conferir não grava. Em 18/09/2026 esta linha, sem isso,
+        # regravou as 29 semanas do docx com as planilhas do dia.
+        rep = build_report(ini, ref, congela=False)
         p, s = rep.producao, rep.saidas
         dp, ds = w["producao"], w["saidas"]
         print(f"{w['ref']:11} "

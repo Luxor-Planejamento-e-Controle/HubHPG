@@ -127,6 +127,23 @@ CONTROLE_MENSAL_DIR = RECEPTORAS_DIR
 HIST_HEADCOUNT = BASE_DIR / "_cache" / "headcount_history.json"
 HIST_SNAPSHOTS = BASE_DIR / "_cache" / "semanal_snapshots.json"
 
+# Estado em disco (_cache/*): snapshots, histórico de headcount, linhas arquivadas,
+# piso do acumulado e os registros cumulativos. Toda gravação passa por
+# _grava_estado, e build_report(congela=False) desliga todas — é o modo de quem roda
+# semana passada só para conferir. Em 18/09/2026 o PGSemanalValidar chamou
+# build_report nas 29 semanas do docx e cada chamada congelou a semana com as
+# planilhas DAQUELE dia: fevereiro a setembro ficaram com o mesmo headcount, o mesmo
+# roster e as mesmas linhas arquivadas.
+_CONGELA = True
+
+
+def _grava_estado(alvo: Path, obj, indent: int = 2) -> bool:
+    if not _CONGELA:
+        return False
+    alvo.parent.mkdir(parents=True, exist_ok=True)
+    alvo.write_text(json.dumps(obj, ensure_ascii=False, indent=indent), encoding="utf-8")
+    return True
+
 # Virada de estacao ANCORADA NA DATA da liberacao em que a safra nova passa a
 # valer: a interseason (as duas safras convivendo no relatorio) acaba na PRIMEIRA
 # liberacao de setembro — 04/09/2026, combinado com o Arthur nessa data. Era uma
@@ -2251,7 +2268,7 @@ def build_headcount_delta(rep: Report, fim: date):
               f"Δ desta semana sai 0 por isso")
     # grava snapshot desta run (idempotente por data)
     hist[fim.isoformat()] = atual
-    HIST_HEADCOUNT.write_text(json.dumps(hist, ensure_ascii=False, indent=2), encoding="utf-8")
+    _grava_estado(HIST_HEADCOUNT, hist)
 
 
 # ------------------------------------------------------------------
@@ -2318,7 +2335,32 @@ def _is_iso(s: str) -> bool:
         return False
 
 
-def build_report(ini: date, fim: date) -> Report:
+def build_report(ini: date, fim: date, congela: bool = True, forcar: bool = False) -> Report:
+    """Calcula a semana e, com `congela`, grava o estado dela em _cache.
+
+    `congela=False` só calcula: é o modo de quem roda semana passada para conferir
+    (PGSemanalValidar). Congelar semana anterior a outra já congelada grava nela o
+    estado de HOJE — headcount, receptoras e pendentes são retrato do momento — e
+    por isso só passa com `forcar`, que o PGSemanal.py liga com --forcar. A trava
+    ficava só no PGSemanal.py, e quem chamava build_report direto passava por fora."""
+    global _CONGELA
+    semana = sexta_da_semana(fim).isoformat()
+    if congela and not forcar:
+        posteriores = sorted(w for w in _load_hist() if _is_iso(w) and w > semana)
+        if posteriores:
+            raise RuntimeError(
+                f"a semana {semana} é anterior a semana(s) já congelada(s) "
+                f"({', '.join(posteriores)}): congelar agora gravaria nela o estado de hoje. "
+                f"Para só conferir, build_report(..., congela=False); para regravar de "
+                f"propósito, forcar=True (PGSemanal.py --forcar).")
+    _CONGELA = congela
+    try:
+        return _monta_report(ini, fim)
+    finally:
+        _CONGELA = True
+
+
+def _monta_report(ini: date, fim: date) -> Report:
     rep = Report(semana_inicio=ini.isoformat(), semana_fim=fim.isoformat())
     # ANTES dos builds: build_movimentacao -> _transferencias_internas compara com o
     # snapshot da semana anterior usando `wid < rep.semana_atual`. Atribuído depois,
@@ -2893,7 +2935,8 @@ def _arquivar_linhas(rep: Report):
         "terceiros_de_terceiro": rep.detalhe.get("terceiros_propriedade") or [],
     }
     alvo = FONTES_DIR / f"{rep.semana_atual}.json"
-    alvo.write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
+    if not _grava_estado(alvo, dados, indent=1):
+        return
     n = sum(len(v) for v in dados.values() if isinstance(v, list))
     print(f"  [fontes] {n} linhas arquivadas em _cache/fontes/{alvo.name}")
 
@@ -2951,9 +2994,7 @@ def _acumulado_nunca_cai(rep: Report):
         print(f"  [acumulado] piso da safra {SAFRA_ATUAL} subiu de {ant} para {ac}")
     if ant is None or ac > ant:
         piso[SAFRA_ATUAL] = ac
-        ACUMULADO_PISO.parent.mkdir(parents=True, exist_ok=True)
-        ACUMULADO_PISO.write_text(json.dumps(piso, ensure_ascii=False, indent=2),
-                                  encoding="utf-8")
+        _grava_estado(ACUMULADO_PISO, piso)
 
 
 def _produto_do_roster(nome: str) -> str:
@@ -3046,9 +3087,7 @@ def _paricoes_do_roster(rep: Report):
                 print(f"  [nascimentos] parição de {k} estava na safra "
                       f"{v.get('safra')} e o embrião é da {certa} — corrigido")
                 v["safra"] = certa
-        PARICOES_EXTRA.parent.mkdir(parents=True, exist_ok=True)
-        PARICOES_EXTRA.write_text(json.dumps(reg, ensure_ascii=False, indent=2),
-                                  encoding="utf-8")
+        _grava_estado(PARICOES_EXTRA, reg)
 
     # Parição desta semana é nascimento desta semana em qualquer estação — o
     # acumulado é que é por safra. Por isso `desta` sai de `reg`, não de `da_safra`:
@@ -3370,9 +3409,7 @@ def _confirmados_por_receptora(rep: Report) -> list:
             if _norm(info.get("status")).startswith("PRENHA") and not st_antes.startswith("PRENHA"):
                 reg[_chave_recep(animal)] = {"semana": rep.semana_atual,
                                              "safra": SAFRA_ATUAL}
-        CONFIRMADOS_EXTRA.parent.mkdir(parents=True, exist_ok=True)
-        CONFIRMADOS_EXTRA.write_text(json.dumps(reg, ensure_ascii=False, indent=2),
-                                     encoding="utf-8")
+        _grava_estado(CONFIRMADOS_EXTRA, reg)
 
     # O registro é CUMULATIVO em disco, pelo mesmo motivo de PARICOES_EXTRA: a prenhez
     # só é "nova" na semana em que aparece, e o acumulado da safra não pode cair na
@@ -3631,10 +3668,9 @@ def _snap_from_rep(rep: Report) -> dict:
 def _persist_snapshot(rep: Report):
     """Congela o snapshot CALCULADO desta semana. O que vai pro dash é sempre calculado
     aqui — o docx nunca vira dado, só valida (ver rep.docx_ref)."""
-    HIST_SNAPSHOTS.parent.mkdir(parents=True, exist_ok=True)
     hist = _load_hist()
     hist[rep.semana_atual] = _snap_from_rep(rep)
-    HIST_SNAPSHOTS.write_text(json.dumps(hist, ensure_ascii=False, indent=2), encoding="utf-8")
+    _grava_estado(HIST_SNAPSHOTS, hist)
     rep.snapshots = hist
 
 
