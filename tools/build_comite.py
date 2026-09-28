@@ -1734,11 +1734,14 @@ def garanhoes(wb, safra):
             # o nome vem da ESTAÇÃO junto com os números (a aba grafa 'MARADA')
             aba[k] = {**base, "nome": nome_animal(d["nome"], curto=False),
                       "lav": d["lav"], "pos": d["pos"], "conf": d["conf"]}
-    rows = [x for x in aba.values() if x["lav"]]
+    # Todos os garanhões da aba entram, com zero quando não tiveram tentativa —
+    # o relatório lista o plantel de garanhões da estação, não só quem trabalhou
+    # (pedido do Arthur, 28/09)
+    rows = list(aba.values())
     for x in rows:
         if not x["t"]:
             x["t"] = TIPO_SEMEN.get(_chave_garanhao(_norm(x["nome"])), "")
-    rows.sort(key=lambda x: (-x["conf"], -x["lav"]))
+    rows.sort(key=lambda x: (-x["conf"], -x["lav"], x["nome"]))
     tent = sum(x["lav"] for x in rows)
     pos = sum(x["pos"] for x in rows)
     conf = sum(x["conf"] for x in rows)
@@ -1749,9 +1752,10 @@ def garanhoes(wb, safra):
             por_tipo[x["t"]] = (a + x["pos"], b + x["lav"])
     nome_tipo = {"R": "REFRIGERADO", "C": "CONGELADO", "F": "FRESCO"}
     cores = {"R": "navy", "C": "azul", "F": "ardosia"}
-    kpis = [{"v": f"{p/t*100:.0f}%", "l": nome_tipo[k], "cor": cores[k], "s": REF_SEMEN[k]}
-            for k in ("R", "C", "F") if k in por_tipo and por_tipo[k][1]
-            for p, t in [por_tipo[k]]]
+    # os três cartões sempre, na ordem do relatório; tipo sem tentativa na safra
+    # sai com traço, não com um percentual que não existe
+    kpis = [{"v": f"{por_tipo[k][0]/por_tipo[k][1]*100:.0f}%" if por_tipo.get(k, (0, 0))[1] else "—",
+             "l": nome_tipo[k], "cor": cores[k], "s": REF_SEMEN[k]} for k in ("R", "C", "F")]
     fun = funil(wb, safra)
     tent_s, lav_s = fun["rows"][0][1], fun["rows"][1][1]
     return {"t": "garanhoes", "n": 17, "titulo": f"ESTAÇÃO DE MONTA {safra} — GARANHÕES",

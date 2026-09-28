@@ -425,12 +425,13 @@
       P.push(T(403.2, y, 35.8, hh, r.t || '—', {pt: 7.5, b: 1, c: COR.azul, al: 'c', va: 'm'}));
       P.push(T(442.9, y, 70.4, hh, r.lav, {pt: 8, c: COR.cinza, al: 'c', va: 'm'}));
       P.push(T(517.1, y, 70.4, hh, r.conf, {pt: 8, b: 1, c: COR.navy, al: 'c', va: 'm'}));
+      // garanhão sem tentativa na safra: índice em traço e só o trilho da barra
       const ind = r.lav ? r.conf / r.lav : 0;
-      const ci = ind >= 0.6 ? COR.verde : ind >= 0.4 ? COR.ouro : COR.neg;
-      P.push(T(591.4, y, 79.4, hh, Math.round(ind * 100) + '%', {pt: 8, b: 1, c: ci, al: 'c', va: 'm'}));
+      const ci = !r.lav ? COR.cinza : ind >= 0.6 ? COR.verde : ind >= 0.4 ? COR.ouro : COR.neg;
+      P.push(T(591.4, y, 79.4, hh, r.lav ? Math.round(ind * 100) + '%' : '—', {pt: 8, b: 1, c: ci, al: 'c', va: 'm'}));
       const bh = Math.min(24.4, hh * 0.76), by = y + (hh - bh) / 2;
       P.push(R(674.6, by, 448, bh, {fill: COR.trilho}));
-      P.push(R(674.6, by, Math.max(1, 448 * r.lav / maxLav), bh / 2, {fill: COR.metaBar}));
+      if (r.lav) P.push(R(674.6, by, Math.max(1, 448 * r.lav / maxLav), bh / 2, {fill: COR.metaBar}));
       if (r.conf) P.push(R(674.6, by + bh / 2, Math.max(1, 448 * r.conf / maxLav), bh / 2, {fill: COR.azul}));
     });
     const yl = Math.min(687.6, r0 + s.rows.length * p + 6);
