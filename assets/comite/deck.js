@@ -128,6 +128,9 @@ const editorDe = s => {
   if (!s) return null;
   // comentário que veio do Trello: a fonte é o card da controladoria, não o hub
   if (s.origem === 'trello') return null;
+  // pendência só vira slide quando tem conteúdo; para escrever a primeira, o
+  // Editar da agenda abre o editor dela (o slide entra logo depois da agenda)
+  if (s.t === 'agenda') return 'pendencias';
   if (s.t === 'pendente') return s.edita || null;
   if (s.t === 'resultados') return 'exposicoes';
   if (ehExposicaoProg(s)) return 'exposicoes';
@@ -419,11 +422,10 @@ async function montaSlidesAoVivo(mes){
       sub:'DRE 2026 | HPG  ·  Principais destaques do mês por categoria', itens: c.comentarios}];
   }
 
+  // lista vazia TIRA o slide (quem apagou tudo no editor quer ele fora)
   const pend = (c.pendencias || []).filter(x => String(x || '').trim());
-  if (pend.length) {
-    out.pendencias = [{t:'pendencias', n:3,
-      titulo:`PENDÊNCIAS DA APRESENTAÇÃO DE ${MESES_PT[(mNum + 10) % 12].toUpperCase()}`, itens: pend}];
-  }
+  out.pendencias = pend.length ? [{t:'pendencias', n:3,
+    titulo:`PENDÊNCIAS DA APRESENTAÇÃO DE ${MESES_PT[(mNum + 10) % 12].toUpperCase()}`, itens: pend}] : [];
 
   const exp = c.exposicoes || {}, res = exp.resultados || [];
   /* evento com resultado no mês e fora da programação volta com a linha do
@@ -504,11 +506,15 @@ async function montaSlidesAoVivo(mes){
 function substituiSlidesDoTipo(chave, novos){
   let primeiro = -1;
   slides = slides.filter((s, i) => {
-    const bate = editorDe(s) === chave;
+    // a agenda só EMPRESTA o editor de pendências — nunca é substituída
+    const bate = s.t !== 'agenda' && editorDe(s) === chave;
     if (bate && primeiro === -1) primeiro = i;
     return !bate;
   });
-  if (primeiro === -1) primeiro = slides.length;
+  if (primeiro === -1) {
+    const ag = slides.findIndex(s => s.t === 'agenda');
+    primeiro = chave === 'pendencias' && ag >= 0 ? ag + 1 : slides.length;
+  }
   slides.splice(primeiro, 0, ...novos);
 }
 

@@ -2469,8 +2469,12 @@ def slide_pendencias(c, m, ano):
     ant = MESES[(m - 2) % 12].upper()
     titulo = f"PENDÊNCIAS DA APRESENTAÇÃO DE {ant}"
     itens = [x for x in (c.get("pendencias") or []) if str(x).strip()]
+    # Sem pendência registrada o slide não existe: o relatório só o tem quando
+    # ficou algo combinado (jul/26 sim, ago/26 não), e um "a escrever" oculto
+    # só poluía o deck. Para escrever, o Editar do slide da agenda abre este
+    # editor (deck.js) e o slide entra logo depois dela.
     if not itens:
-        return pend(3, titulo, "", "comite_conteudo → pendencias", FALTA_CONTEUDO, edita="pendencias")
+        return None
     return {"t": "pendencias", "n": 3, "titulo": titulo, "itens": itens}
 
 
@@ -2965,11 +2969,10 @@ def monta_deck(m, ano, ctx):
                    {"n": "03", "titulo": "EXPOSIÇÕES", "sub": "Programação e resultados"},
                    {"n": "04", "titulo": "VENDAS", "sub": "Pipeline e contratos"},
                    {"n": "05", "titulo": "DECISÕES E MANEJO", "sub": "Plantel · Obras · Casa"}]},
-        # sem pendência registrada o slide fica no arquivo (para escrever) mas
-        # não entra na apresentação — o relatório de agosto/2026 não o tem
-        (lambda p: oculto(p) if p["t"] == "pendente" else p)(slide_pendencias(cont, m, ano)),
+        slide_pendencias(cont, m, ano),
         divisor(1, "FINANCEIRO", f"DRE Haras  ·  Caixa  ·  Plantel  |  {MES} {ano}"),
     ]
+    s = [x for x in s if x]
     # O relatório abrevia o mês no resumo do Haras ("JUL/26") e escreve por
     # extenso no Caixa e na Casa ("JULHO/26"). É o título que o haras conhece.
     mesano, mesano_ext = f"{ABR[m-1].upper()}/{yy}", f"{MES}/{yy}"
