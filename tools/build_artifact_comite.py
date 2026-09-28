@@ -106,7 +106,7 @@ POR_TIPO = {
     "matriz": ("resumo contábil (mapa)", "Resumo Contábil",
                "Reserva: o hub não tem nenhum mês do ano fechado, e a movimentação sai do mapa da controladoria."),
     "movimentacao": ("resumo do plantel (aba Plantel do hub)", "Resumo contábil",
-                     "O resumo contábil da aba Plantel do hub HPG: controle do mês importado na aba e movimentações classificadas, com a mesma conta da tela. Só entra mês fechado no hub; o que faltar sai do Resumo Contábil do mapa, e o subtítulo avisa."),
+                     "O resumo contábil da aba Plantel do hub HPG: controle do mês importado na aba e movimentações classificadas, com a mesma conta da tela. Só entra mês fechado no hub; o que faltar sai do Resumo Contábil do mapa."),
     "funil": ("estacao de monta", "ESTAÇÃO",
               "Funil da safra do mês do deck: tentativas, lavados positivos, prenhez aos 15, 30, 45 e 60 dias, abortos e confirmados."),
     "garanhoes": ("estacao de monta", "GARANHOES + ESTAÇÃO",

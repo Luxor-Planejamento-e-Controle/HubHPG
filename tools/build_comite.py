@@ -1341,14 +1341,8 @@ def slide_movimentacao(m, ano):
         mes_nome = MESES[meses[-1] - 1]
         rows = [[rot] + [rc[k].get(campo, 0.0) for k in meses] for campo, rot in MOV_LINHAS_ANA]
         ab = ABR[meses[-1] - 1]
-        if not do_mapa:
-            fonte = "aba Plantel do hub"
-        elif len(do_mapa) == len(meses):
-            fonte = "aba Resumo Contábil"
-        else:
-            fonte = f"aba Plantel do hub ({', '.join(ABR[k - 1] for k in do_mapa)}: aba Resumo Contábil)"
         return {"t": "movimentacao", "n": 12, "titulo": f"RESUMO DA MOVIMENTAÇÃO DO PLANTEL — {ano}",
-                "sub": f"Saldo mensal · Compras, produções, vendas e baixas  ·  Fonte: {fonte}",
+                "sub": "Saldo mensal · Compras, produções, vendas e baixas",
                 "kpis": [{"v": ("+" if u.get("producao", 0) > 0 else "") + brl_curto(u.get("producao", 0)),
                           "l": f"Produção Emb. {ab}", "s": f"{mes_nome} {ano}", "cor": "navy"},
                          {"v": brl_curto(u.get("vendas", 0)), "l": f"Baixa Vendas {ab}",
@@ -1482,7 +1476,7 @@ def slide_contagem(m, ano):
            "s": f"{r[-1]/total*100:.0f}% do total" if total else "—"} for r in rows[:3]]
     kp.append({"v": f"{total}", "l": "TOTAL GERAL", "s": "sob responsabilidade da PG"})
     return {"t": "kpis_tabela", "n": 37, "titulo": "PLANTEL — PAO GRANDE, ARRENDAMENTO E SÓCIOS",
-            "sub": f"{MESES[m-1].upper()} {ano} · fechamento mensal do haras · {src.name}",
+            "sub": f"{MESES[m-1].upper()} {ano} · fechamento mensal do haras",
             "kpis": kp,
             "tabela": {"cols": ["LOCAL", "ANIMAIS", "RECEPTORAS", "TOTAL"], "rows": rows}}
 
@@ -1961,7 +1955,7 @@ def slide_coberturas(safra):
     rows.sort(key=lambda x: -x["saldo"])
     return {"t": "coberturas", "n": 21,
             "titulo": f"ESTAÇÃO DE MONTA {safra} — COBERTURAS DISPONÍVEIS",
-            "sub": "Coberturas de garanhões de fora com saldo disponível  ·  Fonte: planilha de controle de coberturas",
+            "sub": "Coberturas de garanhões de fora com saldo disponível",
             "rows": rows}
 
 
@@ -2067,7 +2061,7 @@ def slide_inadimplencia(m, ano):
         # a variação compara com o mês anterior NA MESMA regra — é o que o dash faz
         ka = _inad_kpis(fa, carteira) if fa is not None else None
         return {"t": "inadimplencia", "n": 31, "titulo": "VENDAS — INADIMPLÊNCIAS E RECEBÍVEIS",
-                "sub": f"Posição {MESES[m-1].upper()}/{ano}  ·  Fonte: Dashboard de Gestão de Cobrança",
+                "sub": f"Posição {MESES[m-1].upper()}/{ano}",
                 "k": {x: k[x] for x in ("total", "venc", "aj", "ne", "inad", "avencer",
                                          "clientes", "clientes_venc")},
                 "ant": ({x: ka[x] for x in ("total", "venc", "aj", "ne", "inad", "avencer")}
@@ -2273,7 +2267,7 @@ def slides_embrioes(m, ano):
         slide(34, "VENDAS — EMBRIÕES DE DIREITO / REPOSIÇÃO",
               "Status: Reposição ou A fazer  ·  Pgto: Direito / Troca", s34),
         slide(35, "ESTAÇÃO DE MONTA — EMBRIÕES COMPRADOS A RECEBER",
-              'Status "A Fazer" — ainda não produzidos  ·  Fonte: aba RECEBER', [x for x in rec if af(x)],
+              'Status "A Fazer" — ainda não produzidos', [x for x in rec if af(x)],
               "VENDEDOR", "DOADORA (ORIGEM)"),
     ]
 
@@ -2636,8 +2630,7 @@ def slides_comentarios(c, m, ano):
             pags = _paginas_comentarios(itens)
             return [{"t": "comentarios", "n": 8, "origem": "trello",
                      "titulo": titulo + (" (cont.)" if k else ""),
-                     "sub": f"DRE {ano} | HPG  ·  Caixa  ·  Variações do mês comentadas pela controladoria  ·  "
-                            f"Fonte: Trello",
+                     "sub": "",
                      "itens": p} for k, p in enumerate(pags)]
     com = slide_comentarios(c, m, ano)
     return [oculto(com) if com["t"] == "pendente" else com]
@@ -2657,7 +2650,7 @@ def slide_comentarios(c, m, ano):
                     "_docs/comite_conteudo.json → comentarios", FALTA_CONTEUDO,
                     edita="comentarios")
     return {"t": "comentarios", "n": 8, "titulo": titulo,
-            "sub": "DRE 2026 | HPG  ·  Principais destaques do mês por categoria",
+            "sub": "Principais destaques do mês por categoria",
             "itens": itens}
 
 
@@ -2676,7 +2669,6 @@ def slide_pendencias(c, m, ano):
     return {"t": "pendencias", "n": 3, "titulo": titulo, "itens": itens}
 
 
-FONTE_RESULTADOS = "Fonte: WhatsApp equipe + site ABCCMM"
 
 
 def _ordinal_expo(t: str) -> str:
@@ -2735,8 +2727,9 @@ def expo_resultado(r: dict, prog: list) -> tuple:
     if not sub:
         k = _chave_expo(tit)
         dt = next((_data_expo(p[1]) for p in prog if len(p) > 1 and _chave_expo(_ordinal_expo(p[0])) == k), "")
-        sub = f"{dt}  ·  {FONTE_RESULTADOS}" if dt else FONTE_RESULTADOS
-    return tit, sub
+        sub = dt
+    # a fonte não vai no slide; subtítulo escrito com ela perde o trecho
+    return tit, re.sub(r"\s*·?\s*Fonte:.*$", "", sub)
 
 
 def programacao_com_resultados(prog: list, res: list, todos, m, ano) -> list:
@@ -3186,15 +3179,15 @@ def monta_deck(m, ano, ctx):
     face_comp = _na_ordem_oficial(dre_mes("HPG", "Competência", ano, m),
                                   gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
     s += so_mensal(dre(4, f"RESUMO FINANCEIRO — HARAS COMPETÊNCIA — ORÇADO X REALIZADO {mesano}",
-                       "DRE 2026 | HPG  ·  Competência Mensal  ·  Fonte: aba Real x Orçado (Comp)",
+                       "",
                        linhas_face(face_comp, gab_resumo), "resumo"))
     for n, tema, titulo, desc in ((5, "custos", "ANÁLISE DE CUSTOS", "Custos Indiretos de Produção"),
                                   (6, "despesas", "ANÁLISE DE DESPESAS", "Despesas Operacionais")):
         pags = paginas_analise(ano, m, tema)
         for k, linhas in enumerate(pags, 1):
-            parte = f"  ·  Parte {k} de {len(pags)}" if len(pags) > 1 else ""
+            parte = f"Parte {k} de {len(pags)}" if len(pags) > 1 else ""
             s += so_mensal(dre(n, f"{titulo} — {MES} {ano}",
-                               f"DRE Haras  ·  {desc}  ·  Fonte: DRE-Compet{parte}", linhas, "analise"))
+                               parte, linhas, "analise"))
     face_ytd = _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
                                  gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
     # o acumulado fica no arquivo e fora da apresentação, como no relatório
@@ -3207,18 +3200,18 @@ def monta_deck(m, ano, ctx):
     s += slides_investimentos(m, ano)
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
-                       f"FC {ano} | HPG  ·  Caixa Mensal  ·  Dados confirmados",
+                       "",
                        linhas_face(face_cx, GAB_CAIXA), "caixa"))
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
     face_casa = _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m),
                                   gabarito(_registra("DRE anual (Casa)", DRE_CASA), "Real x Orçado"))
     s += so_mensal(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano_ext}",
-                       f"FC {ano} | FPG  ·  Caixa  ·  {MESES[m-1]} {ano}  ·  Fonte: aba Real x Orçado",
+                       "",
                        linhas_face(face_casa, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa"))
     face_casa_ytd = _na_ordem_oficial(dre_ytd("FPG", "Caixa", ano, m), gabarito(DRE_CASA, "Real x Orçado"))
     s.append(oculto(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
-                        f"FC {ano} | FPG  ·  Caixa  ·  Janeiro a {MESES[m-1]}  ·  Fonte: aba Real x Orçado",
+                        "",
                         linhas_face(face_casa_ytd, GAB_CASA, CASA_EXTRAS, "Tributos"), "casa")))
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", f"Embriões  ·  Doadoras  ·  Garanhões  |  {safra}"))

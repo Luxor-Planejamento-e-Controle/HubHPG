@@ -343,7 +343,6 @@ function medeImagem(uri){
 
 /* exposições e fotos: a mesma apresentação do build_comite.py
    (expo_programacao, expo_resultado, tema_foto) — o conteúdo guardado não muda */
-const FONTE_RESULTADOS = 'Fonte: WhatsApp equipe + site ABCCMM';
 const ordinalExpo = t => String(t || '').replace(/(\d+)\s*[°º]\s*(?=EXPOSI|Exposi|exposi)/g, '$1ª ');
 function dataExpo(t){
   t = String(t || '').split(/\s+/).filter(Boolean).join(' ');
@@ -368,9 +367,10 @@ function expoResultado(r, prog){
     const k = chaveExpo(tit);
     const p = prog.find(x => x.length > 1 && chaveExpo(ordinalExpo(x[0])) === k);
     const dt = p ? dataExpo(p[1]) : '';
-    sub = dt ? `${dt}  ·  ${FONTE_RESULTADOS}` : FONTE_RESULTADOS;
+    sub = dt;
   }
-  return [tit, sub];
+  // a fonte não vai no slide; subtítulo escrito com ela perde o trecho
+  return [tit, sub.replace(/\s*·?\s*Fonte:.*$/, '')];
 }
 function premioTxt(t){
   t = String(t || '').split(/\s+/).filter(Boolean).join(' ');

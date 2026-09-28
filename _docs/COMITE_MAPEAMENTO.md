@@ -41,6 +41,9 @@ fotos (S39).
 
 ---
 
+Subtítulo de slide não cita fonte de dado (pedido do Arthur, 28/09/2026): a fonte
+de cada número fica nesta tabela e na auditoria.
+
 ## Seção 01 — Financeiro (S04–S14)
 
 | Slide | Conteúdo | Fonte | Aba / campos | Status |
@@ -53,7 +56,7 @@ fotos (S39).
 | **09** | Investimentos — compra de animais e produtos, janeiro até o mês | `DRE 2026 HPG - HARAS v3.xlsx` aba `Investimentos` | de cada seção `INVESTIMENTOS - <MÊS>/<AA>`, só o bloco COMPRA DE ANIMAIS E PRODUTOS (A=favorecido, B=descrição, C=valor), um grupo por mês com o total do bloco; mês sem compra sai com "Sem compra…"; ano cheio vira duas páginas. Obra e máquina ficam no resumo (S04) | auto — é a aba, que pode diferir da face: em ago/26 uma compra de animais que está na face não aparece na aba |
 | **10** | Haras **caixa** — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, CC=HPG, `Modelo = Caixa`; as 6 linhas do relatório (Receita Bruta, Receita Líquida, Custos e Despesas, Resultado Operacional, Investimentos, Resultado após) | auto |
 | **11** | Estoque em equinos — headcount e patrimônio por categoria | `bases/base_bi.parquet` (PGBaseBI.py, este repo) + aba `Resumo Contabil` do mapa de movimentações | filtro `status_plantel = PLANTEL` e `sufixo_grupo` EXATO `DA PAO GRANDE` ou `OUTRO` (o `E 100%` do Eduardo NÃO entra — vale só pro semanal); **patrimônio = saldo final do Resumo Contábil do mês** (o mesmo número do S12; jul/26 R$ 15.970.552,61), valor médio = soma `valor_100` ÷ **avaliados** desde ago/26 (até jul/26 ÷ todos, como foi apresentado); todas as categorias abertas (coluna CATEGORIA da aba PLANTEL — a divisão do relatório de ago/26 tem reclassificação manual, sem regra na planilha) | auto |
-| **12** | Resumo da movimentação do plantel — saldo mensal | **aba Plantel do hub** — `tools/resumo_plantel_hub.js` roda o motor dela (`assets/plantel/plantel.js`) sobre `plantel.<AAAA-MM>.json` do bucket + `plantel_mov_classificacao` (arquivado em `_cache/plantel_hub/`) | Saldo inicial, (+) Compras, (+) Produção embriões, (−) Baixa vendas, (−) Baixa mortes e doações, (+/−) Reavaliações, Saldo final — só mês fechado (ou 100% classificado) no hub; jan–jul/26 idênticos ao Resumo Contábil divulgado | auto — mês que o hub não fechou sai da aba `Resumo Contabil` do mapa, e o subtítulo diz |
+| **12** | Resumo da movimentação do plantel — saldo mensal | **aba Plantel do hub** — `tools/resumo_plantel_hub.js` roda o motor dela (`assets/plantel/plantel.js`) sobre `plantel.<AAAA-MM>.json` do bucket + `plantel_mov_classificacao` (arquivado em `_cache/plantel_hub/`) | Saldo inicial, (+) Compras, (+) Produção embriões, (−) Baixa vendas, (−) Baixa mortes e doações, (+/−) Reavaliações, Saldo final — só mês fechado (ou 100% classificado) no hub; jan–jul/26 idênticos ao Resumo Contábil divulgado | auto — mês que o hub não fechou sai da aba `Resumo Contabil` do mapa |
 | **13** | Resumo financeiro Casa/FPG — orçado × realizado do mês | `DRE_Historico.xlsx` | `Base DRE Geral`, **CC=FPG**, `Modelo = Caixa`; Marketing e Hospedagem Família entram quando têm valor (senão os detalhes não fecham com Despesas Gerais) | auto |
 | **14** | Casa/FPG — acumulado YTD | `DRE_Historico.xlsx` | `Base YTD`, CC=FPG. **Oculto**, como no relatório; `Deduções` = DEDUÇÕES E IMPOSTOS da base (saía zerada) | auto |
 
@@ -121,7 +124,7 @@ histórico por trás de S19/S20).
 | Slide | Conteúdo | Fonte | Status |
 |---|---|---|---|
 | **23** | Programação — evento, data, local, status | `comite_conteudo.exposicoes.programacao` do mês | manual estruturado — apresentação padronizada no build e no deck.js (ordinal `35ª`, data `06 a 12/04/2026`, local vazio `—`); evento com resultado no mês que sumiu da programação volta com a linha do mês anterior (ago/26: Paracambi). O conteúdo guardado não muda |
-| **24–27** | Resultados por exposição — animal e prêmios | `comite_conteudo.exposicoes.resultados` | manual estruturado — título com travessão e ordinal; sem subtítulo escrito, sai a data da programação + `Fonte: WhatsApp equipe + site ABCCMM`; prêmio `1º Prêmio — …`, partícula minúscula |
+| **24–27** | Resultados por exposição — animal e prêmios | `comite_conteudo.exposicoes.resultados` | manual estruturado — título com travessão e ordinal; sem subtítulo escrito, sai a data da programação; trecho `Fonte: …` escrito no subtítulo é cortado; prêmio `1º Prêmio — …`, partícula minúscula |
 
 Não há planilha por trás, mas também não é mais placeholder: o conteúdo do deck
 de junho foi extraído para o JSON e o slide é montado a partir dele. Todo mês
