@@ -72,6 +72,11 @@ ESTADO = [
     (ROOT / "_cache/headcount_history.json", "estado_headcount_history.json"),
     (ROOT / "_cache/paricoes_extra.json",    "estado_paricoes_extra.json"),
     (ROOT / "_cache/acumulado_piso.json",    "estado_acumulado_piso.json"),
+    # confirmação vista só pela planilha de receptoras, registrada na semana em que
+    # apareceu e CUMULATIVA (ver _confirmados_por_receptora). Faltava aqui: o ensaio
+    # da nuvem de 30/09/2026 perdeu as 5 prenhezes de 18/09 e publicaria acumulado no
+    # mês 0 contra 5 — os arquivos do Drive eram byte a byte os mesmos do G:.
+    (ROOT / "_cache/confirmados_extra.json", "estado_confirmados_extra.json"),
     # input humano (doadoras ciclando): não sai de planilha nenhuma, então perder o
     # arquivo é perder o dado
     (ROOT / "_cache/semanal_manual.json",    "estado_semanal_manual.json"),
