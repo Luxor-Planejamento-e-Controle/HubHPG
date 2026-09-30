@@ -2351,9 +2351,21 @@ def _data_contrato(v):
 
 
 def _cota_txt(c):
+    """A cota do contrato, em PORCENTAGEM.
+
+    A planilha guarda fração — 0,5 / 1 / 0,25 são os três valores que existem hoje nos
+    32 slides de contrato (172, 134 e 8 ocorrências). Escrito como `0.5`, o número lia
+    como "meio embrião" e ninguém sabia se era cota, quantidade ou preço; `50%` é como
+    o haras fala.
+
+    Multiplica direto, sem adivinhar convenção: se a planilha um dia passar a guardar
+    50 em vez de 0,5, sai "5000%" e alguém repara. Um guard "se for maior que 1 já é
+    porcentagem" esconderia a troca e só apareceria numa conta errada meses depois.
+    """
     if not c:
         return "—"
-    return f"{c:g}"
+    pct = round(c * 100, 2)
+    return f"{pct:g}".replace(".", ",") + "%"
 
 
 def garanhao_contrato(txt) -> str:
