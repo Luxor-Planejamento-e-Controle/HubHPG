@@ -112,7 +112,7 @@ POR_TIPO = {
     "garanhoes": ("estacao de monta", "GARANHOES + ESTAÇÃO",
                   "Lavados e confirmados por garanhão. Quem tem tentativa na safra e não está na aba entra pela conta da ESTAÇÃO. Desde a safra 26/27, todos os garanhões da aba são listados e os três cartões de tipo de sêmen aparecem sempre."),
     "comparativo": ("estacao de monta", "ESTAÇÃO + masters das safras antigas",
-                    "Confirmados por mês da IA nas quatro últimas safras; a meta é confirmados sobre a META TOTAL do PLANEJAMENTO."),
+                    "Confirmados por mês da IA, sem os embriões perdidos por aborto ou óbito da receptora, nas quatro últimas safras (cinco desde a 26/27); a meta é confirmados sobre a META TOTAL do PLANEJAMENTO."),
     "doadoras": ("estacao de monta", "PLANEJAMENTO + REC. EMBR.",
                  "Meta contra realizado por doadora, com as colunas lidas pelo cabeçalho. Sem coluna TIME na safra, sai um slide só."),
     "coberturas": ("coberturas de fora", "Planilha2",
