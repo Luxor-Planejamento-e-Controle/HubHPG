@@ -1911,25 +1911,46 @@ def _meta_safra(safra: str):
 
 
 COMPARATIVO_5_DESDE = "2026/2027"
+# Safra encerrada não é recalculada (decisão do Arthur, 30/09/2026): vale o número
+# que o relatório do haras apresentou, e só a safra em curso sai da planilha.
+# Recalcular o passado dava outro número a cada correção da planilha (aborto
+# lançado depois, nome unificado). Os números ficam em bases/ (fora do Git, é dado
+# do haras); sem o arquivo, as encerradas voltam a ser calculadas, com aviso.
+COMPARATIVO_FECHADO = REPO / "bases" / "comparativo_fechado.json"
+
+
+def _comparativo_fechado() -> dict:
+    if not COMPARATIVO_FECHADO.exists():
+        aviso("bases/comparativo_fechado.json não existe — safras encerradas do comparativo calculadas da planilha")
+        return {}
+    _registra("comparativo das safras encerradas", COMPARATIVO_FECHADO)
+    return json.loads(COMPARATIVO_FECHADO.read_text(encoding="utf-8")).get("safras") or {}
 
 
 def comparativo(wb, safra: str):
-    """S18 — as quatro últimas safras (cinco, da 26/27 em diante), confirmados por mês da IA, com a meta
-    atingida embaixo de cada uma. A aba COMPARATIVO da planilha está congelada em
-    20/21–23/24 e não serve; a aba ESTAÇÃO tem a safra de cada embrião."""
+    """S18 — as quatro últimas safras (cinco, da 26/27 em diante). Safra encerrada
+    vem de bases/comparativo_fechado.json; a do deck é calculada: confirmados por
+    mês da IA, com a meta atingida embaixo. A aba COMPARATIVO da planilha está
+    congelada em 20/21–23/24 e não serve; a aba ESTAÇÃO tem a safra de cada embrião."""
     ini = int(safra[:4])
     # da safra 26/27 em diante são cinco (pedido do Arthur, 30/09: a 22/23 também)
     n = 5 if safra >= COMPARATIVO_5_DESDE else 4
     safras = [f"{a}/{a + 1}" for a in range(ini - n + 1, ini + 1)]
     novas = _stats_safra_estacao(wb["ESTAÇÃO"])
+    fechadas = _comparativo_fechado()
     blocos = []
     for sf in safras:
+        curta = f"{sf[2:4]}/{sf[-2:]}"
+        f = fechadas.get(sf) if sf < safra else None
+        if f:
+            blocos.append({"rotulo": f"{curta}  ({f['emb']} emb / {f['doad']} doad)", "curta": curta,
+                           "atual": False, "total": f["total"], "meses": f["meses"], "meta": f"Meta: {f['meta']}"})
+            continue
         d = novas.get(sf) or _stats_safra_antiga(sf)
         if not d:
             continue
         meta = _meta_safra(sf)
         pct_meta = (d["conf"] / meta) if meta else META_PCT_OFICIAL.get(sf)
-        curta = f"{sf[2:4]}/{sf[-2:]}"
         blocos.append({"rotulo": f"{curta}  ({d['conf']} emb / {len(d['doad'])} doad)",
                        "curta": curta, "atual": sf == safra, "total": d["conf"],
                        "meses": [d["meses"].get(mm) for mm in MESES_ESTACAO],
@@ -1937,8 +1958,6 @@ def comparativo(wb, safra: str):
     if not blocos:
         return pend(18, "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES", "",
                     "ESTACAO DE MONTA.xlsx, aba ESTAÇÃO", "nenhuma safra encontrada na coluna ESTAÇÃO")
-    curtas = [b["curta"] for b in blocos]
-    lista = (", ".join(curtas[:-1]) + f" e {curtas[-1]}") if len(curtas) > 1 else curtas[0]
     return {"t": "comparativo", "n": 18, "titulo": "ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES",
             "sub": "",
             "meses": [ABR[mm - 1] for mm in MESES_ESTACAO], "safras": blocos}

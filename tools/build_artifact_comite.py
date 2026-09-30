@@ -42,6 +42,7 @@ DONO = {
     "inadimplência (KPI do dash)": "P&C (controle de inadimplência)",
     "conteúdo do hub (comite_conteudo)": "Haras (escrito no hub)",
     "fotos do mês": "Haras (escrito no hub)",
+    "comparativo das safras encerradas": "Haras (relatório apresentado)",
 }
 
 # O que cada fonte alimenta. Metadado estável: muda quando a origem muda.
@@ -63,6 +64,7 @@ ALIMENTA = {
     "receptoras do fechamento": "Receptoras por local",
     "conteúdo do hub (comite_conteudo)": "Exposições, manejo, pendências e comentários sem Trello",
     "fotos do mês": "Fotos e registros de manejo, por tema",
+    "comparativo das safras encerradas": "Comparativo: safras encerradas, com o número do relatório do haras",
 }
 
 
@@ -111,8 +113,8 @@ POR_TIPO = {
               "Funil da safra do mês do deck: tentativas, lavados positivos, prenhez aos 15, 30, 45 e 60 dias, abortos e confirmados."),
     "garanhoes": ("estacao de monta", "GARANHOES + ESTAÇÃO",
                   "Lavados e confirmados por garanhão. Quem tem tentativa na safra e não está na aba entra pela conta da ESTAÇÃO. Desde a safra 26/27, todos os garanhões da aba são listados e os três cartões de tipo de sêmen aparecem sempre."),
-    "comparativo": ("estacao de monta", "ESTAÇÃO + masters das safras antigas",
-                    "Confirmados por mês da IA, sem os embriões perdidos por aborto ou óbito da receptora, nas quatro últimas safras (cinco desde a 26/27); a meta é confirmados sobre a META TOTAL do PLANEJAMENTO."),
+    "comparativo": ("estacao de monta", "ESTAÇÃO",
+                    "Safra encerrada com o número do relatório do haras, fixo (bases/comparativo_fechado.json); a safra do deck é calculada: confirmados por mês da IA, sem aborto nem óbito de receptora. Cinco safras desde a 26/27."),
     "doadoras": ("estacao de monta", "PLANEJAMENTO + REC. EMBR.",
                  "Meta contra realizado por doadora, com as colunas lidas pelo cabeçalho. Sem coluna TIME na safra, sai um slide só."),
     "coberturas": ("coberturas de fora", "Planilha2",
