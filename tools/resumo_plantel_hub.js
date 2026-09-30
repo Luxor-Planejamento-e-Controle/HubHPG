@@ -29,7 +29,9 @@ if (!/^\d{4}-\d{2}$/.test(ALVO || '')) {
 function env(){
   const out = {};
   const p = path.join(RAIZ, '.env');
-  if (!fs.existsSync(p)) return out;
+  // sem .env (a Azure), as credenciais vêm só do ambiente — até 30/09/2026 esta saída
+  // devolvia vazio e o motor falhava na nuvem com "sem SUPABASE_URL"
+  if (!fs.existsSync(p)) return Object.assign(out, process.env);
   for (const l of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
     const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(l);
     if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, '');

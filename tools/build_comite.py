@@ -19,6 +19,7 @@ Uso:
 """
 import json
 import base64
+import os
 import hashlib
 import io
 import re
@@ -48,8 +49,10 @@ from PGSemanalReport import (                                    # noqa: E402
 from PGSemanalReport import _FONTES_USADAS as _FONTES_COMPARTILHADAS   # noqa: E402
 
 ROTINAS = Path(r"C:/Users/Arthur/repos/LuxorMonthlyP-CRoutines")
-# Saída do extractor: ele grava AO LADO DE SI MESMO (ver DRE_HIST, abaixo).
-DRE_DIR = ROTINAS / "DRE Data"
+# Saída do extractor: ele grava AO LADO DE SI MESMO (ver DRE_HIST, abaixo). Na Azure
+# não há este repo nem G:; o executor (tools/roda_pedido.py) baixa do Blob a cópia que
+# o próprio extractor sobe e aponta as HPG_* abaixo para ela.
+DRE_DIR = Path(os.getenv("HPG_DRE_DIR") or (ROTINAS / "DRE Data"))
 PLANTEL_DIR = ROTINAS / "PlantelHPG"
 
 # Os xlsx anuais do DRE, na pasta que o próprio LxDREdataExtractor usa como fonte
@@ -58,10 +61,10 @@ PLANTEL_DIR = ROTINAS / "PlantelHPG"
 # nada sinalizando: `pend()` só dispara quando o arquivo SOME, e a cópia velha existe.
 # `Ambiente de testes` está deprecated (26/08/2026): a Controladoria migrou para os
 # repositórios do GitHub e o que ficou lá ninguém mais atualiza.
-DRE_ANUAL_DIR = Path(
+DRE_ANUAL_DIR = Path(os.getenv("HPG_DRE_ANUAL_DIR") or (
     r"G:/Drives compartilhados/Luxor Controladoria/Relatórios Gerenciais"
     r"/RELATORIOS - OPERAÇÃO HARAS E FAZENDA PG"
-)
+))
 
 
 def _dre_anual(ano: int, entidade: str) -> Path:
@@ -1307,9 +1310,10 @@ MOV_LINHAS = [("saldo_ini", "Saldo Inicial"), ("compra", "(+) Compras"), ("produ
 # Controladoria, que é o número LIBERADO (e o que o slide da Ana reproduz na
 # vírgula: julho/26 fecha em R$ 15.970.552,61). A cascata calculada
 # (mov_cascata.parquet) somava também o Eduardo e saía do divulgado.
-MAPA_MOV_DIR = Path(r"G:\Drives compartilhados\Luxor Controladoria\Relatórios Gerenciais"
-                    r"\RELATORIOS - OPERAÇÃO HARAS E FAZENDA PG\Posição Equinos"
-                    r"\PLANTEL - Movimentações")
+MAPA_MOV_DIR = Path(os.getenv("HPG_MAPA_MOV_DIR") or (
+    r"G:\Drives compartilhados\Luxor Controladoria\Relatórios Gerenciais"
+    r"\RELATORIOS - OPERAÇÃO HARAS E FAZENDA PG\Posição Equinos"
+    r"\PLANTEL - Movimentações"))
 MOV_ROTULOS = {"SALDO INICIAL": "saldo_ini", "(+) COMPRAS": "compras",
                "(+) PRODUCAO EMBRIOES": "producao", "(-) BAIXA VENDAS": "vendas",
                "(-) BAIXA MORTES E DOACOES": "mortes", "(+/-) REAVALIACOES": "reaval",
@@ -1389,7 +1393,9 @@ def resumo_plantel_hub(ano: int, m: int) -> dict:
     cache = PLANTEL_HUB_CACHE / f"resumo_{ano}-{m:02d}.json"
     bruto = None
     try:
-        p = subprocess.run(["node", str(REPO / "tools" / "resumo_plantel_hub.js"), f"{ano}-{m:02d}"],
+        # HPG_NODE: na Azure, o node que o deploy põe no pacote (a imagem não tem)
+        p = subprocess.run([os.getenv("HPG_NODE") or "node",
+                            str(REPO / "tools" / "resumo_plantel_hub.js"), f"{ano}-{m:02d}"],
                            capture_output=True, text=True, encoding="utf-8", timeout=300)
         if p.returncode == 0 and p.stdout.strip():
             bruto = json.loads(p.stdout)
@@ -2136,7 +2142,7 @@ def slide_coberturas(safra):
 # A saída "viva" (indicadores_kpi.xlsx) é sobrescrita a cada rodada e não serve
 # pra mês fechado: regerar o deck de agosto em 18/09 trocava a posição de 31/08
 # pela de setembro. O slide só mostra agregados — nenhum nome de devedor sai daqui.
-INAD_DIR = Path(r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi")
+INAD_DIR = Path(os.getenv("HPG_INAD_DIR") or r"C:/Users/Arthur/repos/controle-de-inadimplencia/output_pbi")
 
 
 INAD_HIST = INAD_DIR / "historico"
@@ -2470,9 +2476,11 @@ FALTA_CONTEUDO = "escreva o conteúdo desse mês pelo hub (aba Comitê) ou em _d
 
 
 def _supabase_env():
+    """.env do repo primeiro; variável de ambiente depois — na Azure não há .env e as
+    App Settings chegam como variáveis (sem isto o comitê na nuvem não achava o banco)."""
     cfg = dotenv_values(REPO / ".env")
-    url = cfg.get("SUPABASE_URL", "").rstrip("/")
-    key = cfg.get("SUPABASE_SERVICE_ROLE_KEY")
+    url = (cfg.get("SUPABASE_URL") or os.getenv("SUPABASE_URL") or "").rstrip("/")
+    key = cfg.get("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     return (url, key) if url and key else (None, None)
 
 
@@ -3539,6 +3547,22 @@ def _chave_mes(k: str) -> date:
     return date(int(k[:4]), int(k[5:7]), 1)
 
 
+def _atualiza_base_bi(mes: date):
+    """O estoque do mês sai do base_bi, que sai do controle mensal do Drive. Era passo
+    manual ("rode PGDataExtractor.py + PGBaseBI.py"); com o botão do hub — na Azure, sem
+    ninguém para rodar — o mês pedido é extraído aqui e a base, reconsolidada. Mês sem
+    controle no Drive ainda: segue, e o slide do estoque sai pendente como antes."""
+    import PGBaseBI
+    import PGDataExtractor
+    from _pg_common import parse_mes_aaaa
+    try:
+        PGDataExtractor.extract_mes(parse_mes_aaaa(f"{mes.month:02d}/{mes.year}"))
+        PGBaseBI.write_outputs(PGBaseBI.build_base())
+        print(f"  [estoque] base_bi com {MESES[mes.month - 1].lower()}/{mes.year} reconsolidado")
+    except Exception as exc:
+        print(f"  [estoque] {MESES[mes.month - 1].lower()}/{mes.year} fora do base_bi: {exc!r}")
+
+
 if __name__ == "__main__":
     # Os dois pedidos do botão do hub (tools/agente_hub.py). Nenhum remonta os
     # meses anteriores — até 30/09/2026 cada clique refazia jan–ago inteiros, e
@@ -3558,6 +3582,7 @@ if __name__ == "__main__":
         print(f"  [deck] {'gerando' if '--novo' in sys.argv else 'atualizando'} "
               f"{MESES[mes.month - 1].lower()}/{mes.year}; os outros "
               f"{len(pub.get('decks', {})) - ('--novo' not in sys.argv)} mês(es) ficam como publicados")
+        _atualiza_base_bi(mes)
         build(mes, base=pub)
     elif len(sys.argv) > 1:
         try:

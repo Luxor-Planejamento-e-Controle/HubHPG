@@ -32,9 +32,11 @@ from __future__ import annotations
 import io
 import json
 import re
+import threading
 import unicodedata
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -157,8 +159,12 @@ def _baixar(svc, arq: dict, destino: Path) -> bool:
     concluido = False
     while not concluido:
         _, concluido = baixador.next_chunk()
-    destino.write_bytes(buf.getvalue())
-    os.utime(destino, (quando, quando))    # a guarda de fonte velha depende disto
+    # grava ao lado e troca de uma vez: o espelho da nuvem é reaproveitado entre
+    # pedidos, e ninguém pode abrir uma planilha pela metade
+    tmp = destino.with_name(destino.name + ".baixando")
+    tmp.write_bytes(buf.getvalue())
+    os.utime(tmp, (quando, quando))        # a guarda de fonte velha depende disto
+    os.replace(tmp, destino)
     return True
 
 
@@ -169,8 +175,9 @@ _nfc = lambda t: unicodedata.normalize("NFC", t)
 RE_ESTACAO = re.compile(r"^estação \d{4}", re.IGNORECASE)
 
 
-def _andar(svc, pasta_id: str, destino: Path, regra: dict, vistos: set, baixados: list):
-    """Desce uma pasta segundo a regra dela em ALVOS (ver lá)."""
+def _andar(svc, pasta_id: str, destino: Path, regra: dict, plano: list):
+    """Desce uma pasta segundo a regra dela em ALVOS (ver lá) e anota em `plano` o
+    que tem de estar no espelho — o download vem depois, em paralelo."""
     itens = _listar(svc, pasta_id)
     arquivos = [i for i in itens if i["mimeType"] != MIME_PASTA
                 and not i["name"].startswith("~$") and i["name"].lower().endswith(EXTENSOES)]
@@ -181,21 +188,16 @@ def _andar(svc, pasta_id: str, destino: Path, regra: dict, vistos: set, baixados
         mais_novo = max(arquivos, key=lambda a: a["modifiedTime"])
         arquivos = [a for a in arquivos if a is mais_novo or _mtime(a["modifiedTime"]) >= corte]
     for arq in arquivos:
-        alvo = destino / _nfc(arq["name"])
-        vistos.add(alvo)
-        if _baixar(svc, arq, alvo):
-            baixados.append(alvo)
+        plano.append((arq, destino / _nfc(arq["name"])))
     n = regra.get("estacoes")
     estacoes = sorted((p for p in pastas if RE_ESTACAO.match(_nfc(p["name"]))),
                       key=lambda p: _nfc(p["name"]), reverse=True)[:n] if n else []
     for p in estacoes:
-        _andar(svc, p["id"], destino / _nfc(p["name"]), {"dias": dias} if dias else {},
-               vistos, baixados)
+        _andar(svc, p["id"], destino / _nfc(p["name"]), {"dias": dias} if dias else {}, plano)
     subs = regra.get("sub", {})
     for p in pastas:
         if _nfc(p["name"]) in subs:
-            _andar(svc, p["id"], destino / _nfc(p["name"]), subs[_nfc(p["name"])],
-                   vistos, baixados)
+            _andar(svc, p["id"], destino / _nfc(p["name"]), subs[_nfc(p["name"])], plano)
 
 
 def sincronizar(destino: Path | None = None, verboso: bool = True) -> Path:
@@ -216,9 +218,23 @@ def sincronizar(destino: Path | None = None, verboso: bool = True) -> Path:
         # sem compartilhamento.
         raise RuntimeError(f"Pastas ausentes na raiz do Drive ({RAIZ_DRIVE_ID}): {faltando}. "
                            f"A credencial enxerga: {sorted(filhos)}")
-    vistos, baixados = set(), []
+    plano = []
     for nome in PASTAS:
-        _andar(svc, filhos[_nfc(nome)]["id"], destino / nome, ALVOS[nome], vistos, baixados)
+        _andar(svc, filhos[_nfc(nome)]["id"], destino / nome, ALVOS[nome], plano)
+    vistos = {alvo for _, alvo in plano}
+    # Em paralelo: na primeira execução da Azure (30/09/2026) o espelho em série levou
+    # uns 4 min dos 4,5 do pedido, quase tudo nos três mapas de vendas de 25 MB. O
+    # cliente da API não é thread-safe, então cada thread abre o seu.
+    local = threading.local()
+
+    def baixa(par):
+        if not hasattr(local, "svc"):
+            local.svc = _servico()
+        arq, alvo = par
+        return alvo if _baixar(local.svc, arq, alvo) else None
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        baixados = [a for a in ex.map(baixa, plano) if a is not None]
     # espelho: o que saiu do Drive (renomeado, apagado, estação que ficou velha) sai
     # daqui também — senão um resolvedor por mtime podia ficar com a cópia morta
     removidos = [f for f in destino.rglob("*") if f.is_file() and f not in vistos]

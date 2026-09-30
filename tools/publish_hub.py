@@ -88,6 +88,20 @@ ESTADO = [
     (ROOT / "_cache/fontes",                 "estado_fontes.zip"),
     (ROOT / "_cache/pdf",                    "estado_pdf.zip"),
 ]
+# Memória do comitê: o que o deck lê e não se refaz a cada clique — o base_bi e os
+# parquets mensais do plantel (estoque do mês), o último resumo da aba Plantel (se o
+# node falhar), as safras encerradas do comparativo e o cache do Trello. Separada da
+# lista do semanal DE PROPÓSITO: um pedido de comitê rodando junto com um de semanal
+# subiria os snapshots que restaurou no começo por cima dos que o semanal acabou de
+# gravar. O comitê restaura as duas e só publica esta.
+ESTADO_COMITE = [
+    (ROOT / "bases/base_bi.parquet",          "estado_comite_base_bi.parquet"),
+    (ROOT / "_cache/parquet",                 "estado_comite_parquet.zip"),
+    (ROOT / "_cache/plantel_hub",             "estado_comite_plantel_hub.zip"),
+    (ROOT / "bases/comparativo_fechado.json", "estado_comite_comparativo_fechado.json"),
+    (ROOT / "_cache/trello",                  "estado_comite_trello.zip"),
+]
+_ESTADOS = {"estado": ESTADO, "estado_comite": ESTADO_COMITE}
 # Quem gera cada arquivo, pra mensagem de erro apontar o build certo.
 GERADOR = {
     "semanal": "python PGSemanal.py",
@@ -144,7 +158,7 @@ def _zipa(pasta: Path) -> bytes:
     return buf.getvalue()
 
 
-def restaurar_estado() -> int:
+def restaurar_estado(comite: bool = False) -> int:
     """Baixa a memória do pipeline do bucket para o _cache local.
 
     Existe por causa da execução na nuvem: o disco da Function é descartável e os
@@ -153,7 +167,8 @@ def restaurar_estado() -> int:
     a primeira semana como se fosse a única (sem diff de saídas, sem Δ, acumulado sem
     piso). Rodar antes do fechamento, sempre."""
     url, key = env()
-    return sum(1 for origem, dest in ESTADO if baixa(url, key, dest, origem))
+    lista = ESTADO + (ESTADO_COMITE if comite else [])
+    return sum(1 for origem, dest in lista if baixa(url, key, dest, origem))
 
 
 def sobe(url, key, src: Path, dest: str, ctype: str, gerador: str = "") -> bool:
@@ -180,24 +195,26 @@ def main():
     url, key = env()
     alvos = sys.argv[1:] or PADRAO
     if alvos == ["--all"]:
-        alvos = list(DATASETS) + ["estado"]
+        alvos = list(DATASETS) + list(_ESTADOS)
 
-    desconhecido = [a for a in alvos if a not in DATASETS and a != "estado"]
+    desconhecido = [a for a in alvos if a not in DATASETS and a not in _ESTADOS]
     if desconhecido:
         sys.exit(f"Dataset não publicável: {', '.join(desconhecido)}. "
-                 f"Válidos: {', '.join(list(DATASETS) + ['estado'])}")
+                 f"Válidos: {', '.join(list(DATASETS) + list(_ESTADOS))}")
 
     falhou = []
     for nome in alvos:
-        if nome == "estado":
+        if nome in _ESTADOS:
             print("[aviso] memória do pipeline: backup do que não se reconstrói. "
                   "Só admin lê (policy hpg_estado_read).")
-            for src, dest in ESTADO:
+            for src, dest in _ESTADOS[nome]:
                 zipado = dest.endswith(".zip")
                 if zipado and not src.is_dir():
                     print(f"[skip] {src.name}/ não existe — nada a guardar")
                     continue
-                if not sobe(url, key, src, dest, "application/zip" if zipado else "application/json"):
+                tipo = ("application/zip" if zipado else "application/json"
+                        if dest.endswith(".json") else "application/octet-stream")
+                if not sobe(url, key, src, dest, tipo):
                     falhou.append(dest)
             continue
         src, dest, ctype = DATASETS[nome]

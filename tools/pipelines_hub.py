@@ -37,13 +37,14 @@ PIPELINES = {
     # O comitê tem dois pedidos (`detalhe.acao` no hub_job): atualizar o mês no ar
     # e gerar o seguinte. Nenhum remonta os outros meses — vêm do comite.json
     # publicado, como estão. Pedido sem ação (hub de antes de 30/09) é atualizar.
+    # `estado_comite` guarda o base_bi que o build reconsolidou para o mês.
     "comite": [
         ("monta o deck", [PY, "tools/build_comite.py", "--atualizar"]),
-        ("publica no bucket", [PY, "tools/publish_hub.py", "comite"]),
+        ("publica no bucket", [PY, "tools/publish_hub.py", "comite", "estado_comite"]),
     ],
     "comite:novo": [
         ("gera o mês novo", [PY, "tools/build_comite.py", "--novo"]),
-        ("publica no bucket", [PY, "tools/publish_hub.py", "comite"]),
+        ("publica no bucket", [PY, "tools/publish_hub.py", "comite", "estado_comite"]),
     ],
 }
 

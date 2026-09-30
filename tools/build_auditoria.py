@@ -104,8 +104,8 @@ FONTES = {
 SEM_CONTRAPARTE = [
     ("2 · Receptoras", "Doadoras ciclando",
      lambda s: (s.get("receptoras") or {}).get("doadoras_ciclando"),
-     "_cache/semanal_manual.json (input humano)",
-     "Égua disponível hormonalmente para doar óvulo. NÃO existe em planilha: é avaliação do veterinário. O roster e o PLANEJAMENTO da estação só têm cadastro e logística; a aba MATRIZES tem data de ovulação/coleta, que é evento passado. Preenchido à mão por semana, sem herdar a semana anterior. O relatório oficial também não publica."),
+     "hub · Editar na Atualização Semanal (tabela semanal_manual) — input humano",
+     "Égua disponível hormonalmente para doar óvulo. NÃO existe em planilha: é avaliação do veterinário. O roster e o PLANEJAMENTO da estação só têm cadastro e logística; a aba MATRIZES tem data de ovulação/coleta, que é evento passado. Salvo no hub, vale da semana em que foi salvo em diante, até alguém salvar outro. O relatório oficial também não publica."),
     ("2 · Receptoras", "Doadoras (estação)",
      lambda s: (s.get("receptoras") or {}).get("doadoras"),
      "CONTROLE_DE_PLANTEL mensal · PLANTEL",

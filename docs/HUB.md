@@ -129,6 +129,17 @@ reenfileira pedido parado e fecha como erro o que ficou preso em "rodando". A
 sexta das 09:00 só cria um pedido de semanal. Endereço e chave da rota ficam no
 Vault do Supabase (`hub_job_define_rota`, só service_role).
 
+O comitê na nuvem lê do Blob (`LuxorControlDatabase/`, pela identidade do
+Function App) o que no notebook está em outros repos: a base e os DRE anuais,
+que o `LxDREdataExtractor.py` sobe ao gravar, e a foto da carteira, que o
+`ControleInadimplencia.py` sobe. O executor baixa e aponta `HPG_DRE_DIR`,
+`HPG_DRE_ANUAL_DIR` e `HPG_INAD_DIR` para a cópia. Do bucket vem a memória do
+comitê (`estado_comite_*`: base_bi e parquets mensais, resumo da aba Plantel,
+safras encerradas, cache do Trello), que o pedido de comitê republica — e só ela,
+nunca a do semanal. O resumo do plantel roda o mesmo `tools/resumo_plantel_hub.js`
+com o node que o `deploy.yml` põe no pacote (`HPG_NODE`). Atualizar/Gerar
+reextraem o plantel do mês e reconsolidam o `base_bi` antes do deck.
+
 Conferir o caminho da nuvem sem mexer em nada: numa CÓPIA do repo,
 `python tools/roda_pedido.py <id> --nuvem --ensaio` (não toma o pedido, não
 grava status, não publica).
