@@ -1186,6 +1186,12 @@ def headcount_de(plantel_src: Path | None = None,
         local = _norm(linha["local"])
         if not local:
             continue
+        # OUTROS é o rótulo do CTE e também o destino de quem sai ("MUDOU O LOCAL
+        # PARA OUTROS"): ali só conta status PLANTEL. Validado contra as semanais
+        # divulgadas em 02/09/2026; sem isso o CTE de ago/26 saía 2 (a potra
+        # vendida pendente de saída em OUTROS entrava junto com o cavalo de pista).
+        if local == "OUTROS" and _norm(linha.get("status_plantel")) != "PLANTEL":
+            continue
         animais[local] = animais.get(local, 0) + 1
 
     # 2) receptoras: contadas da fonte de receptoras
