@@ -750,21 +750,33 @@
     return COR.cinza;
   }
 
-  /* ---------------- manejo, mês a mês ---------------- */
+  /* ---------------- manejo, mês a mês ----------------
+     Um semestre por slide, a geometria do relatório (caixa do mês, texto corrido
+     de 1066 de largura). A faixa tem a altura que o texto do mês pede, com um
+     mínimo, e o que sobra do slide é repartido entre as faixas, até um teto —
+     antes todas tinham 72,3: mês de uma linha sobrava, mês de três apertava. A
+     fonte é o maior corpo (9,5 para baixo) que faz o semestre caber. */
   L.manejo = s => {
     const P = claro(s, []);
-    const n = s.itens.length;
-    const p = passo(n, 124.2, 712, 78.8), h = p - 6.5;
+    const n = s.itens.length, Y0 = topo(s), GAP = 6.5, W = 1066.2, MIN = 52, TETO = 112;
+    const livre = 712 - Y0;
+    const pede = pt => s.itens.map(([, t]) => Math.max(MIN, linhasP(t, pt, W) * altLinha(pt) + 22));
+    const soma = hs => hs.reduce((a, b) => a + b, 0) + GAP * Math.max(0, hs.length - 1);
+    let pt = 9.5;
+    while (pt > 6.5 && soma(pede(pt)) > livre) pt -= 0.25;
+    const base = pede(pt), extra = Math.max(0, livre - soma(base)) / Math.max(n, 1);
+    const hs = base.map(h => Math.min(TETO, h + extra));
     const atual = String(s.atual || '').toUpperCase();
+    let y = Y0;
     s.itens.forEach(([m, t], i) => {
-      const y = 124.2 + i * p, eAtual = String(m || '').toUpperCase().slice(0, 3) === atual.slice(0, 3) && i === n - 1;
+      const h = Math.max(hs[i], base[i]);
+      const eAtual = String(m || '').toUpperCase().slice(0, 3) === atual.slice(0, 3) && i === n - 1;
       P.push(R(44.8, y, 92.2, h, {fill: eAtual ? COR.ouro : COR.azul}));
       P.push(T(44.8, y, 92.2, h, String(m || '').slice(0, 1).toUpperCase() + String(m || '').slice(1, 3).toLowerCase(),
         {pt: 12, b: 1, c: eAtual ? COR.navy : 'FFFFFF', al: 'c', va: 'm'}));
       P.push(R(143.4, y, 1091.8, h, {fill: eAtual ? COR.destaque : (i % 2 ? COR.zebra : 'FFFFFF'), line: 'DEDEDE'}));
-      let pt = 8.5;
-      while (pt > 6.5 && nLinhas(t, pt, 1066.2) * altLinha(pt) > h - 8) pt -= 0.25;
-      P.push(T(156.2, y + 4, 1066.2, h - 8, t, {pt, c: COR.tinta, va: 'm', wrap: 1}));
+      P.push(T(156.2, y + 4, W, h - 8, t, {pt, c: COR.tinta, va: 'm', wrap: 1}));
+      y += h + GAP;
     });
     return P;
   };
