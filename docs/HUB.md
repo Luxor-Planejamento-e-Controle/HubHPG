@@ -118,15 +118,24 @@ máquina.
 
 ```bash
 python tools/agente_hub.py            # processa a fila e sai
+python tools/agente_hub.py --loop     # fica de pé, olhando a fila a cada 5 s
 python tools/agente_hub.py --status   # só mostra a fila
 ```
 
-Agendar (a cada 10 minutos):
+Agendado em modo `--loop`, o pedido começa em até 5 s. O agendador dispara a
+cada minuto só como vigia: a tarefa não inicia segunda instância, então os
+disparos são ignorados enquanto o loop vive e, se ele cair (reboot, rede), o
+minuto seguinte o levanta.
 
+```bat
+schtasks /create /tn "HPG - Agente do hub" /sc minute /mo 1 ^
+  /tr "pythonw C:\Users\Arthur\repos\HubHPG\tools\agente_hub.py --loop"
 ```
-schtasks /create /tn "HPG - Agente do hub" /sc minute /mo 10 ^
-  /tr "pythonw C:\Users\Arthur\repos\HubHPG\tools\agente_hub.py"
-```
+
+Depois de criar, tirar o limite de duração da tarefa (`ExecutionTimeLimit =
+"PT0S"`), senão o Windows mata o loop no meio de um pedido. Mudou o
+`agente_hub.py`? Encerrar o `pythonw` do loop; o vigia sobe o código novo em
+até 1 min.
 
 O que o agente roda:
 

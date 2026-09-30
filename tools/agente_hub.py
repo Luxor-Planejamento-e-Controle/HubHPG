@@ -8,12 +8,20 @@ estado do pedido enquanto isso.
 
 Uso:
     python tools/agente_hub.py            # processa a fila e sai
+    python tools/agente_hub.py --loop     # fica de pé, olhando a fila a cada 5 s
     python tools/agente_hub.py --um       # processa só o pedido mais antigo
     python tools/agente_hub.py --status   # imprime a fila, sem executar
 
-Agendar (a cada 10 min, dia útil):
-    schtasks /create /tn "HPG - Agente do hub" /tr "pythonw C:\\...\\tools\\agente_hub.py"
-             /sc minute /mo 10
+Agendar o `--loop`, com o agendador disparando a cada minuto só como vigia:
+    schtasks /create /tn "HPG - Agente do hub" /sc minute /mo 1
+             /tr "pythonw C:\\...\\tools\\agente_hub.py --loop"
+O schtasks cria a tarefa com "não iniciar nova instância": enquanto o loop vive,
+os disparos são ignorados; se ele cair (reboot, rede), o minuto seguinte o
+levanta. Tirar o limite de duração (padrão 72 h), senão o Windows mata o loop
+no meio de um pedido — Settings.ExecutionTimeLimit = "PT0S" no Set-ScheduledTask.
+Mudou este arquivo? Encerrar o pythonw do loop; o vigia sobe o código novo.
+Antes a tarefa rodava o modo simples a cada 10 min: em 30/09/2026 a semanal
+esperou 7 min na fila para rodar em 34 s.
 
 Duas garantias que o hub sozinho não daria:
 
@@ -31,6 +39,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -64,6 +73,7 @@ PIPELINES = {
 RECUSAS = ("ABORTADO", "ATENCAO: ja existe(m) semana(s) congelada(s)")
 
 LOG_MAX = 20000     # o log vai pro banco e aparece na tela; o fim é o que importa
+POLL_S = 5          # o mesmo ritmo com que o hub relê o pedido (assets/hubjob.js)
 
 
 def env() -> tuple[str, str]:
@@ -168,9 +178,19 @@ def main():
             print(f"  #{j['id']} {j['tipo']:8} {j['status']:8} {j['pedido_em']} {j.get('pedido_por') or ''}")
         return
 
+    if "--loop" in args:
+        while True:
+            try:
+                for j in [j for j in fila(s, url) if j["status"] == "fila"]:
+                    processa(s, url, j)
+            except requests.RequestException as e:
+                # sem rede ou banco fora: o loop não cai por isso, tenta de novo
+                print(f"[loop] sem acesso ao banco: {e!r}")
+            time.sleep(POLL_S)
+
     pend = [j for j in fila(s, url) if j["status"] == "fila"]
     if not pend:
-        return                      # silencioso: roda a cada 10 min, quase sempre é isso
+        return                      # silencioso: quase sempre é isso
     if "--um" in args:
         pend = pend[:1]
     falhou = sum(0 if processa(s, url, j) else 1 for j in pend)

@@ -4,8 +4,8 @@
    O hub é site estático e o pipeline lê o Google Drive montado em G:, que só
    existe na máquina de quem fecha. Então clicar aqui NÃO executa nada: grava um
    pedido em `hub_job` e fica acompanhando. Quem executa é tools/agente_hub.py,
-   agendado nessa máquina — por isso o estado "na fila" pode durar alguns
-   minutos, e é ele que a barra mostra em vez de fingir progresso.
+   de pé nessa máquina e olhando a fila a cada 5 s — com ela desligada, o
+   pedido fica "na fila", e é isso que a barra mostra em vez de fingir progresso.
 
    Por que um arquivo só: no comitê a barra vive dentro do iframe (junto dos
    outros botões do deck) e no semanal vive na casca. Duplicar daria duas
@@ -15,9 +15,10 @@
 (function () {
   const POLL_MS = 5000;
   // Rótulo de cada estado, na voz de quem está esperando — não é o valor cru do
-  // banco. 'fila' é o estado que mais confunde: o agente pode levar minutos.
+  // banco. 'fila' é o estado que mais confunde: sem a máquina do agente ligada,
+  // o pedido não anda.
   const ESTADO = {
-    fila:    ['na fila — o agente pega em alguns minutos', 'espera'],
+    fila:    ['na fila — aguardando o agente', 'espera'],
     rodando: ['atualizando…', 'espera'],
     ok:      ['atualizado', 'ok'],
     erro:    ['falhou', 'erro'],
