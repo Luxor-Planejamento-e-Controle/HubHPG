@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import unicodedata
 import os
 import sys
@@ -50,6 +51,28 @@ RAIZ_DRIVE_ID = os.getenv("HPG_DRIVE_ROOT_ID", "1mBrSeztRwtBnMlkOMnq6aO4LQUkNjiT
 # ela resolvida, o fechamento na nuvem sairia sem produção.
 PASTAS = ("PLANTEL", "ATUALIZACAO SEMANAL", "REPRODUÇÃO", "VENDAS")
 
+# E, dentro delas, só o que o pipeline abre. As quatro pastas inteiras somam ~5,7 GB
+# (medido em 30/09/2026): PLANEJAMENTO ESTAÇÃO DE MONTA tem 2 GB, MAPAS DE VENDAS
+# 2,7 GB — um mapa de 25 MB por semana desde 2020 — e o PLANTEL guarda seis estações.
+# Espelhar tudo fazia cada clique do hub esperar meia hora por arquivo que o código
+# nunca lê. Regra por pasta:
+#   - os arquivos soltos do nível sempre descem (são as planilhas de trabalho);
+#   - "estacoes": das subpastas "Estação AAAA-AAAA", só as N mais novas. Os
+#     resolvedores varrem todas e ficam com o arquivo mais novo; a anterior entra
+#     porque a virada de estação muda a cópia de trabalho de pasta e porque os meses
+#     do ano (contagem jan–ago, o controle de cada mês) ficam nela;
+#   - "dias": dentro dessas estações, só o modificado nos últimos N dias (e sempre
+#     o mais novo) — o mapa é cumulativo, e o comitê só abre o do fechamento do mês;
+#   - "sub": subpastas nomeadas que descem, com a regra delas. Subpasta que não
+#     está aqui não desce.
+ALVOS = {
+    "PLANTEL": {"estacoes": 2},
+    "ATUALIZACAO SEMANAL": {},
+    "REPRODUÇÃO": {"sub": {"ESTAÇÃO DE MONTA": {"estacoes": 2}}},
+    "VENDAS": {"sub": {"MAPAS DE VENDAS": {"estacoes": 2, "dias": 70},
+                       "SAIDA DE ANIMAIS VENDIDOS": {}}},
+}
+
 # Só o que o pipeline sabe abrir. '~$' é lock de Excel aberto — o próprio pipeline
 # já os ignora, mas não faz sentido baixar.
 EXTENSOES = (".xlsx", ".docx")
@@ -61,33 +84,35 @@ ESCOPOS = ["https://www.googleapis.com/auth/drive.readonly"]
 
 
 def _credenciais():
-    """OAuth primeiro, service account depois.
+    """A conta de serviço do HPG; OAuth de reserva.
 
-    OAuth (refresh token de uma conta que já enxerga a pasta) é o que funciona aqui:
-    a pasta é um atalho para um Shared Drive de terceiro, e compartilhar com uma
-    service account depende de quem administra aquele drive. Com refresh token, a
-    API vê exatamente o que a pessoa vê.
+    Desde 30/09/2026 a pasta está compartilhada, como leitor, com uma conta de
+    serviço do próprio HPG (HPG_GOOGLE_SERVICE_ACCOUNT_JSON). OAuth (refresh token de
+    quem enxerga a pasta, gerado com tools/google_auth_drive.py) fica para o dia em
+    que o compartilhamento não for possível.
 
-    Service account fica como alternativa para o dia em que a pasta for compartilhada
-    com uma — aí é uma credencial a menos para renovar."""
-    cid = os.getenv("HPG_GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    seg = os.getenv("HPG_GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    ref = os.getenv("HPG_GOOGLE_OAUTH_REFRESH_TOKEN") or os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN")
+    Só nomes HPG_*. Até 30/09 caía também em GOOGLE_SERVICE_ACCOUNT_JSON, e no
+    Function App esse nome é o da conta das automações da Controladoria: a sexta na
+    nuvem usava a credencial de outro time, levava 404 na pasta do haras e morria sem
+    dizer por quê."""
+    cid = os.getenv("HPG_GOOGLE_OAUTH_CLIENT_ID")
+    seg = os.getenv("HPG_GOOGLE_OAUTH_CLIENT_SECRET")
+    ref = os.getenv("HPG_GOOGLE_OAUTH_REFRESH_TOKEN")
+    bruto = os.getenv("HPG_GOOGLE_SERVICE_ACCOUNT_JSON")
+    if bruto:
+        from google.oauth2 import service_account
+        return service_account.Credentials.from_service_account_info(
+            json.loads(bruto), scopes=ESCOPOS)
     if cid and seg and ref:
         from google.oauth2.credentials import Credentials
         return Credentials(token=None, refresh_token=ref,
                            token_uri="https://oauth2.googleapis.com/token",
                            client_id=cid, client_secret=seg, scopes=ESCOPOS)
-
-    bruto = os.getenv("HPG_GOOGLE_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if bruto:
-        from google.oauth2 import service_account
-        return service_account.Credentials.from_service_account_info(
-            json.loads(bruto), scopes=ESCOPOS)
-
-    sys.exit("Sem credencial do Drive: defina HPG_GOOGLE_OAUTH_CLIENT_ID/"
-             "_SECRET/_REFRESH_TOKEN (rode tools/google_auth_drive.py) ou "
-             "HPG_GOOGLE_SERVICE_ACCOUNT_JSON.")
+    # RuntimeError, não sys.exit: numa Function o SystemExit derruba o worker e o log
+    # só mostra "The client reset the request stream", sem este texto
+    raise RuntimeError("Sem credencial do Drive: defina HPG_GOOGLE_SERVICE_ACCOUNT_JSON "
+                       "ou HPG_GOOGLE_OAUTH_CLIENT_ID/_SECRET/_REFRESH_TOKEN "
+                       "(tools/google_auth_drive.py).")
 
 
 def _servico():
@@ -137,18 +162,40 @@ def _baixar(svc, arq: dict, destino: Path) -> bool:
     return True
 
 
-def _andar(svc, pasta_id: str, destino: Path, baixados: list, pulados: list):
-    for item in _listar(svc, pasta_id):
-        alvo = destino / item["name"]
-        if item["mimeType"] == MIME_PASTA:
-            _andar(svc, item["id"], alvo, baixados, pulados)
-            continue
-        if item["name"].startswith("~$") or not item["name"].lower().endswith(EXTENSOES):
-            continue
-        if _baixar(svc, item, alvo):
+# NFC dos dois lados: 'REPRODUÇÃO' pode vir da API decomposto (C + cedilha
+# combinante) e aí não bateria com o literal do código — nem na busca das pastas
+# nem no glob("Estação *") dos resolvedores, que compara byte a byte no Linux.
+_nfc = lambda t: unicodedata.normalize("NFC", t)
+RE_ESTACAO = re.compile(r"^estação \d{4}", re.IGNORECASE)
+
+
+def _andar(svc, pasta_id: str, destino: Path, regra: dict, vistos: set, baixados: list):
+    """Desce uma pasta segundo a regra dela em ALVOS (ver lá)."""
+    itens = _listar(svc, pasta_id)
+    arquivos = [i for i in itens if i["mimeType"] != MIME_PASTA
+                and not i["name"].startswith("~$") and i["name"].lower().endswith(EXTENSOES)]
+    pastas = [i for i in itens if i["mimeType"] == MIME_PASTA]
+    dias = regra.get("dias")
+    if dias and arquivos:
+        corte = datetime.now(timezone.utc).timestamp() - dias * 86400
+        mais_novo = max(arquivos, key=lambda a: a["modifiedTime"])
+        arquivos = [a for a in arquivos if a is mais_novo or _mtime(a["modifiedTime"]) >= corte]
+    for arq in arquivos:
+        alvo = destino / _nfc(arq["name"])
+        vistos.add(alvo)
+        if _baixar(svc, arq, alvo):
             baixados.append(alvo)
-        else:
-            pulados.append(alvo)
+    n = regra.get("estacoes")
+    estacoes = sorted((p for p in pastas if RE_ESTACAO.match(_nfc(p["name"]))),
+                      key=lambda p: _nfc(p["name"]), reverse=True)[:n] if n else []
+    for p in estacoes:
+        _andar(svc, p["id"], destino / _nfc(p["name"]), {"dias": dias} if dias else {},
+               vistos, baixados)
+    subs = regra.get("sub", {})
+    for p in pastas:
+        if _nfc(p["name"]) in subs:
+            _andar(svc, p["id"], destino / _nfc(p["name"]), subs[_nfc(p["name"])],
+                   vistos, baixados)
 
 
 def sincronizar(destino: Path | None = None, verboso: bool = True) -> Path:
@@ -160,22 +207,29 @@ def sincronizar(destino: Path | None = None, verboso: bool = True) -> Path:
     destino = Path(destino or os.getenv("HPG_DRIVE_CACHE")
                    or (Path(os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp") / "hpg-drive"))
     svc = _servico()
-    # NFC dos dois lados: 'REPRODUÇÃO' pode vir da API decomposto (C + cedilha
-    # combinante) e aí não bateria com o literal do código, abortando a sexta com
-    # "pasta ausente" para uma pasta que existe.
-    nfc = lambda t: unicodedata.normalize("NFC", t)
-    filhos = {nfc(f["name"]): f for f in _listar(svc, RAIZ_DRIVE_ID)}
-    faltando = [p for p in PASTAS if nfc(p) not in filhos]
+    filhos = {_nfc(f["name"]): f for f in _listar(svc, RAIZ_DRIVE_ID)}
+    faltando = [p for p in PASTAS if _nfc(p) not in filhos]
     if faltando:
         # não seguir com fonte pela metade: o pipeline concluiria "arquivo não existe"
-        # e cairia numa cópia antiga, que é o modo de falhar em silêncio que ele evita
-        sys.exit(f"Pastas ausentes na raiz do Drive ({RAIZ_DRIVE_ID}): {faltando}. "
-                 f"A credencial enxerga: {sorted(filhos)}")
-    baixados, pulados = [], []
+        # e cairia numa cópia antiga, que é o modo de falhar em silêncio que ele evita.
+        # Sem acesso à raiz a API devolve lista vazia, então é aqui que cai credencial
+        # sem compartilhamento.
+        raise RuntimeError(f"Pastas ausentes na raiz do Drive ({RAIZ_DRIVE_ID}): {faltando}. "
+                           f"A credencial enxerga: {sorted(filhos)}")
+    vistos, baixados = set(), []
     for nome in PASTAS:
-        _andar(svc, filhos[nfc(nome)]["id"], destino / nome, baixados, pulados)
+        _andar(svc, filhos[_nfc(nome)]["id"], destino / nome, ALVOS[nome], vistos, baixados)
+    # espelho: o que saiu do Drive (renomeado, apagado, estação que ficou velha) sai
+    # daqui também — senão um resolvedor por mtime podia ficar com a cópia morta
+    removidos = [f for f in destino.rglob("*") if f.is_file() and f not in vistos]
+    for f in removidos:
+        f.unlink()
+    for d in sorted((d for d in destino.rglob("*") if d.is_dir()), reverse=True):
+        if not any(d.iterdir()):
+            d.rmdir()
     if verboso:
-        print(f"[drive] {len(baixados)} arquivo(s) baixado(s), {len(pulados)} já em cache "
+        print(f"[drive] {len(baixados)} arquivo(s) baixado(s), "
+              f"{len(vistos) - len(baixados)} já em cache, {len(removidos)} removido(s) "
               f"-> {destino}")
         for f in baixados:
             print(f"  + {f.relative_to(destino)}")

@@ -21,10 +21,12 @@ from pathlib import Path
 import docx
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # raiz do projeto (scripts/ fica 1 nível abaixo)
-DRIVE_DOCX = Path(
-    r"G:\.shortcut-targets-by-id\1mBrSeztRwtBnMlkOMnq6aO4LQUkNjiTb"
-    r"\PLANILHAS DE CONTROLE\ATUALIZACAO SEMANAL"
-)
+# Pelo DRIVE_ROOT, que na nuvem aponta para a cópia do sync_drive. Até 30/09/2026
+# o caminho do G: estava fixo aqui, e o fechamento fora do notebook saía sem os
+# relatórios do haras — sem placar e sem o docx da semana.
+from _pg_common import DRIVE_ROOT  # noqa: E402
+
+DRIVE_DOCX = DRIVE_ROOT / "ATUALIZACAO SEMANAL"
 JSON_OUT = BASE_DIR / "bases" / "semanal_docx.json"
 
 # só os relatórios completos (não os "da movimentação de animais").

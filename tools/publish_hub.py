@@ -25,8 +25,10 @@ Uso:
     python tools/publish_hub.py estado          # backup da memória do pipeline
     python tools/publish_hub.py --all
 """
+import io
 import os
 import sys
+import zipfile
 from pathlib import Path
 
 import requests
@@ -73,6 +75,13 @@ ESTADO = [
     # input humano (doadoras ciclando): não sai de planilha nenhuma, então perder o
     # arquivo é perder o dado
     (ROOT / "_cache/semanal_manual.json",    "estado_semanal_manual.json"),
+    # Pastas vão zipadas. O arquivo das linhas das fontes (um JSON por semana) e os
+    # PDFs de embriões de cada semana, que o dashboard embute: até 30/09/2026 os dois
+    # só existiam no disco de quem fechava, e o fechamento na nuvem — disco novo a
+    # cada execução — perderia o histórico das linhas e publicaria o dashboard só com
+    # os PDFs da semana.
+    (ROOT / "_cache/fontes",                 "estado_fontes.zip"),
+    (ROOT / "_cache/pdf",                    "estado_pdf.zip"),
 ]
 # Quem gera cada arquivo, pra mensagem de erro apontar o build certo.
 GERADOR = {
@@ -98,7 +107,8 @@ def env():
 
 
 def baixa(url, key, dest: str, alvo: Path) -> bool:
-    """Traz um objeto do bucket para o disco. É a volta do `sobe`."""
+    """Traz um objeto do bucket para o disco. É a volta do `sobe`; `.zip` é pasta
+    e volta descompactado dentro de `alvo`."""
     r = requests.get(f"{url}/storage/v1/object/{BUCKET}/{dest}",
                      headers={"Authorization": f"Bearer {key}"}, timeout=180)
     if r.status_code == 404:
@@ -107,10 +117,26 @@ def baixa(url, key, dest: str, alvo: Path) -> bool:
     if r.status_code >= 300:
         print(f"[erro] {dest} -> HTTP {r.status_code}: {r.text[:300]}")
         return False
+    if dest.endswith(".zip"):
+        alvo.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            z.extractall(alvo)
+            n = len(z.namelist())
+        print(f"[ok] {BUCKET}/{dest} ({len(r.content)//1024} KB, {n} arquivo(s)) -> {alvo.name}/")
+        return True
     alvo.parent.mkdir(parents=True, exist_ok=True)
     alvo.write_bytes(r.content)
     print(f"[ok] {BUCKET}/{dest} ({len(r.content)//1024} KB) -> {alvo.name}")
     return True
+
+
+def _zipa(pasta: Path) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(pasta.rglob("*")):
+            if f.is_file():
+                z.write(f, f.relative_to(pasta).as_posix())
+    return buf.getvalue()
 
 
 def restaurar_estado() -> int:
@@ -130,7 +156,7 @@ def sobe(url, key, src: Path, dest: str, ctype: str, gerador: str = "") -> bool:
         extra = f" — rode {gerador} antes." if gerador else ""
         print(f"[skip] {src.name} não existe{extra}")
         return False
-    body = src.read_bytes()
+    body = _zipa(src) if dest.endswith(".zip") else src.read_bytes()
     r = requests.post(
         f"{url}/storage/v1/object/{BUCKET}/{dest}",
         data=body,
@@ -162,7 +188,11 @@ def main():
             print("[aviso] memória do pipeline: backup do que não se reconstrói. "
                   "Só admin lê (policy hpg_estado_read).")
             for src, dest in ESTADO:
-                if not sobe(url, key, src, dest, "application/json"):
+                zipado = dest.endswith(".zip")
+                if zipado and not src.is_dir():
+                    print(f"[skip] {src.name}/ não existe — nada a guardar")
+                    continue
+                if not sobe(url, key, src, dest, "application/zip" if zipado else "application/json"):
                     falhou.append(dest)
             continue
         src, dest, ctype = DATASETS[nome]

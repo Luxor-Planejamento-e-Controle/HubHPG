@@ -257,6 +257,9 @@ def main():
         try:
             import json
             weeks = PGSemanalDocx.build_all()
+            # na nuvem o repo chega sem bases/ (é gitignored), e este passo roda
+            # antes do cálculo, que é quem criava a pasta
+            PGSemanalDocx.JSON_OUT.parent.mkdir(parents=True, exist_ok=True)
             PGSemanalDocx.JSON_OUT.write_text(
                 json.dumps(weeks, ensure_ascii=False, indent=2), encoding="utf-8")
             _log("1/4 DOCX", f"{len(weeks)} relatórios -> {PGSemanalDocx.JSON_OUT.name}")
