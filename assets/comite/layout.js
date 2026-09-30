@@ -97,6 +97,10 @@
      pra cima, e um valor terminado em ,5 negativo saía 1 real diferente da face */
   const arred = v => Math.sign(v) * Math.round(Math.abs(v));
   const reais = v => v == null ? '—' : (v < 0 ? '-' : '') + 'R$ ' + nf(Math.abs(arred(v)), 0);
+  /* Com centavos, para onde o valor exato é o ponto. O mapa de vendas tem valor
+     quebrado — abril/26 fecha em R$ 151.106,25 —, e arredondar para o real some com
+     centavos numa tabela cuja razão de existir é conferir venda a venda. */
+  const reais2 = v => v == null ? '—' : (v < 0 ? '-' : '') + 'R$ ' + nf(Math.abs(v), 2);
   /* o sinal vem do valor, não do arredondado: variação de -133 reais é "-0k",
      como a planilha e o relatório escrevem; só o zero de verdade sai "0k" */
   const deltaK = v => {
@@ -620,7 +624,7 @@
     s.meses.forEach(m => {
       P.push(R(44.8, y, 1187.8, hb, {fill: COR.banda, line: 'D0D8E8'}));
       P.push(C(53.8, y, 172.8, hb, m.mes, {pt: 9 * esc, b: 1, c: COR.navy, va: 'm'}));
-      P.push(C(803.8, y, 204.8, hb, 'Total: ' + milK(m.total), {pt: 9 * esc, b: 1, c: COR.navy, al: 'r', va: 'm'}));
+      P.push(C(803.8, y, 204.8, hb, 'Total: ' + reais2(m.total), {pt: 9 * esc, b: 1, c: COR.navy, al: 'r', va: 'm'}));
       const bh = Math.min(17.9, hb * 0.64), by = y + (hb - bh) / 2;
       P.push(R(1011.2, by, 211.2, bh, {fill: COR.trilho}));
       P.push(R(1011.2, by, Math.max(1, 211.2 * m.total / max), bh, {fill: COR.azul}));
@@ -628,7 +632,7 @@
       m.eventos.forEach(([ev, v]) => {
         P.push(R(44.8, y, 1187.8, he, {fill: 'FFFFFF', line: 'EEEEEE'}));
         P.push(C(230.4, y, 569.6, he, ev, {pt: 8.5 * esc, c: COR.cinza, va: 'm'}));
-        P.push(C(803.8, y, 204.8, he, milK(v), {pt: 8.5 * esc, c: COR.tinta, al: 'r', va: 'm'}));
+        P.push(C(803.8, y, 204.8, he, reais2(v), {pt: 8.5 * esc, c: COR.tinta, al: 'r', va: 'm'}));
         y += he;
       });
     });
