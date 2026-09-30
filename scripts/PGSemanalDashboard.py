@@ -220,6 +220,40 @@ const KEY_OV="hpg_semanal_overrides_v1", KEY_WK="hpg_semanal_semana_v1"; // NUNC
 function loadState(k){ try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;} }
 function saveState(k,v){ localStorage.setItem(k,JSON.stringify(v)); }
 let overrides = loadState(KEY_OV) || {};
+
+/* Dado manual (doadoras ciclando): tabela semanal_manual do hub, uma linha por
+   semana em que alguém salvou, e vale o último salvo até a semana escolhida — a
+   mesma regra que o pipeline congela no snapshot. Até 30/09/2026 isto era
+   override do localStorage chaveado por semana: a semana seguinte abria vazia e
+   ninguém mais via o número. Fora do hub (arquivo aberto direto) não há banco:
+   vale o snapshot, e a edição volta a ser só do navegador. */
+const HUBSB=(()=>{ try{ return (window.parent.HUB&&window.parent.HUB.sb)||null; }catch(e){ return null; } })();
+let MANUAIS=[], BANCO_OK=false;              // [{semana,campo,valor}] em ordem de semana
+function manualVigente(campo){
+  let v; for(const x of MANUAIS) if(x.campo===campo && x.semana<=semana) v=x;
+  return v;                                  // undefined = nada salvo até esta semana
+}
+// só depois de ler a tabela: sem ela (banco fora, sem acesso) a edição segue local
+const noBanco=k=>!!(k&&k.campo&&BANCO_OK);
+async function carregaManuais(){
+  if(!HUBSB) return;
+  const {data,error}=await HUBSB.from("semanal_manual").select("semana,campo,valor").order("semana");
+  if(!error&&data){ MANUAIS=data; BANCO_OK=true; render(); }
+}
+async function salvaManual(k,val){
+  const linha={semana,campo:k.campo,valor:val===""?null:val};
+  const {error}=await HUBSB.from("semanal_manual").upsert(linha,{onConflict:"semana,campo"});
+  if(error){ alert("Não deu pra salvar "+k.l+": "+error.message); return render(); }
+  MANUAIS=MANUAIS.filter(x=>!(x.semana===semana&&x.campo===k.campo)).concat([linha])
+    .sort((a,b)=>a.semana<b.semana?-1:1);
+  render();
+}
+async function apagaManual(k){
+  const {error}=await HUBSB.from("semanal_manual").delete().eq("semana",semana).eq("campo",k.campo);
+  if(error){ alert("Não deu pra apagar "+k.l+": "+error.message); return; }
+  MANUAIS=MANUAIS.filter(x=>!(x.semana===semana&&x.campo===k.campo));
+  render();
+}
 const IDS = CAL.map(w=>w.id);
 const LATEST = CAL.length? CAL[CAL.length-1].id : null;
 let semana = loadState(KEY_WK) || DATA.semana_atual || LATEST;
@@ -285,9 +319,8 @@ const SECTIONS = [
     {p:"rec.doa", l:"Doadoras (estação)", get:s=>s.receptoras?.doadoras},
     // ciclando fica ao lado de doadoras: as duas contam a mesma égua, uma no
     // cadastro e outra no estado reprodutivo. Sem fonte em planilha — avaliação do
-    // veterinário, em _cache/semanal_manual.json (override do navegador não entra
-    // no snapshot).
-    {p:"rec.cic", l:"Doadoras ciclando", manual:true,
+    // veterinário, salva pelo Editar na tabela semanal_manual (ver MANUAIS).
+    {p:"rec.cic", l:"Doadoras ciclando", manual:true, campo:"doadoras_ciclando",
      get:s=>s.receptoras?.doadoras_ciclando},
     {p:"rec.idx", l:"Índice eficiência (vazias/doadoras)"},  // derivado: vazias ÷ doadoras
  ]},
@@ -340,6 +373,7 @@ const SECTIONS = [
 
 function rawVal(k){
   if(k.delta) return deltaTxt(snap());
+  if(noBanco(k)){ const m=manualVigente(k.campo); if(m) return m.valor; }
   if(k.p==="rec.idx"){                                   // derivado: vazias ÷ doadoras (usa manuais)
     const vaz=Number(effVal("rec.vaz")), doa=Number(effVal("rec.doa"));
     return (doa && !isNaN(vaz))? Math.round(vaz/doa*10)/10 : null;
@@ -347,7 +381,7 @@ function rawVal(k){
   return g(k.get);
 }
 function fmtVal(k){
-  if(hasOv(k.p)) return getOv(k.p);
+  if(hasOv(k.p) && !noBanco(k)) return getOv(k.p);   // override antigo não esconde o salvo
   const v=rawVal(k);
   if(k.delta) return v==null?"--":v;   // já vem com HTML
   return (v===null||v===undefined||v==="")?"--":v;
@@ -414,12 +448,13 @@ function render(){
     // KPI com skip() só aparece nas semanas em que faz sentido (ex.: a safra que
     // começa, que não existia nas semanas congeladas antes da transição)
     const kpis=sec.kpis.filter(k=>!(k.skip && k.skip(snap()))).map(k=>{
-      const edited=hasOv(k.p);
+      // no banco, "editado" é ter linha NESTA semana — é o que o reset apaga
+      const edited=noBanco(k)? MANUAIS.some(x=>x.campo===k.campo&&x.semana===semana) : hasOv(k.p);
       // borda pontilhada (.kpi.manual, CSS) já basta pra marcar dado manual —
       // a tag "manual" no canto virou redundância visual, tirada em 31/08/2026
       const cls="kpi"+(edited?" edited":"")+(editMode?" editing":"")+(k.manual?" manual":"");
       const lb = (typeof k.l==="function") ? k.l(snap()) : k.l;   // safra vem do dado
-      return `<div class="${cls}" title="${k.manual?"dado manual — preencher toda semana (Alexandre / grupo)":""}"><div class="lab">${lb}</div>
+      return `<div class="${cls}" title="${k.manual?"dado manual — vale o último salvo, até salvarem outro":""}"><div class="lab">${lb}</div>
         <div class="val" contenteditable="${editMode && !k.html}" data-path="${k.p}">${fmtVal(k)}</div>
         <span class="rst" data-path="${k.p}">reset</span></div>`;
     }).join("");
@@ -439,11 +474,18 @@ function render(){
         const p=e.target.dataset.path, txt=e.target.textContent.trim();
         const k=findK(p); let seed=k&&!k.delta?rawVal(k):null;
         let val=txt==="--"?"":txt; if(val!=="" && !isNaN(val)) val=Number(val);
+        if(noBanco(k)){
+          if(String(val)===String(seed==null?"":seed)) return render();
+          if(val!=="" && typeof val!=="number"){ alert(k.l+" é um número."); return render(); }
+          return salvaManual(k,val);
+        }
         if(String(val)===String(seed==null?"":seed)) delOv(p); else setOv(p,val);
         render();
       });
     });
     document.querySelectorAll(".rst").forEach(b=>b.addEventListener("click",e=>{
+      const k=findK(e.target.dataset.path);
+      if(noBanco(k)) return apagaManual(k);
       delOv(e.target.dataset.path); render();
     }));
   }
@@ -648,6 +690,7 @@ exportador("btnImg","png",c=>new Promise(r=>c.cv.toBlob(r,"image/png")));
 exportador("btnPdf","pdf",c=>pdfDoCanvas(c.cv,c.largura,c.altura));
 
 render();
+carregaManuais();
 </script>
 </body></html>
 """

@@ -61,11 +61,26 @@ PIPELINES = {
         ("monta a auditoria", [PY, "tools/build_auditoria.py"]),
         ("publica no bucket", [PY, "tools/publish_hub.py", "semanal", "auditoria", "estado"]),
     ],
+    # O comitê tem dois pedidos (`detalhe.acao` no hub_job): atualizar o mês no ar
+    # e gerar o seguinte. Nenhum remonta os outros meses — vêm do comite.json
+    # publicado, como estão. Pedido sem ação (hub de antes de 30/09) é atualizar.
     "comite": [
-        ("monta o deck", [PY, "tools/build_comite.py"]),
+        ("monta o deck", [PY, "tools/build_comite.py", "--atualizar"]),
+        ("publica no bucket", [PY, "tools/publish_hub.py", "comite"]),
+    ],
+    "comite:novo": [
+        ("gera o mês novo", [PY, "tools/build_comite.py", "--novo"]),
         ("publica no bucket", [PY, "tools/publish_hub.py", "comite"]),
     ],
 }
+
+
+def pipeline_de(job: dict):
+    """A sequência do pedido. A ação vem do hub, mas só escolhe entre as chaves
+    acima: nenhum texto do pedido chega à linha de comando."""
+    acao = (job.get("detalhe") or {}).get("acao")
+    chave = job["tipo"] if acao in (None, "atualizar") else f"{job['tipo']}:{acao}"
+    return PIPELINES.get(chave)
 
 # O script sai com código 0 mesmo quando se recusa a rodar (fonte velha, semana
 # posterior já congelada). Recusa não é sucesso: o hub tem de mostrar em
@@ -146,6 +161,11 @@ def roda(passos, prefixo: str = "") -> tuple[bool, str]:
 def processa(s, url, job: dict) -> bool:
     jid, tipo = job["id"], job["tipo"]
     print(f"[job {jid}] {tipo} — pedido por {job.get('pedido_por') or '?'}")
+    passos = pipeline_de(job)
+    if not passos:
+        atualiza(s, url, jid, status="erro", terminado_em=agora(),
+                 log=f"pedido que o agente não conhece: {tipo} {job.get('detalhe') or ''}")
+        return False
     atualiza(s, url, jid, status="rodando", iniciado_em=agora())
 
     prefixo = ""
@@ -155,7 +175,7 @@ def processa(s, url, job: dict) -> bool:
                   for m in meses_com_conteudo(s, url)]
         prefixo = "\n".join(linhas)
 
-    ok, log = roda(PIPELINES[tipo], prefixo)
+    ok, log = roda(passos, prefixo)
     atualiza(s, url, jid, status="ok" if ok else "erro", terminado_em=agora(),
              log=log[-LOG_MAX:])
     print(f"[job {jid}] {'ok' if ok else 'ERRO'}")

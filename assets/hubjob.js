@@ -49,40 +49,57 @@
     return (data && data[0]) || null;
   }
 
-  async function pedir(tipo) {
+  // `detalhe` escolhe entre os pedidos do mesmo painel (o comitê tem dois); o
+  // agente só aceita as ações que conhece.
+  async function pedir(tipo, detalhe) {
     const c = sb();
     if (!c) throw new Error('sem sessão do hub');
     // status/pedido_por são postos por trigger — mandar daqui não adiantaria
-    const { error } = await c.from('hub_job').insert({tipo});
+    const { error } = await c.from('hub_job').insert(detalhe ? {tipo, detalhe} : {tipo});
     if (error) throw error;
   }
 
-  /* Monta a barra em `el`. Devolve um objeto com destroy(), pra quem troca de
-     aba não deixar timer rodando em painel que saiu da tela. */
+  /* Monta a barra em `el`. `opcoes.acoes` troca o botão único por um por ação —
+     {rotulo, detalhe, bloqueio}; `bloqueio` é o motivo de o botão estar apagado.
+     As ações dividem o estado: o banco aceita um pedido ativo por tipo.
+     Devolve um objeto com destroy(), pra quem troca de aba não deixar timer
+     rodando em painel que saiu da tela. */
   function barra(el, tipo, opcoes) {
     const o = opcoes || {};
+    const acoes = o.acoes || [{rotulo: 'Atualizar dados'}];
     const raiz = document.createElement('div');
     raiz.className = 'hj-barra';
     raiz.innerHTML = `
-      <button type="button" class="hj-btn">Atualizar dados</button>
       <span class="hj-estado"></span>
       <button type="button" class="hj-log" hidden>ver o que aconteceu</button>
       ${o.extra || ''}`;
+    const btns = acoes.map((a, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'hj-btn' + (i ? ' sec' : '');
+      b.textContent = a.rotulo;
+      return b;
+    });
+    raiz.prepend(...btns);
     el.appendChild(raiz);
 
-    const btn = raiz.querySelector('.hj-btn');
     const est = raiz.querySelector('.hj-estado');
     const verLog = raiz.querySelector('.hj-log');
     let timer = null, job = null;
 
+    const libera = ativo => btns.forEach((b, i) => {
+      b.disabled = ativo || !!acoes[i].bloqueio;
+      b.title = acoes[i].bloqueio || '';
+    });
+
     const pinta = () => {
-      if (!job) { est.textContent = ''; est.className = 'hj-estado'; verLog.hidden = true; btn.disabled = false; return; }
+      if (!job) { est.textContent = ''; est.className = 'hj-estado'; verLog.hidden = true; libera(false); return; }
       const [txt, cls] = ESTADO[job.status] || ['', ''];
       const quando = job.terminado_em || job.pedido_em;
       est.textContent = txt + (job.status === 'ok' && quando ? ` ${quandoTxt(quando)}` : '');
       est.className = 'hj-estado ' + cls;
       verLog.hidden = !(job.log && job.status === 'erro');
-      btn.disabled = job.status === 'fila' || job.status === 'rodando';
+      libera(job.status === 'fila' || job.status === 'rodando');
     };
 
     const olha = async () => {
@@ -96,17 +113,17 @@
       if (antes && antes !== job.status && job.status === 'ok' && o.aoTerminar) o.aoTerminar(job);
     };
 
-    btn.onclick = async () => {
-      btn.disabled = true;
+    btns.forEach((b, i) => b.onclick = async () => {
+      libera(true);
       est.textContent = 'pedindo…'; est.className = 'hj-estado espera';
-      try { await pedir(tipo); } catch (e) {
+      try { await pedir(tipo, acoes[i].detalhe); } catch (e) {
         est.textContent = 'não deu pra pedir: ' + (e.message || e);
         est.className = 'hj-estado erro';
-        btn.disabled = false;
+        libera(false);
         return;
       }
       olha();
-    };
+    });
     verLog.onclick = () => { if (job && job.log) alert(job.log.slice(-4000)); };
 
     olha();

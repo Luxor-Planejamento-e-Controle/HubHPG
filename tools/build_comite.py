@@ -363,24 +363,38 @@ def le_historico():
 
 
 def meses_fechados(cc="HPG", modelo="Competência", ano=2026):
-    """Mês só entra no deck quando ACABOU e tem realizado lançado.
+    """Mês só tem DRE no deck quando ACABOU, tem realizado lançado e a base foi
+    extraída DEPOIS do fim dele.
 
-    Duas condições, e a primeira não era necessária até 26/08/2026. O
+    A primeira condição não era necessária até 26/08/2026. O
     `_rebuild.py` corta o mês corrente (`r["data"] <= cutoff`); o `rebuild_all()`
     do próprio extractor, não — e é ele que precisa ser usado, porque o
     `_rebuild.py` só escreve a Base DRE. Resultado: rodar o rebuild no dia 26
     trouxe agosto com 26 dias de lançamento, e o deck padrão virou um mês pela
     metade. Mês corrente parece fechado porque tem realizado; só a data diz que
-    não está."""
+    não está.
+
+    A terceira veio em 30/09/2026: a base de 25/09 trazia R$ 1,2 mil de setembro
+    (lançamento adiantado, contra R$ 7,5 mi de agosto), e a partir de 01/10 só o
+    calendário deixaria setembro entrar com o DRE quase vazio. Base extraída antes
+    de o mês acabar não tem como conter o fechamento dele."""
     h = le_historico()
     if not h:
         return []
     hoje = datetime.now()
     limite = 12 if ano < hoje.year else hoje.month - 1   # ano futuro não chega aqui
+    base = _quando(DRE_HIST).date()
+    fim = lambda mm: _mes_seguinte(date(ano, mm, 1)) - timedelta(days=1)
     g = h["geral"]
     g = g[(g["Centro de Custo"] == cc) & (g["Modelo"] == modelo) & (g["ano"] == ano)]
     lancados = g.groupby("mes")["Realizado"].apply(lambda x: x.abs().sum())
-    return sorted(int(m) for m, s in lancados.items() if s and int(m) <= limite)
+    return sorted(int(m) for m, s in lancados.items()
+                  if s and int(m) <= limite and fim(int(m)) < base)
+
+
+def _mes_seguinte(d: date) -> date:
+    """Primeiro dia do mês depois do de `d`."""
+    return date(d.year + (d.month == 12), d.month % 12 + 1, 1)
 
 
 def pct(orc, real):
@@ -3336,7 +3350,14 @@ def monta_deck(m, ano, ctx):
     # extenso no Caixa e na Casa ("JULHO/26"). É o título que o haras conhece.
     mesano, mesano_ext = f"{ABR[m-1].upper()}/{yy}", f"{MES}/{yy}"
 
+    # Mês gerado antes de a controladoria fechar: o financeiro fica pendente em
+    # vez de mostrar o pouco que já foi lançado como se fosse o mês inteiro.
+    # "Atualizar" depois do fechamento (e do extractor) preenche.
+    fechado = m in ctx["meses_dre"]
+
     def dre(n, titulo, sub, linhas, layout):
+        if not fechado:
+            return pend(n, titulo, sub, "DRE_Historico.xlsx", "o DRE do mês ainda não fechou")
         if not linhas:
             return pend(n, titulo, sub, "DRE_Historico.xlsx", "sem linha para esse recorte no histórico")
         return {"t": "dre", "n": n, "titulo": titulo, "sub": sub, "layout": layout, "linhas": linhas}
@@ -3350,7 +3371,7 @@ def monta_deck(m, ano, ctx):
                        "",
                        linhas_face(face_comp, gab_resumo), "resumo"))
     for n, tema, titulo in ((5, "custos", "ANÁLISE DE CUSTOS"), (6, "despesas", "ANÁLISE DE DESPESAS")):
-        pags = paginas_analise(ano, m, tema)
+        pags = paginas_analise(ano, m, tema) if fechado else [None]
         for k, linhas in enumerate(pags, 1):
             parte = f"Parte {k} de {len(pags)}" if len(pags) > 1 else ""
             s += so_mensal(dre(n, f"{titulo} — {MES} {ano}",
@@ -3372,7 +3393,7 @@ def monta_deck(m, ano, ctx):
     # por variação de R$ 2 mil), sobre o YTD
     if (ano, m) >= ANALISE_DINAMICA_DESDE:
         for tema, titulo in (("custos", "ANÁLISE DE CUSTOS"), ("despesas", "ANÁLISE DE DESPESAS")):
-            pags = paginas_analise(ano, m, tema, ytd=True)
+            pags = paginas_analise(ano, m, tema, ytd=True) if fechado else [None]
             for k, linhas in enumerate(pags, 1):
                 x = dre(7, f"{titulo} — ACUMULADO JAN–{ABR[m-1].upper()} {ano} (YTD)",
                         f"Parte {k} de {len(pags)}" if len(pags) > 1 else "", linhas, "analise")
@@ -3380,7 +3401,10 @@ def monta_deck(m, ano, ctx):
                     x["cab"] = ["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"]
                 s.append(x)
     s += slides_comentarios(cont, m, ano)
-    s += slides_investimentos(m, ano)
+    # a aba Investimentos é do mesmo DRE anual e se preenche no mesmo fechamento
+    s += (slides_investimentos(m, ano) if fechado else
+          [pend(9, f"INVESTIMENTOS — COMENTÁRIOS {ano}", "", DRE_HARAS.name,
+                "o DRE do mês ainda não fechou")])
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
                        "",
@@ -3439,7 +3463,9 @@ def _versiona_assets():
         print(f"  [cache] assets do deck versionados: v={v}")
 
 
-def build(so_mes=None):
+def build(so_mes=None, base=None):
+    """Monta o deck. `base` é o comite.json publicado: com ela, só `so_mes` se
+    remonta e os outros meses seguem exatamente como estão no ar."""
     ano = so_mes.year if so_mes else 2026
     ctx = {}
     if _dre_hist() is None:
@@ -3451,6 +3477,7 @@ def build(so_mes=None):
         if meses:
             print(f"  [dre] meses fechados em {ano}: "
                   f"{', '.join(ABR[x-1] for x in meses)}")
+    ctx["meses_dre"] = set(meses)
     if not meses:
         meses = [so_mes.month] if so_mes else [date.today().month]
         aviso("nenhum mês com realizado no DRE — deck sai só com as bases não-financeiras")
@@ -3464,6 +3491,8 @@ def build(so_mes=None):
     decks = {}
     for m in alvo:
         decks[f"{ano}-{m:02d}"] = monta_deck(m, ano, ctx)
+    if base:
+        decks = {**base.get("decks", {}), **decks}
 
     chaves = sorted(decks)
     # As fontes que os resolvedores compartilhados registram (roster, receptoras,
@@ -3494,8 +3523,43 @@ def build(so_mes=None):
           f"({n - p} com conteúdo, {p} pendentes) · {len(js)//1024} KB -> assets/comite/spec.js")
 
 
+def _deck_publicado() -> dict:
+    """O comite.json que está no bucket — de onde saem os meses que não se remontam
+    e qual é o mês no ar."""
+    url, key = _supabase_env()
+    if not url:
+        sys.exit("sem SUPABASE_URL/SERVICE_ROLE no .env — não dá pra ler o deck publicado")
+    r = requests.get(f"{url}/storage/v1/object/hpg-data/comite.json",
+                     headers={"Authorization": f"Bearer {key}"}, timeout=180)
+    r.raise_for_status()
+    return r.json()
+
+
+def _chave_mes(k: str) -> date:
+    return date(int(k[:4]), int(k[5:7]), 1)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
+    # Os dois pedidos do botão do hub (tools/agente_hub.py). Nenhum remonta os
+    # meses anteriores — até 30/09/2026 cada clique refazia jan–ago inteiros, e
+    # mês fechado não se regera.
+    #   --atualizar  remonta o mês no ar (o `padrao` do deck publicado)
+    #   --novo       gera o mês seguinte a ele, que vira o padrão
+    if "--atualizar" in sys.argv or "--novo" in sys.argv:
+        pub = _deck_publicado()
+        mes = _chave_mes(pub["padrao"])
+        if "--novo" in sys.argv:
+            mes = _mes_seguinte(mes)
+            libera = _mes_seguinte(mes)
+            if date.today() < libera:
+                print(f"ABORTADO: {MESES[mes.month - 1].lower()}/{mes.year} ainda não acabou — "
+                      f"só pode ser gerado a partir de {libera:%d/%m/%Y}.")
+                sys.exit(0)
+        print(f"  [deck] {'gerando' if '--novo' in sys.argv else 'atualizando'} "
+              f"{MESES[mes.month - 1].lower()}/{mes.year}; os outros "
+              f"{len(pub.get('decks', {})) - ('--novo' not in sys.argv)} mês(es) ficam como publicados")
+        build(mes, base=pub)
+    elif len(sys.argv) > 1:
         try:
             mm, aaaa = sys.argv[1].split("/")
             build(date(int(aaaa), int(mm), 1))

@@ -1204,13 +1204,29 @@ document.getElementById('versoes').onclick = abreVersoes;
 
 /* Barra de atualizar: só pra quem edita o comitê — quem só assiste não dispara
    pipeline. Ao terminar, recarrega o spec do bucket em vez de mandar o usuário
-   apertar F5: o deck inteiro é montado a partir dele. */
+   apertar F5: o deck inteiro é montado a partir dele.
+   Dois pedidos, e nenhum remonta os outros meses: atualizar o mês no ar
+   (SPEC.padrao) e gerar o seguinte, que só se gera depois de acabar. Quem decide
+   o mês é o agente, pelo comite.json publicado — que é este SPEC; aqui só se dá
+   nome ao botão. */
 function montaBarraJob(){
   if (!window.HubJob || !souEditor) return;
   const slot = document.getElementById('barraJob');
   if (!slot || slot.dataset.pronto) return;
   slot.dataset.pronto = '1';
-  window.HubJob.barra(slot, 'comite', {aoTerminar: () => location.reload()});
+  const [ano, mes] = SPEC.padrao.split('-').map(Number);
+  const nome = (a, m) => new Date(a, m - 1, 1).toLocaleDateString('pt-BR', {month: 'long'});
+  const prox = mes === 12 ? [ano + 1, 1] : [ano, mes + 1];
+  const libera = new Date(prox[0], prox[1], 1);     // 1º dia depois do mês novo
+  window.HubJob.barra(slot, 'comite', {
+    acoes: [
+      {rotulo: `Atualizar ${nome(ano, mes)}`, detalhe: {acao: 'atualizar'}},
+      {rotulo: `Gerar ${nome(...prox)}`, detalhe: {acao: 'novo'},
+       bloqueio: new Date() < libera
+         ? `${nome(...prox)} só pode ser gerado a partir de ${libera.toLocaleDateString('pt-BR')}` : ''},
+    ],
+    aoTerminar: () => location.reload(),
+  });
 }
 
 document.getElementById('pdf').onclick = exportarPdf;

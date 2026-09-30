@@ -141,8 +141,15 @@ O que o agente roda:
 
 | pedido | sequência |
 |---|---|
-| `semanal` | `PGSemanal.py --no-open` → `tools/build_semanal.py` → `tools/publish_hub.py semanal` |
-| `comite` | crava versão de cada mês → `tools/build_comite.py` → `tools/publish_hub.py comite` |
+| `semanal` | `PGSemanal.py --no-open` → `tools/build_semanal.py` → `tools/build_auditoria.py` → `tools/publish_hub.py semanal auditoria estado` |
+| `comite` — botão **Atualizar ‹mês›** | crava versão de cada mês → `tools/build_comite.py --atualizar` → `tools/publish_hub.py comite` |
+| `comite` + `detalhe.acao = novo` — botão **Gerar ‹mês seguinte›** | crava versão de cada mês → `tools/build_comite.py --novo` → `tools/publish_hub.py comite` |
+
+Os dois pedidos do comitê remontam **um** mês só e mesclam com o `comite.json`
+publicado — os outros meses ficam exatamente como estão no ar. Atualizar remonta
+o mês padrão do deck; Gerar cria o seguinte (que vira o padrão) e recusa enquanto
+ele não acabou. Mês sem DRE fechado sai com os slides financeiros pendentes; o
+Atualizar depois do fechamento (e do extractor do DRE) os preenche.
 
 Duas garantias que o botão sozinho não daria:
 

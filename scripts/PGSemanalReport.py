@@ -2893,17 +2893,16 @@ def _limpa_socio(v) -> str | None:
 # CARVALHO'). Fora do PLANTEL_LAYOUT_MENSAL de proposito — só as parições usam.
 COL_MENSAL_NOME_SOCIO = 17
 
-# Dado que NENHUMA planilha tem e que muda toda semana. Fica versionado, por
-# semana, para congelar no snapshot e aparecer na auditoria como o que é: input
-# humano. Não usar os overrides do dashboard para isto — eles vivem no localStorage
-# de um navegador só.
+# Dado que NENHUMA planilha tem. Entra no snapshot e aparece na auditoria como o
+# que é: input humano. O doadoras_ciclando mora desde 30/09/2026 na tabela
+# semanal_manual do Supabase, que o dashboard do hub grava; este arquivo segue
+# com o confirmado_placeholder e como reserva do ciclando se o banco não responder.
 MANUAL = BASE_DIR / "_cache" / "semanal_manual.json"
 
 
 def _manual(semana: str) -> dict:
-    """Campos manuais da semana. Semana sem entrada devolve {} — e o campo fica
-    vazio no dashboard, nunca herdado da semana anterior: 'ciclando' de outra semana
-    é um número errado com cara de certo."""
+    """Campos manuais só da semana, sem herdar: o confirmado_placeholder, e o
+    doadoras_ciclando quando o banco não responde (ver _manual_vigente)."""
     if not MANUAL.exists():
         return {}
     try:
@@ -3220,18 +3219,50 @@ def _registra_caminhos(rep: Report):
     rep.fontes_fora_de_lugar = sorted(FONTES_FORA_DE_LUGAR)
 
 
-def _aplica_manual(rep: Report):
-    """Traz os campos manuais da semana para o relatório.
+def _manual_vigente(semana: str, campo: str):
+    """(valor, semana em que foi salvo) do campo manual que vale em `semana`.
 
-    Roda depois de a semana estar definida, porque o arquivo é indexado por semana —
-    e de propósito NÃO cai para a semana anterior quando falta: número de outra
-    semana passaria por atual sem ninguém notar."""
-    m = _manual(rep.semana_atual)
-    ciclando = m.get("doadoras_ciclando")
+    Vale o último salvo até ela. Até 30/09/2026 era por semana, sem herdar: a
+    edição do dashboard ficava no localStorage de um navegador, a semana seguinte
+    abria vazia e o pipeline nunca via o número. O Arthur decidiu que o dado se
+    mantém e só muda quando alguém salva outro. Fonte: tabela semanal_manual do
+    Supabase, gravada pelo dashboard do hub.
+
+    Sem banco, o JSON local vale só para a própria semana, como antes: herdar dele
+    ressuscitaria o 10 de 21/08/2026, que ninguém confirmou nas semanas seguintes
+    (todas publicadas vazias)."""
+    import os
+    import requests
+    from dotenv import dotenv_values
+    cfg = dotenv_values(BASE_DIR / ".env")
+    url = (cfg.get("SUPABASE_URL") or os.getenv("SUPABASE_URL") or "").rstrip("/")
+    key = cfg.get("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if url and key:
+        try:
+            r = requests.get(f"{url}/rest/v1/semanal_manual",
+                             params={"select": "semana,valor", "campo": f"eq.{campo}",
+                                     "semana": f"lte.{semana}", "order": "semana"},
+                             headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=20)
+            r.raise_for_status()
+            linhas = r.json()
+            return (linhas[-1]["valor"], linhas[-1]["semana"]) if linhas else (None, None)
+        except Exception as exc:
+            motivo = getattr(getattr(exc, "response", None), "status_code", None) or type(exc).__name__
+            print(f"  [manual] semanal_manual do Supabase não respondeu ({motivo}) — "
+                  f"usando só a semana no {MANUAL.name}")
+    v = _manual(semana).get(campo)
+    return v, (semana if v is not None else None)
+
+
+def _aplica_manual(rep: Report):
+    """Traz os campos manuais da semana para o relatório (ver _manual_vigente)."""
+    ciclando, desde = _manual_vigente(rep.semana_atual, "doadoras_ciclando")
     rep.receptoras["doadoras_ciclando"] = ciclando
     if ciclando is None:
-        print(f"  [manual] doadoras ciclando não preenchida para {rep.semana_atual} "
-              f"— escreva em {MANUAL.name}; o card fica vazio")
+        print(f"  [manual] doadoras ciclando vazia em {rep.semana_atual} — preencher no "
+              f"dashboard do hub (Editar); vale daquela semana em diante")
+    elif desde != rep.semana_atual:
+        print(f"  [manual] doadoras ciclando = {ciclando}, salvo em {desde}")
 
 
 def _conferir_delta(rep: Report):
