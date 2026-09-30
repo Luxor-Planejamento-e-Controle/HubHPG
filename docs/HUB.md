@@ -111,10 +111,30 @@ embutida; é o molde das próximas.
 
 ## Atualizar os dados pelo hub (botão + agente)
 
-O pipeline lê as planilhas do Google Drive montado em `G:`, que só existe na
-máquina de quem fecha. Então o botão **Atualizar dados** no hub não executa
-nada: ele grava um pedido na tabela `hub_job`, e quem executa é o agente desta
-máquina.
+O botão **Atualizar dados** no hub não executa nada: ele grava um pedido na
+tabela `hub_job`, e quem executa é um de dois executores, com os mesmos passos
+(`tools/pipelines_hub.py`) e tomada atômica do pedido — cada pedido roda uma vez
+só, mesmo com os dois de pé.
+
+**Azure (desde 30/09/2026).** Um gatilho no `hub_job` (migration
+`20260930170000`) avisa a rota `hpg_hub_job` do `luxor-planejamento-functions`,
+que enfileira; o consumidor da fila roda `tools/roda_pedido.py <id> --nuvem`
+numa cópia do repo: restaura o estado do bucket (inclusive
+`estado_fontes.zip`, `estado_pdf.zip` e `estado_confirmados_extra.json`) e
+espelha do Drive só o que o pipeline abre (`tools/sync_drive.py`, ~95 MB contra
+~5,7 GB das pastas inteiras), com a conta de serviço do HPG
+(`HPG_GOOGLE_SERVICE_ACCOUNT_JSON`). A App Setting `HPG_HUB_JOB_TIPOS` diz que
+tipos a Azure atende; o resto fica para o notebook. Uma varredura a cada 10 min
+reenfileira pedido parado e fecha como erro o que ficou preso em "rodando". A
+sexta das 09:00 só cria um pedido de semanal. Endereço e chave da rota ficam no
+Vault do Supabase (`hub_job_define_rota`, só service_role).
+
+Conferir o caminho da nuvem sem mexer em nada: numa CÓPIA do repo,
+`python tools/roda_pedido.py <id> --nuvem --ensaio` (não toma o pedido, não
+grava status, não publica).
+
+**Notebook.** O pipeline também roda com o Google Drive montado em `G:`, pelo
+agente desta máquina — é o executor dos tipos que ainda não foram para a Azure.
 
 ```bash
 python tools/agente_hub.py            # processa a fila e sai
