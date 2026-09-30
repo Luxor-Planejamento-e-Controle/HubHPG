@@ -546,6 +546,7 @@ function painelEditor(){
       <button type="button" id="edFechar" aria-label="Fechar">✕</button></div>
     <div id="edCorpo"></div>
     <div class="ed-rodape">
+      <button type="button" id="edCopiar" class="ed-copiar"></button>
       <span id="edStatus"></span>
       <button type="button" id="edCancelar">Cancelar</button>
       <button type="button" id="edSalvar" class="primary">Salvar</button>
@@ -556,6 +557,7 @@ function painelEditor(){
   document.getElementById('edFechar').onclick = fechaEditor;
   document.getElementById('edCancelar').onclick = fechaEditor;
   document.getElementById('edSalvar').onclick = salvaEditor;
+  document.getElementById('edCopiar').onclick = copiaMesAnterior;
   // delegado: linhas de comentários (data-i/data-f) escrevem direto em
   // `estado` sem precisar de handler próprio por input. Os outros tipos
   // (manejo/exposições/fotos) usam atributos diferentes (data-mi, data-pi,
@@ -581,39 +583,68 @@ async function abreEditor(s){
   document.getElementById('edSalvar').disabled = true;
   const c = (await buscaConteudoAoVivo(mesAtual)) || {};
 
-  const alvo = editorDe(s);
-  if (alvo === 'comentarios') {
-    tipoAtual = 'comentarios';
-    estado = JSON.parse(JSON.stringify(c.comentarios || []));
-    document.getElementById('edTitulo').textContent = `Comentários — ${SPEC.labels[mesAtual]}`;
-    renderComentarios();
-  } else if (alvo === 'manejo') {
-    tipoAtual = 'manejo';
-    estado = JSON.parse(JSON.stringify(c.manejo || []));
-    document.getElementById('edTitulo').textContent = `Manejo — ${SPEC.labels[mesAtual]}`;
-    renderManejo();
-  } else if (alvo === 'exposicoes') {
-    tipoAtual = 'exposicoes';
-    const exp = c.exposicoes || {};
-    estado = {programacao: JSON.parse(JSON.stringify(exp.programacao || [])),
-              resultados: JSON.parse(JSON.stringify(exp.resultados || []))};
-    document.getElementById('edTitulo').textContent = `Exposições — ${SPEC.labels[mesAtual]}`;
-    renderExposicoes();
-  } else if (alvo === 'pendencias') {
-    tipoAtual = 'pendencias';
-    estado = JSON.parse(JSON.stringify(c.pendencias || []));
-    document.getElementById('edTitulo').textContent = `Pendências da apresentação anterior — ${SPEC.labels[mesAtual]}`;
-    renderPendencias();
-  } else if (alvo === 'fotos') {
-    tipoAtual = 'fotos';
-    const fotos = c.fotos || [];
-    estado = JSON.parse(JSON.stringify(
-      typeof fotos[0] === 'string' ? [{tema:'', arquivos: fotos}] : fotos));
-    document.getElementById('edTitulo').textContent = `Fotos — ${SPEC.labels[mesAtual]}`;
-    await renderFotos();
-  }
+  tipoAtual = editorDe(s);
+  estado = estadoDe(tipoAtual, c);
+  document.getElementById('edTitulo').textContent = `${TITULO_EDITOR[tipoAtual]} — ${rotuloMes(mesAtual)}`;
+  document.getElementById('edCopiar').textContent = `Copiar de ${rotuloMes(mesAnteriorDe(mesAtual))}`;
+  await RENDER_EDITOR[tipoAtual]();
   document.getElementById('edStatus').textContent = '';
   document.getElementById('edSalvar').disabled = false;
+}
+
+const TITULO_EDITOR = {comentarios: 'Comentários', manejo: 'Manejo', exposicoes: 'Exposições',
+                       pendencias: 'Pendências da apresentação anterior', fotos: 'Fotos'};
+const RENDER_EDITOR = {comentarios: () => renderComentarios(), manejo: () => renderManejo(),
+                       exposicoes: () => renderExposicoes(), pendencias: () => renderPendencias(),
+                       fotos: () => renderFotos()};
+const rotuloMes = mes => (SPEC.labels && SPEC.labels[mes]) || mes;
+function mesAnteriorDe(mes){
+  const [a, m] = mes.split('-').map(Number);
+  return m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, '0')}`;
+}
+
+/* O rascunho do editor a partir da linha do mês no comite_conteudo — o mesmo
+   para abrir o editor e para copiar do mês anterior. Cópia funda: mexer no
+   rascunho não pode alterar o que está no cache. */
+function estadoDe(tipo, c){
+  const copia = x => JSON.parse(JSON.stringify(x));
+  if (tipo === 'exposicoes') {
+    const e = c.exposicoes || {};
+    return {programacao: copia(e.programacao || []), resultados: copia(e.resultados || [])};
+  }
+  if (tipo === 'fotos') {
+    const f = c.fotos || [];
+    return copia(typeof f[0] === 'string' ? [{tema: '', arquivos: f}] : f);
+  }
+  return copia(c[tipo] || []);
+}
+const estadoVazio = (tipo, e) => tipo === 'exposicoes'
+  ? !(e.programacao.length || e.resultados.length)
+  : !e.length;
+
+/* Traz para o editor o conteúdo que o mês anterior tem do mesmo tipo. Só
+   preenche o rascunho: nada vai para o banco até o Salvar, então dá para
+   revisar, apagar o que não vale mais e acrescentar o do mês. As fotos copiadas
+   continuam apontando para os arquivos do mês anterior no bucket. */
+async function copiaMesAnterior(){
+  const ant = mesAnteriorDe(mesAtual);
+  const st = document.getElementById('edStatus');
+  st.textContent = `buscando ${rotuloMes(ant)}…`;
+  const novo = estadoDe(tipoAtual, (await buscaConteudoAoVivo(ant)) || {});
+  if (estadoVazio(tipoAtual, novo)) {
+    st.textContent = `${rotuloMes(ant)} não tem ${NOMES_EDITOR[tipoAtual]} escrito`;
+    return;
+  }
+  if (!estadoVazio(tipoAtual, estado)
+      && !confirm(`Trocar o que está no editor pelo conteúdo de ${rotuloMes(ant)}?
+
+Nada é salvo até você clicar em Salvar.`)) {
+    st.textContent = '';
+    return;
+  }
+  estado = novo;
+  await RENDER_EDITOR[tipoAtual]();
+  st.textContent = `copiado de ${rotuloMes(ant)} — revise e salve`;
 }
 
 /* ---- comentários: linhas {cat, txt, delta} ---- */

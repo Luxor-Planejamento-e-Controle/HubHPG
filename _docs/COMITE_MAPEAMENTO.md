@@ -41,6 +41,12 @@ fotos (S39).
 
 ---
 
+Slide escrito no hub (comentários sem Trello, pendências, exposições, manejo, fotos): o
+editor tem **Copiar de <mês anterior>**, que traz para o rascunho o conteúdo do mesmo tipo
+do mês anterior no `comite_conteudo`. Só vai para o banco no Salvar; se o editor já tem
+texto, pede confirmação antes de trocar. Foto copiada continua apontando para o arquivo
+do mês anterior no bucket.
+
 Subtítulo de slide não cita fonte, regra, filtro nem descrição do conteúdo (pedido do
 Arthur, 28/09/2026): isso fica nesta tabela e na auditoria. Sobra no subtítulo só o que o
 slide não mostra em outro lugar — período ou data, tema da foto, números das doadoras e

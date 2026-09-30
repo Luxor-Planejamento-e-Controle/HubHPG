@@ -223,6 +223,13 @@ body.play .slide{box-shadow:none;border:0}
 #edStatus{margin-right:auto;font-size:12px;color:var(--ink-3)}
 #editar{background:transparent}
 #editar:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+/* rodapé do editor: os mesmos botões da barra do deck (antes saíam sem estilo) */
+.ed-rodape button{background:transparent;border:1px solid var(--line);color:var(--ink-2);height:32px;
+  padding:0 12px;border-radius:8px;font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.ed-rodape button:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+.ed-rodape button:disabled{opacity:.35;cursor:default}
+.ed-rodape button.primary{background:var(--amber);border-color:var(--amber);color:#1a1300;font-weight:600}
+.ed-rodape button.primary:hover:not(:disabled){background:#A87D02;border-color:#A87D02;color:#1a1300}
 
 @media(max-width:600px){
   #editorPanel{max-height:94vh}
