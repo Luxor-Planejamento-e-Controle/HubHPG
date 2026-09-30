@@ -1834,7 +1834,9 @@ def _stats_safra_estacao(ws, safra_alvo=None) -> dict:
         d = por.setdefault(sf, {"meses": {}, "conf": 0, "doad": set()})
         if _norm(r[10]) != "+" or _norm(r[12]) != "+":
             continue
-        if any(_norm(r[j]) not in ("+", "") for j in (13, 14, 15)) or _norm(r[16]) == "SIM":
+        # receptora que morreu depois (col 22) leva o embrião junto — a aba
+        # COMPARATIVO da planilha desconta, e só assim a 22/23 fecha em 89
+        if any(_norm(r[j]) not in ("+", "") for j in (13, 14, 15)) or _norm(r[16]) == "SIM" or r[22] is not None:
             continue
         d["conf"] += 1
         d["doad"].add(_norm(r[2]))
@@ -1871,7 +1873,8 @@ def _stats_safra_antiga(safra: str):
             continue
         if _norm(r[10]) != "+" or _norm(r[15]) != "+":
             continue
-        if any(_norm(r[j]) not in ("+", "") for j in (16, 17, 18)) or r[23] is not None:
+        # 23 data do aborto, 24 óbito da receptora: os dois tiram o embrião
+        if any(_norm(r[j]) not in ("+", "") for j in (16, 17, 18)) or r[23] is not None or r[24] is not None:
             continue
         d["conf"] += 1
         d["doad"].add(_norm(r[2]))
@@ -1907,12 +1910,17 @@ def _meta_safra(safra: str):
         wb.close()
 
 
+COMPARATIVO_5_DESDE = "2026/2027"
+
+
 def comparativo(wb, safra: str):
-    """S18 — as quatro últimas safras, confirmados por mês da IA, com a meta
+    """S18 — as quatro últimas safras (cinco, da 26/27 em diante), confirmados por mês da IA, com a meta
     atingida embaixo de cada uma. A aba COMPARATIVO da planilha está congelada em
     20/21–23/24 e não serve; a aba ESTAÇÃO tem a safra de cada embrião."""
     ini = int(safra[:4])
-    safras = [f"{a}/{a + 1}" for a in range(ini - 3, ini + 1)]
+    # da safra 26/27 em diante são cinco (pedido do Arthur, 30/09: a 22/23 também)
+    n = 5 if safra >= COMPARATIVO_5_DESDE else 4
+    safras = [f"{a}/{a + 1}" for a in range(ini - n + 1, ini + 1)]
     novas = _stats_safra_estacao(wb["ESTAÇÃO"])
     blocos = []
     for sf in safras:
