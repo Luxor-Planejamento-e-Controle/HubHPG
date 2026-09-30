@@ -3261,10 +3261,10 @@ def divisor(n, titulo, sub):
     return {"t": "divisor", "n": n, "titulo": titulo, "sub": sub}
 
 
-# Contratos de embrião: com a altura de linha que o haras pediu (0,27in) cabem
-# 16 por slide, que é o que o relatório de julho tem no maior deles. O desenho
-# encolhe a linha até 23; passou disso, continua noutro slide.
-MAX_CONTRATOS = 23
+# Contratos de embrião: a linha tem altura fixa (LINHA_CONTRATO no layout.js,
+# a do slide de 16 contratos) e cabem 16 por slide; passou disso, continua
+# noutro slide, dividindo por igual.
+MAX_CONTRATOS = 16
 
 
 def divide_contratos(slide):

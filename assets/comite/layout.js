@@ -713,6 +713,7 @@
   };
 
   /* ---------------- contratos de embrião ---------------- */
+  const LINHA_CONTRATO = 34.6;
   L.contratos = s => {
     const P = claro(s, []);
     const cols = [[53.8, 256, 'l'], [313.6, 211.2, 'l'], [527.4, 83.2, 'c'], [614.4, 230.4, 'l'],
@@ -722,9 +723,11 @@
       P.push(T(64, 200, 1100, 40, 'Nenhum contrato neste recorte.', {pt: 11, c: COR.cinza, va: 'm'}));
       return P;
     }
-    /* o relatório distribui as linhas na altura toda (8 contratos: passo 69;
-       16: passo 34,5), em faixas alternadas, e pinta o pagamento pelo status */
-    const p = (712 - 158.7) / s.rows.length;
+    /* linha de altura fixa (pedido do Arthur, 30/09): antes a lista se esticava
+       na altura toda e 4 contratos saíam com linha de 138. 34,6 é a do slide de
+       16 contratos; cabem 16 (MAX_CONTRATOS no build), e o resto vai para o
+       slide seguinte. Faixas alternadas, pagamento pintado pelo status. */
+    const p = LINHA_CONTRATO;
     s.rows.forEach((r, i) => {
       const y = 158.7 + i * p, hh = p - 2.6;
       P.push(R(44.8, y, 1187.8, hh, {fill: i % 2 ? COR.zebra : 'FFFFFF'}));
