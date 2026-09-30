@@ -118,7 +118,8 @@
     const s = a >= 1000 ? nf(Math.round(a), 0) : (r1 % 1 === 0 ? nf(r1, 0) : nf(r1, 1));
     return (v < 0 ? '-' : '') + 'R$' + s + 'k';
   }
-  const milhoes = v => 'R$ ' + nf(v / 1e6, 1) + 'M';
+  /* R$ 22k / R$ 2.038k — vendas, tudo na base mil */
+  const milK = v => v == null ? '—' : (v < 0 ? '-' : '') + 'R$ ' + nf(arred(Math.abs(v) / 1000), 0) + 'k';
   const corDelta = (v, neutra) => v == null ? neutra : (arred(v) === 0 ? COR.cinza : (v > 0 ? COR.verde : COR.neg));
 
   /* ---------------- moldura ---------------- */
@@ -598,8 +599,8 @@
     s.colunas.forEach((c, j) => {
       const x = x0 + j * slot + (slot - bw) / 2, h = Math.max(2, 280 * c.v / max);
       P.push(R(x, 631.6 - h, bw, h, {fill: COR.azul}));
-      // rótulo em milhar: em milhão, mês fraco aparecia como 'R$ 0,0M'
-      const rot = c.v >= 1e6 ? milhoes(c.v) : 'R$ ' + nf(arred(c.v / 1000), 0) + 'k';
+      // sempre em milhar, como os cartões: mês acima de R$ 1M também
+      const rot = milK(c.v);
       P.push(T(x - 28.8, 631.6 - h - 32, bw + 57.6, 28.2, rot, {pt: 8, b: 1, c: COR.azul, al: 'c', va: 'm'}));
       P.push(T(x, 638, bw, 28.2, c.rot, {pt: 9, b: 1, c: COR.tinta, al: 'c', va: 'm'}));
     });
@@ -619,7 +620,7 @@
     s.meses.forEach(m => {
       P.push(R(44.8, y, 1187.8, hb, {fill: COR.banda, line: 'D0D8E8'}));
       P.push(C(53.8, y, 172.8, hb, m.mes, {pt: 9 * esc, b: 1, c: COR.navy, va: 'm'}));
-      P.push(C(803.8, y, 204.8, hb, 'Total: ' + reais(m.total), {pt: 9 * esc, b: 1, c: COR.navy, al: 'r', va: 'm'}));
+      P.push(C(803.8, y, 204.8, hb, 'Total: ' + milK(m.total), {pt: 9 * esc, b: 1, c: COR.navy, al: 'r', va: 'm'}));
       const bh = Math.min(17.9, hb * 0.64), by = y + (hb - bh) / 2;
       P.push(R(1011.2, by, 211.2, bh, {fill: COR.trilho}));
       P.push(R(1011.2, by, Math.max(1, 211.2 * m.total / max), bh, {fill: COR.azul}));
@@ -627,7 +628,7 @@
       m.eventos.forEach(([ev, v]) => {
         P.push(R(44.8, y, 1187.8, he, {fill: 'FFFFFF', line: 'EEEEEE'}));
         P.push(C(230.4, y, 569.6, he, ev, {pt: 8.5 * esc, c: COR.cinza, va: 'm'}));
-        P.push(C(803.8, y, 204.8, he, reais(v), {pt: 8.5 * esc, c: COR.tinta, al: 'r', va: 'm'}));
+        P.push(C(803.8, y, 204.8, he, milK(v), {pt: 8.5 * esc, c: COR.tinta, al: 'r', va: 'm'}));
         y += he;
       });
     });

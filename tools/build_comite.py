@@ -151,6 +151,15 @@ def brl_curto(v):
     return f"{s}R$ {a:.0f}"
 
 
+def brl_mil(v):
+    """R$ 22k / R$ 2.038k — os slides de vendas, todos na base mil (pedido do
+    Arthur, 30/09: o mês em reais e o acumulado em milhões não se comparavam).
+    Meio pra longe do zero, como a planilha."""
+    if v is None:
+        return "—"
+    return f"{'-' if v < 0 else ''}R$ {int(abs(v) / 1000 + 0.5):,}k".replace(",", ".")
+
+
 def brl_cheio(v):
     """R$ 102.500 — valor inteiro com milhar, como o relatório escreve."""
     if v is None:
@@ -2305,13 +2314,13 @@ def slides_vendas(m, ano, meta_anual=4_500_000):
     return [
         {"t": "vendas_acum", "n": 29, "titulo": f"VENDAS {ano} — RESULTADO ACUMULADO — {VENDEDOR_COMITE}",
          "sub": "",
-         "kpis": [{"v": brl_cheio(mes_v), "l": f"Vendas {mes_nome}", "s": "Realizado no mês", "cor": "ouro"},
-                  {"v": brl_curto(ytd), "l": "Acumulado YTD", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "navy"},
+         "kpis": [{"v": brl_mil(mes_v), "l": f"Vendas {mes_nome}", "s": "Realizado no mês", "cor": "ouro"},
+                  {"v": brl_mil(ytd), "l": "Acumulado YTD", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "navy"},
                   # o relatório de agosto/2026 passou a trazer a média do ano
                   # (acumulado ÷ meses decorridos)
-                  {"v": brl_curto(ytd / m), "l": "Média Mensal", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "azul"},
-                  {"v": brl_curto(meta_anual), "l": "Meta Anual", "s": f"Objetivo {ano}", "cor": "ardosia"},
-                  {"v": brl_curto(max(meta_anual - ytd, 0)), "l": "Saldo para Meta", "s": "Ainda a realizar",
+                  {"v": brl_mil(ytd / m), "l": "Média Mensal", "s": f"Jan–{ABR[m-1]} {ano}", "cor": "azul"},
+                  {"v": brl_mil(meta_anual), "l": "Meta Anual", "s": f"Objetivo {ano}", "cor": "ardosia"},
+                  {"v": brl_mil(max(meta_anual - ytd, 0)), "l": "Saldo para Meta", "s": "Ainda a realizar",
                    "cor": "navy"}],
          "pct": pct, "barra": f"{pct*100:.0f}% da meta atingida",
          "colunas": [{"rot": x["abr"], "v": x["total"]} for x in meses]},
