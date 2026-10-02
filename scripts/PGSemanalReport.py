@@ -1008,20 +1008,17 @@ def build_receptoras(rep: Report):
     Colunas ANIMAIS (linha 3 header, dados r4+): 1 ANIMAL, 2 STATUS, 3 LOCAL."""
     src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
     rep.fontes["receptoras"] = src.name
-    wb = _load(src)
-    ws = wb["ANIMAIS"]
+    # mesma leitura (já reconciliada) que headcount, transferências e confirmados
+    # usam — antes cada um abria a aba ANIMAIS por conta própria
     pren = vaz = 0
-    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-        if i < 4 or r[1] is None:
+    for info in _receptoras_info().values():
+        if _norm(info.get("local")) not in RECEPTORAS_LOCAIS_ATIVOS:
             continue
-        if _norm(r[3]) not in RECEPTORAS_LOCAIS_ATIVOS:
-            continue
-        st = _norm(r[2])
+        st = _norm(info.get("status"))
         if st.startswith("PRENHA"):
             pren += 1
         elif st.startswith("VAZIA"):
             vaz += 1
-    wb.close()
     doadoras_plantel = _count_doadoras()             # linhas da aba PLANEJAMENTO
     doadoras = DOADORAS_INDICE or doadoras_plantel
     rep.receptoras = {
@@ -1148,21 +1145,14 @@ def _slug_local(local: str) -> str:
 
 def _receptoras_por_local(src: Path | None = None) -> dict:
     """{LOCAL do roster: nº de receptoras}. Mesma regra da seção 2 (prenha/vazia)."""
-    if src is None:
-        src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
-    wb = _load(src)
-    ws = wb["ANIMAIS"]
     out = {}
-    for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
-        if i < 4 or r[1] is None:
-            continue
-        loc = _norm(r[3])
+    for info in _receptoras_info(src).values():
+        loc = _norm(info.get("local"))
         if loc not in RECEPTORAS_LOCAIS_ATIVOS:
             continue
-        st = _norm(r[2])
+        st = _norm(info.get("status"))
         if st.startswith("PRENHA") or st.startswith("VAZIA"):
             out[RECEPTORAS_PARA_BUCKET[loc]] = out.get(RECEPTORAS_PARA_BUCKET[loc], 0) + 1
-    wb.close()
     return out
 
 
@@ -1363,9 +1353,116 @@ def _receptoras_arquivos() -> list:
 
 def _receptoras_info(src: Path | None = None) -> dict:
     """{ANIMAL: {local, status, embriao, obs}} da aba ANIMAIS — TODAS as linhas,
-    inclusive fora dos nossos locais, pra saber pra onde o animal foi."""
+    inclusive fora dos nossos locais, pra saber pra onde o animal foi.
+
+    Sem `src`, durante um fechamento: o arquivo MAIS RECENTE, reconciliado contra a
+    semana anterior (ver _reconcilia_receptoras). Com `src` explícito — o comitê de
+    um mês passado, o bootstrap de transferências —, o arquivo cru."""
     if src is None:
         src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
+        if _SEMANA_EM_CURSO:
+            chave = (str(src), src.stat().st_mtime, _SEMANA_EM_CURSO)
+            if _RECEP_MEMO.get("chave") != chave:
+                _RECEP_MEMO.update(chave=chave, dado=_reconcilia_receptoras(
+                    _receptoras_cru(src), src.name, _SEMANA_EM_CURSO))
+            return {k: dict(v) for k, v in _RECEP_MEMO["dado"].items()}
+    return _receptoras_cru(src)
+
+
+# semana sendo fechada — posta por build_report; fora de um fechamento fica None
+_SEMANA_EM_CURSO: str | None = None
+_RECEP_MEMO: dict = {}
+RECEPTORAS_SEGURADAS = BASE_DIR / "_cache" / "receptoras_seguradas.json"
+
+
+def _reconcilia_receptoras(cru: dict, fonte: str, semana: str) -> dict:
+    """Arquivo mais recente manda; a semana anterior é o FALLBACK.
+
+    Em 02/10/2026 o haras trocou o 'EDITAR OUTUBRO' por um 'EDITAR NOVEMBRO' montado
+    a partir de uma base anterior a 18/09: as transferências desta semana estavam
+    lá, mas as de 18/09 não. A220, 55, 519 e 07 ALAZÃ "voltaram" para Pao Grande
+    (4 transferências fantasmas, 19 contra 15 publicadas) e 440 e 453, que pariram
+    em 18/09, voltaram a PRENHA com o embrião que já nasceu.
+
+    Regra, por receptora e por campo (LOCAL e STATUS):
+      - igual à semana anterior, ou valor novo  -> vale o arquivo;
+      - volta para um valor que ela já tinha ANTES da última mudança, na semana em
+        que o arquivo-fonte troca de nome       -> regressão: fica o da semana
+        anterior, com aviso, e o par vai para o registro;
+      - enquanto o arquivo mantiver o valor regredido, o registro continua
+        segurando (senão, na semana seguinte, com o mesmo arquivo, a volta viraria
+        movimento); quando o haras corrige ou muda o valor, a trava sai sozinha.
+    Fora de troca de arquivo, uma volta é edição deliberada e passa normal.
+
+    'Anterior' é o arquivo de linhas que NÓS arquivamos, não o arquivo do Drive: o
+    'EDITAR OUTUBRO' foi apagado, e na Azure ele nem existe."""
+    ant = _arquivo_anterior(semana)
+    prev = {_norm(l.get("animal")): l for l in (ant.get("receptoras") or [])}
+    if not prev:
+        return cru
+    trocou = (ant.get("fontes") or {}).get("receptoras") not in (None, fonte)
+    prev_wid = ant.get("semana") or max(
+        (f.stem for f in FONTES_DIR.glob("*.json") if f.stem < semana), default="")
+    historico = {}
+    for f in sorted(FONTES_DIR.glob("*.json")):
+        if f.stem >= prev_wid:
+            continue
+        for l in _linhas_da_semana(f.stem).get("receptoras") or []:
+            a = _norm(l.get("animal"))
+            for campo in ("local", "status"):
+                historico.setdefault((a, campo), set()).add(_norm(l.get(campo)))
+
+    reg = {}
+    if RECEPTORAS_SEGURADAS.exists():
+        try:
+            reg = json.loads(RECEPTORAS_SEGURADAS.read_text(encoding="utf-8"))
+        except Exception:
+            reg = {}
+    out = {k: dict(v) for k, v in cru.items()}
+    segurados, soltos = [], []
+    for animal, info in cru.items():
+        p = prev.get(animal)
+        if not p:
+            continue
+        for campo in ("local", "status"):
+            bruto, antes = info.get(campo), p.get(campo)
+            trava = (reg.get(animal) or {}).get(campo)
+            if trava:
+                if _norm(bruto) == _norm(trava["arquivo"]):
+                    out[animal][campo] = trava["fica"]
+                    segurados.append((animal, campo, bruto, trava["fica"], trava["desde"]))
+                    continue
+                soltos.append((animal, campo, bruto))
+                reg[animal].pop(campo, None)
+            if (trocou and _norm(bruto) != _norm(antes)
+                    and _norm(bruto) in historico.get((animal, campo), set())):
+                out[animal][campo] = antes
+                reg.setdefault(animal, {})[campo] = {"arquivo": bruto, "fica": antes,
+                                                    "desde": semana}
+                segurados.append((animal, campo, bruto, antes, semana))
+    # na troca de arquivo, linha que sumiu também cai no fallback
+    sumiram = [a for a in prev if a not in cru] if trocou else []
+    for a in sumiram:
+        out[a] = {k: prev[a].get(k) for k in ("local", "status", "embriao", "obs")}
+    reg = {a: c for a, c in reg.items() if c}
+    _grava_estado(RECEPTORAS_SEGURADAS, reg)
+
+    if segurados:
+        print(f"  [receptoras] {len(segurados)} campo(s) do arquivo {fonte} voltaram a um "
+              f"valor anterior à última mudança — fica o da semana passada até o haras "
+              f"corrigir:")
+        for a, c, bruto, fica, desde in segurados:
+            print(f"    - {a} {c}: arquivo diz {bruto!r}, fica {fica!r} (desde {desde})")
+    if soltos:
+        print(f"  [receptoras] {len(soltos)} trava(s) liberada(s) — o arquivo mudou o "
+              f"valor: " + "; ".join(f"{a} {c}={b!r}" for a, c, b in soltos))
+    if sumiram:
+        print(f"  [receptoras] {len(sumiram)} receptora(s) sumiram do arquivo novo — "
+              f"mantidas como na semana passada: " + ", ".join(sumiram))
+    return out
+
+
+def _receptoras_cru(src: Path) -> dict:
     wb = _load(src)
     ws = wb["ANIMAIS"]
     out = {}
@@ -2376,6 +2473,8 @@ def _monta_report(ini: date, fim: date) -> Report:
     # Chave do snapshot = sexta da semana, não o dia do run (ver sexta_da_semana).
     # A janela em si (semana_inicio/semana_fim) continua sendo a real.
     rep.semana_atual = sexta_da_semana(fim).isoformat()
+    global _SEMANA_EM_CURSO
+    _SEMANA_EM_CURSO = rep.semana_atual          # liga o fallback das receptoras
     build_producao(rep, ini, fim)
     build_receptoras(rep)
     build_headcount(rep)
