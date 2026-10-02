@@ -77,6 +77,9 @@ ESTADO = [
     # da nuvem de 30/09/2026 perdeu as 5 prenhezes de 18/09 e publicaria acumulado no
     # mês 0 contra 5 — os arquivos do Drive eram byte a byte os mesmos do G:.
     (ROOT / "_cache/confirmados_extra.json", "estado_confirmados_extra.json"),
+    # onde cada receptora estava em cada rodada da semana: é o que permite contar a
+    # transferência de quem muda mais de uma vez na mesma semana (ver _saltos_internos)
+    (ROOT / "_cache/locais_semana.json", "estado_locais_semana.json"),
     # input humano (doadoras ciclando): não sai de planilha nenhuma, então perder o
     # arquivo é perder o dado
     (ROOT / "_cache/semanal_manual.json",    "estado_semanal_manual.json"),

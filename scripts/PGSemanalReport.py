@@ -1482,13 +1482,63 @@ def _transferencias_internas(rep: Report) -> list | None:
         prev = _receptoras_locais(anteriores[0])
         print(f"  [transferências] primeira semana com mapa de LOCAL: comparando com "
               f"{anteriores[0].name} (da próxima em diante, compara com o snapshot)")
-    transf = [{"animal": k, "tipo": "RECEPTORA", "local_saida": prev[k],
-               "local_entrada": cur[k]}
-              for k in cur if k in prev and prev[k] != cur[k]
-              # volta de cadastro na troca de arquivo não é transferência da semana
-              and (k, "local") not in _RECEP_REVERSOES]
+    transf = _saltos_internos(rep, prev, cur)
     transf += _transferencias_de_animais(rep)
     return transf
+
+
+LOCAIS_SEMANA = BASE_DIR / "_cache" / "locais_semana.json"
+# só Fazenda <-> Arrendamento é transferência interna (nomes da planilha de receptoras)
+_LOCAIS_INTERNOS_RECEP = ("PAO GRANDE", "ARRENDAMENTO CESAR FURTADO")
+
+
+def _saltos_internos(rep: Report, prev: dict, cur: dict) -> list:
+    """Transferências internas de receptora pelo TRAJETO da semana, não só pelas
+    pontas.
+
+    Comparar a foto da semana passada com a de agora perde escala: em 02/10/2026 a
+    532 foi do Arrendamento para a Fazenda (o haras listou entre as 15) e, no mesmo
+    dia, da Fazenda para o sócio. Ponta a ponta ficava Arrendamento -> Sócio, que não
+    é transferência interna, e o card caiu para 14. A planilha não guarda histórico;
+    o que guarda são as nossas rodadas. Cada rodada da semana registra onde cada
+    receptora estava (LOCAIS_SEMANA, vai no estado do bucket), e a transferência é
+    cada salto Fazenda <-> Arrendamento ao longo dessa sequência.
+
+    Volta de cadastro na troca de arquivo (_RECEP_REVERSOES) continua não contando."""
+    obs = {}
+    if LOCAIS_SEMANA.exists():
+        try:
+            obs = json.loads(LOCAIS_SEMANA.read_text(encoding="utf-8"))
+        except Exception:
+            obs = {}
+    semana = obs.get(rep.semana_atual) or []
+    if not semana or semana[-1].get("locais") != cur:
+        semana = semana + [{"quando": datetime.now().isoformat(timespec="minutes"),
+                            "locais": dict(cur)}]
+    # guarda só as semanas recentes: a sequência só serve para a semana em curso
+    obs = {w: v for w, v in obs.items() if w >= rep.semana_inicio} | {rep.semana_atual: semana}
+    _grava_estado(LOCAIS_SEMANA, obs)
+
+    trajeto = [prev] + [o.get("locais") or {} for o in semana]
+    out, escalas = [], []
+    for animal in sorted(set().union(*trajeto)):
+        passos = [t.get(animal) for t in trajeto]
+        for i in range(len(passos) - 1):
+            a, b = passos[i], passos[i + 1]
+            if not a or not b or a == b:
+                continue
+            if a not in _LOCAIS_INTERNOS_RECEP or b not in _LOCAIS_INTERNOS_RECEP:
+                continue
+            if (animal, "local") in _RECEP_REVERSOES and b == cur.get(animal):
+                continue
+            out.append({"animal": animal, "tipo": "RECEPTORA",
+                        "local_saida": a, "local_entrada": b})
+            if b != cur.get(animal):
+                escalas.append(f"{animal}: {a} -> {b} -> {cur.get(animal) or 'fora (sócio/outro)'}")
+    if escalas:
+        print(f"  [transferências] {len(escalas)} receptora(s) mudaram mais de uma vez na "
+              f"semana — a escala conta: " + "; ".join(escalas))
+    return out
 
 
 # Transferência interna é FPG <-> ARRENDAMENTO, nos dois sentidos (regra do Arthur,
@@ -3445,11 +3495,24 @@ def _conferir_delta(rep: Report):
     # potros das recep 453 e 440.
     nascidos = (rep.headcount.get("delta_nascimentos")
                 or rep.saidas.get("entradas_nascimento") or 0)
-    if ent + nascidos - sai != delta:
+    # Receptora que entra ou sai da contagem (vai pro sócio, chega do arrendamento de
+    # fora) mexe no TOTAL e não aparece na abertura de animais — regra antiga, ver
+    # CLASSIF_FORA_DO_DELTA. Sem descontar, a 532 indo pro sócio em 02/10/2026 dava
+    # alarme de "movimentação não registrada" numa semana que fechava certinho.
+    ant_snap = None
+    for wid, snap in sorted(_load_hist().items()):
+        if _is_iso(wid) and wid < rep.semana_atual:
+            ant_snap = snap
+    rec_ant = (((ant_snap or {}).get("headcount_detalhe") or {})
+               .get("TOTAL GERAL") or {}).get("receptoras")
+    rec_cur = ((rep.headcount.get("detalhe") or {}).get("TOTAL GERAL") or {}).get("receptoras")
+    var_rec = (rec_cur - rec_ant) if None not in (rec_ant, rec_cur) else 0
+    if ent + nascidos - sai + var_rec != delta:
         extra = f" + {nascidos} nascimento(s)" if nascidos else ""
+        extra += f" {var_rec:+d} receptora(s)" if var_rec else ""
         print(f"  [Δ] headcount variou {delta:+d} mas o diff da população dá "
-              f"+{ent}/-{sai}{extra} (líquido {ent + nascidos - sai:+d}) — conferir: "
-              f"uma das duas fontes não registrou alguma movimentação")
+              f"+{ent}/-{sai}{extra} (líquido {ent + nascidos - sai + var_rec:+d}) — "
+              f"conferir: uma das duas fontes não registrou alguma movimentação")
 
 
 def _chave_estavel(k: str) -> str:
