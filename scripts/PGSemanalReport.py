@@ -3407,6 +3407,22 @@ def _novos_confirmados(cur: dict, prev_keys) -> list:
 
     Cada linha antiga só serve de par para uma linha nova, então embrião gêmeo
     (mesma doadora × garanhão × IA em duas receptoras) continua contando."""
+    def _mesmo(r, ia, r0, ia0):
+        # receptora conhecida dos dois lados é a identidade forte: igual = mesmo
+        # embrião (IA corrigida não importa), diferente = outro embrião (gêmeo)
+        if r and r0:
+            return _chave_recep(r) == _chave_recep(r0)
+        # receptora faltando de um lado: vale a IA, aceitando correção de digitação.
+        # O JAVA x XODÓ do mês de setembro tinha receptora 'None' e IA 10/08 no
+        # snapshot de 28/08; em 02/10 tinha receptora 7 e IA 12/08 — nada batia e ele
+        # entrava de novo no acumulado do mês.
+        if ia and ia0:
+            try:
+                return abs((date.fromisoformat(ia) - date.fromisoformat(ia0)).days) <= 15
+            except ValueError:
+                return ia == ia0
+        return False
+
     antes = [_partes_chave(k) for k in prev_keys]
     usados = set()
     novos = []
@@ -3416,7 +3432,7 @@ def _novos_confirmados(cur: dict, prev_keys) -> list:
         for i, (d0, g0, r0, ia0) in enumerate(antes):
             if i in usados or d0 != d or g0 != g:
                 continue
-            if (r and r0 and _chave_recep(r) == _chave_recep(r0)) or (ia and ia0 and ia == ia0):
+            if _mesmo(r, ia, r0, ia0):
                 par = i
                 break
         if par is None:
