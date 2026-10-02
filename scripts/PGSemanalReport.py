@@ -3651,9 +3651,15 @@ def _compute_confirmados_diff(rep: Report):
         # em que foram registradas — elas não têm chave na ESTAÇÃO para o diff pegar.
         do_mes = [c for c in (rep.detalhe.get("confirmados_por_receptora") or [])
                   if c.get("semana", "") >= month_start]
+        # Mesma trava contra recontagem do diff semanal, na escala do mês: embrião
+        # contado pela planilha de receptoras num mês ANTERIOR e com o 15D lançado só
+        # agora aparece no diff contra o snapshot de antes do mês — e entraria de novo.
+        do_mes_anterior = {k for k, v in _registro_confirmados_extra().items()
+                           if v.get("semana", "") < month_start}
         rep.producao["acumulado_mes"] = sum(
             1 for e in _novos_confirmados(cur, prev_month_keys)
-            if not _ia_no_futuro(e)) + len(do_mes)
+            if not _ia_no_futuro(e)
+            and _chave_recep(e.get("receptora")) not in do_mes_anterior) + len(do_mes)
     else:
         dxp = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("producao", {})
         rep.producao["acumulado_mes"] = dxp.get("acumulado_mes") or 0   # "--" = 0
