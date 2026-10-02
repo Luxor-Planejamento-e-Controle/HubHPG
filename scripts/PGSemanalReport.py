@@ -3389,18 +3389,40 @@ def _chave_estavel(k: str) -> str:
     return "|".join(partes[:2] + partes[3:]) if len(partes) == 4 else k
 
 
+def _partes_chave(k: str):
+    p = (k.split("|") + [None] * 4)[:4]
+    return [None if x in (None, "", "None") else x for x in p]
+
+
 def _novos_confirmados(cur: dict, prev_keys) -> list:
-    """Confirmados de hoje que o snapshot anterior não tinha, por contagem de chave
-    estável. Só o EXCESSO sobre a semana passada é confirmação nova — preencher um
-    campo da linha antiga não cria excesso, lançar um embrião de verdade cria."""
-    antes = Counter(_chave_estavel(k) for k in prev_keys)
+    """Confirmados de hoje que o snapshot anterior não tinha.
+
+    Identidade = doadora × garanhão, e mais UM dos dois campos que o haras costuma
+    completar ou corrigir depois: a receptora (quando as duas semanas a têm) OU a
+    data da IA. Basta um bater. Por chave inteira, cada correção virava confirmação
+    nova: em 17/09/2026 a receptora do JAVA DA PAO GRANDE x XODÓ PORTEIRA AZUL foi
+    preenchida ('None' -> '7'); em 02/10/2026 a IA dele foi de 10/08 para 12/08 — e
+    nas duas vezes o mesmo embrião, confirmado em agosto, voltou a ser publicado
+    como confirmado da semana.
+
+    Cada linha antiga só serve de par para uma linha nova, então embrião gêmeo
+    (mesma doadora × garanhão × IA em duas receptoras) continua contando."""
+    antes = [_partes_chave(k) for k in prev_keys]
+    usados = set()
     novos = []
     for k, e in cur.items():
-        ke = _chave_estavel(k)
-        if antes.get(ke):
-            antes[ke] -= 1
-        else:
+        d, g, r, ia = _partes_chave(k)
+        par = None
+        for i, (d0, g0, r0, ia0) in enumerate(antes):
+            if i in usados or d0 != d or g0 != g:
+                continue
+            if (r and r0 and _chave_recep(r) == _chave_recep(r0)) or (ia and ia0 and ia == ia0):
+                par = i
+                break
+        if par is None:
             novos.append(e)
+        else:
+            usados.add(par)
     return novos
 
 
@@ -3458,11 +3480,13 @@ def _confirmados_por_receptora(rep: Report) -> list:
             continue
         linha = _EMBRIAO_POR_RECEP.get(k)
         if not linha:
-            # Sem linha na ESTAÇÃO não há doadora nem garanhão para publicar. Vai com
-            # a receptora e um aviso, em vez de entrar mudo no card.
+            # Sem linha na ESTAÇÃO não há embrião desta safra para confirmar — NÃO
+            # conta, só avisa. Contava, e saía no painel como linha vazia com o número
+            # da receptora: em 02/10/2026 as recep 440 e 453 passaram de 'VAZIA POTRO
+            # AO PÉ' para 'PRENHA' ainda com o embrião ANTIGO na planilha (os potros
+            # que nasceram em 18/09) e viraram dois confirmados fantasmas, além de
+            # subir o acumulado da estação. O haras confirmou só o LIBRA x LATINO.
             sem_linha.append(k)
-            out.append({"doadora": None, "garanhao": None, "receptora": k,
-                        "semana": v["semana"]})
             continue
         # MESMOS campos das outras confirmações — doadora × garanhão × receptora é o
         # que o haras publica e o que a tabela do dashboard já sabe renderizar. A
@@ -3476,8 +3500,15 @@ def _confirmados_por_receptora(rep: Report) -> list:
             print(f"    - {n.get('doadora') or '?'} x {n.get('garanhao') or '?'} "
                   f"(recep {n.get('receptora')})")
     if sem_linha:
-        print(f"  [confirmados] {len(sem_linha)} receptora(s) prenhas sem linha na aba "
-              f"ESTAÇÃO — sai sem doadora/garanhão: " + ", ".join(sem_linha))
+        info = _receptoras_info()
+        def _emb(k):
+            for nome, i in info.items():
+                if _chave_recep(nome) == k:
+                    return i.get("embriao") or "sem embrião na planilha"
+            return "?"
+        print(f"  [confirmados] {len(sem_linha)} receptora(s) PRENHA sem embrião da safra "
+              f"na aba ESTAÇÃO — fora da conta, conferir com o haras: "
+              + "; ".join(f"{k} ({_emb(k)})" for k in sem_linha))
     ja_na_estacao = [k for k in reg if k in na_estacao and reg[k].get("safra") == SAFRA_ATUAL]
     if ja_na_estacao:
         print(f"  [confirmados] {len(ja_na_estacao)} já lançada(s) na estação de monta, "
