@@ -1355,16 +1355,17 @@ def _receptoras_info(src: Path | None = None) -> dict:
     """{ANIMAL: {local, status, embriao, obs}} da aba ANIMAIS — TODAS as linhas,
     inclusive fora dos nossos locais, pra saber pra onde o animal foi.
 
-    Sem `src`, durante um fechamento: o arquivo MAIS RECENTE, reconciliado contra a
-    semana anterior (ver _reconcilia_receptoras). Com `src` explícito — o comitê de
+    Sem `src`, durante um fechamento: o arquivo MAIS RECENTE, com a semana anterior
+    de fallback para linha que sumiu (ver _reversoes_receptoras). Com `src` explícito — o comitê de
     um mês passado, o bootstrap de transferências —, o arquivo cru."""
     if src is None:
         src = _latest_no_plantel("*PLANTEL ARRENDAMENTOS E RECEPTORAS.xlsx", "receptoras")
         if _SEMANA_EM_CURSO:
             chave = (str(src), src.stat().st_mtime, _SEMANA_EM_CURSO)
             if _RECEP_MEMO.get("chave") != chave:
-                _RECEP_MEMO.update(chave=chave, dado=_reconcilia_receptoras(
-                    _receptoras_cru(src), src.name, _SEMANA_EM_CURSO))
+                cru = _receptoras_cru(src)
+                cru.update(_reversoes_receptoras(cru, src.name, _SEMANA_EM_CURSO))
+                _RECEP_MEMO.update(chave=chave, dado=cru)
             return {k: dict(v) for k, v in _RECEP_MEMO["dado"].items()}
     return _receptoras_cru(src)
 
@@ -1372,35 +1373,41 @@ def _receptoras_info(src: Path | None = None) -> dict:
 # semana sendo fechada — posta por build_report; fora de um fechamento fica None
 _SEMANA_EM_CURSO: str | None = None
 _RECEP_MEMO: dict = {}
-RECEPTORAS_SEGURADAS = BASE_DIR / "_cache" / "receptoras_seguradas.json"
+# (animal, campo) que VOLTOU a um valor antigo na troca de arquivo desta semana —
+# vale como estado, mas não é movimento da semana (ver _reversoes_receptoras)
+_RECEP_REVERSOES: set = set()
 
 
-def _reconcilia_receptoras(cru: dict, fonte: str, semana: str) -> dict:
-    """Arquivo mais recente manda; a semana anterior é o FALLBACK.
+def _reversoes_receptoras(cru: dict, fonte: str, semana: str) -> dict:
+    """Arquivo MAIS RECENTE manda no estado; a semana anterior é FALLBACK.
 
-    Em 02/10/2026 o haras trocou o 'EDITAR OUTUBRO' por um 'EDITAR NOVEMBRO' montado
-    a partir de uma base anterior a 18/09: as transferências desta semana estavam
-    lá, mas as de 18/09 não. A220, 55, 519 e 07 ALAZÃ "voltaram" para Pao Grande
-    (4 transferências fantasmas, 19 contra 15 publicadas) e 440 e 453, que pariram
-    em 18/09, voltaram a PRENHA com o embrião que já nasceu.
+    Em 02/10/2026 o haras trocou o 'EDITAR OUTUBRO' por um 'EDITAR NOVEMBRO'. Seis
+    campos voltaram ao valor de antes de 18/09 — A220, 55, 519 e 07 ALAZÃ de novo em
+    Pao Grande, 440 e 453 de novo PRENHA. O relatório do haras confirma o arquivo
+    novo como estado (Fazenda 93, Arrendamento 35, vazias 22) mas NÃO lista as 4 como
+    transferência da semana: a troca de arquivo acertou cadastro, não moveu animal.
 
-    Regra, por receptora e por campo (LOCAL e STATUS):
-      - igual à semana anterior, ou valor novo  -> vale o arquivo;
-      - volta para um valor que ela já tinha ANTES da última mudança, na semana em
-        que o arquivo-fonte troca de nome       -> regressão: fica o da semana
-        anterior, com aviso, e o par vai para o registro;
-      - enquanto o arquivo mantiver o valor regredido, o registro continua
-        segurando (senão, na semana seguinte, com o mesmo arquivo, a volta viraria
-        movimento); quando o haras corrige ou muda o valor, a trava sai sozinha.
-    Fora de troca de arquivo, uma volta é edição deliberada e passa normal.
+    Por isso, na semana em que o arquivo-fonte troca de nome:
+      - o ESTADO é o do arquivo novo (headcount, prenhas/vazias) — nada é segurado;
+      - campo que volta a um valor que a receptora já tinha ANTES da última mudança
+        não vira EVENTO da semana: nem transferência, nem prenhez nova no fallback
+        de confirmados. Sai aviso nominal;
+      - receptora que SUMIU do arquivo novo cai no fallback: fica a linha da semana
+        anterior, com aviso — falta de dado não é saída.
+    Na semana seguinte o "anterior" já é este estado, então nada fica preso.
+    Fora de troca de arquivo, toda mudança é edição deliberada e conta.
 
     'Anterior' é o arquivo de linhas que NÓS arquivamos, não o arquivo do Drive: o
-    'EDITAR OUTUBRO' foi apagado, e na Azure ele nem existe."""
+    'EDITAR OUTUBRO' foi apagado, e na Azure ele nem existe.
+
+    Devolve as linhas da semana anterior que sumiram do arquivo novo; as reversões
+    vão para _RECEP_REVERSOES."""
+    _RECEP_REVERSOES.clear()
     ant = _arquivo_anterior(semana)
     prev = {_norm(l.get("animal")): l for l in (ant.get("receptoras") or [])}
-    if not prev:
-        return cru
-    trocou = (ant.get("fontes") or {}).get("receptoras") not in (None, fonte)
+    fonte_ant = (ant.get("fontes") or {}).get("receptoras")
+    if not prev or fonte_ant in (None, fonte):
+        return {}
     prev_wid = ant.get("semana") or max(
         (f.stem for f in FONTES_DIR.glob("*.json") if f.stem < semana), default="")
     historico = {}
@@ -1411,55 +1418,28 @@ def _reconcilia_receptoras(cru: dict, fonte: str, semana: str) -> dict:
             a = _norm(l.get("animal"))
             for campo in ("local", "status"):
                 historico.setdefault((a, campo), set()).add(_norm(l.get(campo)))
-
-    reg = {}
-    if RECEPTORAS_SEGURADAS.exists():
-        try:
-            reg = json.loads(RECEPTORAS_SEGURADAS.read_text(encoding="utf-8"))
-        except Exception:
-            reg = {}
-    out = {k: dict(v) for k, v in cru.items()}
-    segurados, soltos = [], []
+    voltas = []
     for animal, info in cru.items():
         p = prev.get(animal)
         if not p:
             continue
         for campo in ("local", "status"):
-            bruto, antes = info.get(campo), p.get(campo)
-            trava = (reg.get(animal) or {}).get(campo)
-            if trava:
-                if _norm(bruto) == _norm(trava["arquivo"]):
-                    out[animal][campo] = trava["fica"]
-                    segurados.append((animal, campo, bruto, trava["fica"], trava["desde"]))
-                    continue
-                soltos.append((animal, campo, bruto))
-                reg[animal].pop(campo, None)
-            if (trocou and _norm(bruto) != _norm(antes)
-                    and _norm(bruto) in historico.get((animal, campo), set())):
-                out[animal][campo] = antes
-                reg.setdefault(animal, {})[campo] = {"arquivo": bruto, "fica": antes,
-                                                    "desde": semana}
-                segurados.append((animal, campo, bruto, antes, semana))
-    # na troca de arquivo, linha que sumiu também cai no fallback
-    sumiram = [a for a in prev if a not in cru] if trocou else []
-    for a in sumiram:
-        out[a] = {k: prev[a].get(k) for k in ("local", "status", "embriao", "obs")}
-    reg = {a: c for a, c in reg.items() if c}
-    _grava_estado(RECEPTORAS_SEGURADAS, reg)
-
-    if segurados:
-        print(f"  [receptoras] {len(segurados)} campo(s) do arquivo {fonte} voltaram a um "
-              f"valor anterior à última mudança — fica o da semana passada até o haras "
-              f"corrigir:")
-        for a, c, bruto, fica, desde in segurados:
-            print(f"    - {a} {c}: arquivo diz {bruto!r}, fica {fica!r} (desde {desde})")
-    if soltos:
-        print(f"  [receptoras] {len(soltos)} trava(s) liberada(s) — o arquivo mudou o "
-              f"valor: " + "; ".join(f"{a} {c}={b!r}" for a, c, b in soltos))
+            novo, antes = info.get(campo), p.get(campo)
+            if _norm(novo) != _norm(antes) and _norm(novo) in historico.get((animal, campo), set()):
+                _RECEP_REVERSOES.add((animal, campo))
+                voltas.append((animal, campo, antes, novo))
+    sumiram = {a: {k: prev[a].get(k) for k in ("local", "status", "embriao", "obs")}
+               for a in prev if a not in cru}
+    print(f"  [receptoras] arquivo trocou ({fonte_ant} -> {fonte}).")
+    if voltas:
+        print(f"  [receptoras] {len(voltas)} campo(s) voltaram a um valor anterior à última "
+              f"mudança — valem como estado, mas NÃO contam como movimento da semana:")
+        for a, c, antes, novo in voltas:
+            print(f"    - {a} {c}: {antes!r} -> {novo!r}")
     if sumiram:
         print(f"  [receptoras] {len(sumiram)} receptora(s) sumiram do arquivo novo — "
               f"mantidas como na semana passada: " + ", ".join(sumiram))
-    return out
+    return sumiram
 
 
 def _receptoras_cru(src: Path) -> dict:
@@ -1504,7 +1484,9 @@ def _transferencias_internas(rep: Report) -> list | None:
               f"{anteriores[0].name} (da próxima em diante, compara com o snapshot)")
     transf = [{"animal": k, "tipo": "RECEPTORA", "local_saida": prev[k],
                "local_entrada": cur[k]}
-              for k in cur if k in prev and prev[k] != cur[k]]
+              for k in cur if k in prev and prev[k] != cur[k]
+              # volta de cadastro na troca de arquivo não é transferência da semana
+              and (k, "local") not in _RECEP_REVERSOES]
     transf += _transferencias_de_animais(rep)
     return transf
 
@@ -3596,6 +3578,8 @@ def _confirmados_por_receptora(rep: Report) -> list:
             st_antes = antes.get(animal)
             if st_antes is None or _chave_recep(animal) in reg:
                 continue
+            if (animal, "status") in _RECEP_REVERSOES:
+                continue          # voltou a PRENHA na troca de arquivo: não é prenhez nova
             if _norm(info.get("status")).startswith("PRENHA") and not st_antes.startswith("PRENHA"):
                 reg[_chave_recep(animal)] = {"semana": rep.semana_atual,
                                              "safra": SAFRA_ATUAL}

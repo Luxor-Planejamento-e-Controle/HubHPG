@@ -77,10 +77,6 @@ ESTADO = [
     # da nuvem de 30/09/2026 perdeu as 5 prenhezes de 18/09 e publicaria acumulado no
     # mês 0 contra 5 — os arquivos do Drive eram byte a byte os mesmos do G:.
     (ROOT / "_cache/confirmados_extra.json", "estado_confirmados_extra.json"),
-    # travas do fallback das receptoras (campo que regrediu na troca de arquivo do
-    # haras e segue segurado enquanto a planilha mantiver o valor velho) — sem isto
-    # a nuvem esquece a trava e a regressão vira movimento na semana seguinte
-    (ROOT / "_cache/receptoras_seguradas.json", "estado_receptoras_seguradas.json"),
     # input humano (doadoras ciclando): não sai de planilha nenhuma, então perder o
     # arquivo é perder o dado
     (ROOT / "_cache/semanal_manual.json",    "estado_semanal_manual.json"),
