@@ -3584,6 +3584,11 @@ def _confirmados_por_receptora(rep: Report) -> list:
         except Exception:
             reg = {}
 
+    # O que foi registrado NESTA semana é recalculado a cada rodada: refazer o
+    # fechamento depois de o haras corrigir a planilha (ou depois de o fallback das
+    # receptoras segurar uma regressão) não pode manter prenhez que deixou de existir.
+    # Foi o caso de 440 e 453 em 02/10/2026.
+    reg = {k: v for k, v in reg.items() if v.get("semana") != rep.semana_atual}
     ant = _arquivo_anterior(rep.semana_atual).get("receptoras") or []
     if ant:
         antes = {_norm(l.get("animal")): _norm(l.get("status")) for l in ant}
