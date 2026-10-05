@@ -20,10 +20,8 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font)
 ::-webkit-scrollbar-track{background:transparent}
 *{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 
-/* ---- topo e abas ---- */
-.topo{padding:16px 22px 0}
-.topo h1{margin:0;font-size:17px;font-weight:600}
-.abas{display:flex;gap:4px;padding:12px 22px 0;border-bottom:1px solid var(--line)}
+/* ---- abas: os módulos do sistema ---- */
+.abas{display:flex;gap:4px;padding:14px 22px 0;border-bottom:1px solid var(--line)}
 .abas button{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--ink-2);
   padding:9px 18px;border-radius:9px 9px 0 0;font:inherit;font-size:13px;cursor:pointer}
 .abas button:hover{color:var(--ink)}
@@ -112,13 +110,38 @@ button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 
 .acoes{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-top:2px}
 .acoes .dir{margin-left:auto;display:flex;flex-wrap:wrap;gap:10px}
-.faixa-ok{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;max-width:1180px;margin-bottom:16px;
-  background:rgba(76,195,138,.08);border:1px solid rgba(76,195,138,.35);border-radius:10px;
-  padding:10px 14px;font-size:13px}
-.faixa-ok b{color:var(--pos);font-weight:600}
+
+/* busca do animal do plantel */
+.combo{position:relative;flex:1;min-width:0}
+.combo input{padding-right:92px}
+.combo-tag{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:600;
+  color:var(--ink-3);pointer-events:none;white-space:nowrap}
+input.invalido{border-color:var(--neg)}
+input.invalido:focus{box-shadow:0 0 0 3px rgba(240,122,122,.18)}
+.opcoes{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:300px;overflow:auto;
+  background:var(--bg-2);border:1px solid var(--line-2);border-radius:9px;padding:4px;
+  box-shadow:0 12px 28px rgba(0,0,0,.45)}
+.opcao{display:flex;align-items:baseline;justify-content:space-between;gap:12px;width:100%;background:transparent;
+  border:0;border-radius:6px;padding:8px 10px;color:var(--ink);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.opcao small{flex:none;font-size:11.5px;color:var(--ink-3)}
+.opcao:hover,.opcao.ativa{background:var(--card-2)}
+.opcao.ativa span{color:var(--amber)}
+.opcao-vazia{padding:9px 10px;font-size:12.5px;color:var(--ink-3)}
+
+/* tela de registro: abre por cima do módulo, ocupando a área do SGPG */
+.tela{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;background:var(--bg)}
+.tela-cab{display:flex;align-items:center;gap:12px;padding:14px 22px;border-bottom:1px solid var(--line);
+  background:var(--bg-2)}
+.tela-cab h2{margin:2px 0 0;font-size:17px;font-weight:600}
+.tela-kicker{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.tela-cab .x{margin-left:auto}
+.x.grande{width:36px;height:36px;font-size:22px}
+.tela-corpo{flex:1 1 auto;min-height:0;overflow:auto;padding:20px 22px 32px}
+.tela-corpo .registro{margin:0 auto}
 
 /* ---- Histórico ---- */
 .hist-barra{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-bottom:16px}
+.hist-barra > .bt.prim{flex:none}
 .anos{display:flex;flex-wrap:wrap;gap:6px}
 .anos button{background:transparent;border:1px solid var(--line);color:var(--ink-2);border-radius:999px;
   padding:6px 13px;font:inherit;font-size:12.5px;cursor:pointer;font-variant-numeric:tabular-nums}
@@ -156,8 +179,6 @@ input[type=search]::-webkit-search-cancel-button{display:none}
 .barra{display:block;height:4px;border-radius:2px;background:var(--line);margin-top:6px;overflow:hidden}
 .barra i{display:block;height:100%;border-radius:2px;background:var(--amber);opacity:.85}
 .it-animal .it-meta{margin-top:5px}
-.grafias{margin-top:6px;font-size:12px;color:var(--ink-3)}
-.grafias i{font-style:normal;color:var(--ink-2)}
 .inicial{width:36px;height:36px;border-radius:50%;background:var(--bg-2);border:1px solid var(--line);
   display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--amber)}
 
@@ -200,17 +221,13 @@ ol.tempo{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;g
 .tempo-it .lnk{font-size:13.5px;font-weight:600}
 .tempo-it .it-meta{margin:2px 0 8px}
 
-/* edição dentro do Histórico: a coluna é mais estreita, os dois cartões empilham */
-.painel-det .registro{grid-template-columns:minmax(0,1fr)}
-.edicao-cab{display:flex;align-items:baseline;gap:10px;margin:0 0 12px}
-.edicao-cab h2{margin:0;font-size:15px;font-weight:600}
-.edicao-cab span{font-size:12.5px;color:var(--ink-3)}
 
 @media (max-width:900px){
   .registro{grid-template-columns:minmax(0,1fr)}
   .md{grid-template-columns:minmax(0,1fr)}
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
   #painel{padding:16px 16px 28px}
-  .topo,.abas{padding-left:16px;padding-right:16px}
+  .abas,.tela-cab{padding-left:16px;padding-right:16px}
+  .tela-corpo{padding:16px 16px 28px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto !important}}
