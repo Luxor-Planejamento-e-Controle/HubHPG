@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SGPG — Sistema de Gestão Pao Grande</title>
 <link rel="icon" href="assets/pg-logo.png">
-<link rel="stylesheet" href="assets/sgpg/sgpg.css?v=202610051600">
+<link rel="stylesheet" href="assets/sgpg/sgpg.css?v=202610051900">
 </head>
 <body>
 <!-- SGPG: o sistema da Pao Grande, módulo a módulo. Roda em iframe do hub (mesma
      origem): a sessão do Supabase vem de window.parent.HUB, e o que se grava vai para
      as tabelas sgpg_* sob a policy da aba 'sgpg'. -->
-<div class="topo"><h1>SGPG <span>Sistema de Gestão Pao Grande</span></h1></div>
-<div class="abas" id="modulos"></div>
-<div id="painel"></div>
-<script src="assets/sgpg/sgpg.js?v=202610051600"></script>
+<header class="topo" id="topo"></header>
+<nav class="abas" id="abas" aria-label="Seções"></nav>
+<main id="painel"></main>
+<div id="listas" hidden></div>
+<script src="assets/sgpg/sgpg.js?v=202610051900"></script>
 </body>
 </html>
