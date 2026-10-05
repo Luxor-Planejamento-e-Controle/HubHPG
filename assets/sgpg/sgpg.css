@@ -1,0 +1,89 @@
+/* SGPG — Sistema de Gestão Pao Grande. Roda em iframe do hub (mesma origem).
+   Mesma paleta da aba Plantel: é o mesmo hub, e o módulo novo não pode parecer
+   outro produto. */
+:root{
+  --bg:#04223B; --bg-2:#072B49; --card:#0A3050; --line:#1B486B; --line-2:#2A5F87;
+  --ink:#EAF0F4; --ink-2:#B6C8D6; --ink-3:#93AABC;
+  --amber:#CA9703; --pos:#4CC38A; --neg:#F07A7A;
+  --font:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{height:100%}
+body{height:100%;display:flex;flex-direction:column}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--line-2)}
+::-webkit-scrollbar-track{background:transparent}
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+
+.topo{padding:14px 18px 0}
+.topo h1{margin:0;font-size:16px;font-weight:600}
+.topo h1 span{font-weight:400;color:var(--ink-3);font-size:13px;margin-left:8px}
+
+.abas{display:flex;gap:6px;padding:12px 18px 0;border-bottom:1px solid var(--line)}
+.abas button{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--ink-2);
+  padding:8px 15px;border-radius:8px 8px 0 0;font:inherit;font-size:13px;cursor:pointer}
+.abas button.on{background:var(--bg-2);border-color:var(--line);color:var(--amber);font-weight:600}
+
+#painel{padding:16px 18px 24px;flex:1 1 auto;min-height:0;overflow:auto}
+.submenu{display:flex;gap:16px;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.submenu button{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ink-3);
+  padding:5px 2px;font:inherit;font-size:13px;cursor:pointer}
+.submenu button.on{color:var(--amber);border-bottom-color:var(--amber);font-weight:600}
+
+.barra{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-bottom:12px}
+.barra .resumo{font-size:12.5px;color:var(--ink-2)}
+.barra .resumo b{color:var(--ink)}
+.barra .dir{margin-left:auto;display:flex;gap:10px;align-items:center}
+label.campo{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.04em}
+select,input[type=text],input[type=date],input[type=month],input[type=search],textarea{
+  background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:8px;
+  height:32px;padding:0 9px;font:inherit;font-size:13px;text-transform:none;letter-spacing:0}
+textarea{height:auto;min-height:56px;padding:7px 9px;resize:vertical}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+input[type=checkbox]{accent-color:var(--amber)}
+
+.bt{background:transparent;border:1px solid var(--line-2);color:var(--ink-2);border-radius:8px;
+  padding:7px 13px;font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.bt:hover{border-color:var(--amber);color:var(--ink)}
+.bt.prim{background:var(--amber);border-color:var(--amber);color:#1a1300;font-weight:600}
+.bt.prim:hover{background:#b98803}
+.bt.perigo:hover{border-color:var(--neg);color:var(--neg)}
+.bt:disabled{opacity:.45;cursor:default}
+.x{background:transparent;border:0;color:var(--ink-3);font-size:16px;cursor:pointer;padding:2px 6px}
+.x:hover{color:var(--neg)}
+
+table.t{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
+table.t th{text-align:left;padding:7px 9px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--ink-3);border-bottom:1px solid var(--line-2);white-space:nowrap;background:var(--bg)}
+table.t td{padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+table.t td.n{text-align:right;white-space:nowrap}
+table.t td.d{white-space:nowrap;color:var(--ink-2)}
+table.t tr.clica{cursor:pointer}
+table.t tr.clica:hover td{background:var(--bg-2)}
+table.t tr.sel td{background:var(--card)}
+.vazio{color:var(--ink-3);font-size:13px;padding:14px 2px}
+
+.status{display:inline-block;font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--line-2);
+  color:var(--ink-2);white-space:nowrap}
+.status.Realizada{border-color:rgba(76,195,138,.5);color:var(--pos)}
+.status.Próxima{border-color:rgba(202,151,3,.55);color:var(--amber)}
+.status.Cancelada{border-color:rgba(240,122,122,.5);color:var(--neg)}
+
+.ficha{margin-top:16px;background:var(--bg-2);border:1px solid var(--line);border-radius:12px;padding:16px}
+.ficha h2{margin:0 0 12px;font-size:14px;font-weight:600}
+.grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px}
+.grade .larga{grid-column:1/-1}
+.marca{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-2);text-transform:none;
+  letter-spacing:0;margin-top:20px}
+.premios td input{width:100%}
+.acoes{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.acoes .msg{font-size:12.5px;color:var(--ink-3)}
+.acoes .msg.erro{color:var(--neg)}
+.acoes .dir{margin-left:auto}
+
+.lado{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;align-items:start}
+.lado h3{margin:0 0 8px;font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+@media (max-width:860px){ .lado{grid-template-columns:1fr} }

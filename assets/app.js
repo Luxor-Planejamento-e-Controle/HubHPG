@@ -16,6 +16,7 @@ const ICON = {
   comite:'M4 20V10M10 20V4M16 20v-7M22 20H2',
   plantel:'M4 20V8l8-5 8 5v12M9 20v-6h6v6',
   gastos:'M3 3v18h18M7 15l4-5 4 3 5-7',
+  sgpg:'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4',
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
@@ -29,6 +30,8 @@ const ROUTES = [
    render:renderPlantel},
   {id:'gastos', title:'Gastos', sub:'Orçado × realizado por natureza — Haras Pao Grande',
    icon:'gastos', render:renderGastos},
+  {id:'sgpg', nav:'SGPG', title:'SGPG — Sistema de Gestão Pao Grande',
+   sub:'Exposições e premiações', icon:'sgpg', render:renderSgpg},
 ];
 function allowed(){
   const ok=(window.HUB&&window.HUB.dashboards)||[];
@@ -223,6 +226,17 @@ function renderPlantel(el){
   const f=document.createElement('iframe');
   f.className='embed'; f.title='Plantel / Movimentação';
   f.src='plantel.html';
+  el.appendChild(f);
+}
+
+/* ---- SGPG ----
+   O sistema da Pao Grande, módulo a módulo (sgpg.html). Iframe pela mesma razão
+   do plantel: abas e estado próprios, e a sessão vem de window.parent.HUB. */
+function renderSgpg(el){
+  el.classList.add('flush');
+  const f=document.createElement('iframe');
+  f.className='embed'; f.title='SGPG';
+  f.src='sgpg.html';
   el.appendChild(f);
 }
 

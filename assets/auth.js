@@ -31,6 +31,9 @@ const HUB_DATASETS = {
      `publicar_gastos_haras` do Function App, que lê a planilha do Drive — não
      sai deste repo (ver o comentário no tools/publish_hub.py). */
   gastos:  { file:'gastos.html',  html:'gastosHtml'   },
+  /* Sem snapshot: o SGPG lê e grava as tabelas sgpg_* direto, sob RLS. A entrada
+     existe porque esta lista também é a das abas que o admin enxerga. */
+  sgpg:    {},
 };
 
 /* Erro devolvido pelo GoTrue vem na URL (hash no fluxo implícito, query no PKCE)
@@ -145,7 +148,7 @@ async function loadData(dashboards){
   const sb = window.HUB.sb, bucket = window.HUB_BUCKET;
   await Promise.all(dashboards.map(async d => {
     const spec = HUB_DATASETS[d];
-    if(!spec) return;
+    if(!spec || !spec.file) return;
     // `.download()` do supabase-js não dá controle de cache, e o Cloudflare na
     // frente do bucket serve HIT mesmo com o objeto marcado 'Cache-Control:
     // no-store' (achado em 28/08/2026, checando os headers direto: CF-Cache-
