@@ -39,7 +39,6 @@ function slideHTML(s){
 const NOMES_EDITOR = {
   comentarios: 'comentários',
   manejo: 'pontos de manejo e decisões',
-  exposicoes: 'exposições',
   fotos: 'fotos',
   pendencias: 'pendências registradas',
 };
@@ -116,8 +115,13 @@ const itemFoto = f => (typeof f === 'string' ? {img: f, video: null} : (f || {im
 const FOTOS_POR_SLIDE = 6;
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const ABR_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-const TIPOS_EDITAVEIS = new Set(['comentarios', 'manejo', 'fotos', 'resultados', 'pendencias']);
+const TIPOS_EDITAVEIS = new Set(['comentarios', 'manejo', 'fotos', 'pendencias']);
 const ehExposicaoProg = s => s.t === 'tabela' && s.n === 23;
+/* Slides de exposição: programação (tabela 23), resultados e os pendentes 23/24.
+   Não se editam aqui desde 05/10/2026 — o registro é o do SGPG (aba SGPG do hub),
+   e o conteúdo ao vivo os troca juntos. */
+const ehExposicao = s => s.t === 'resultados' || ehExposicaoProg(s)
+  || (s.t === 'pendente' && (s.n === 23 || s.n === 24));
 
 /* Qual editor abre este slide, ou null se não é de conteúdo humano.
 
@@ -128,14 +132,15 @@ const editorDe = s => {
   if (!s) return null;
   // comentário que veio do Trello: a fonte é o card da controladoria, não o hub
   if (s.origem === 'trello') return null;
+  if (ehExposicao(s)) return null;
   // pendência só vira slide quando tem conteúdo; para escrever a primeira, o
   // Editar da agenda abre o editor dela (o slide entra logo depois da agenda)
   if (s.t === 'agenda') return 'pendencias';
   if (s.t === 'pendente') return s.edita || null;
-  if (s.t === 'resultados') return 'exposicoes';
-  if (ehExposicaoProg(s)) return 'exposicoes';
   return TIPOS_EDITAVEIS.has(s.t) ? s.t : null;
 };
+/* grupo que o conteúdo ao vivo troca de uma vez: o editor, ou 'exposicoes' */
+const grupoDe = s => ehExposicao(s) ? 'exposicoes' : editorDe(s);
 const ehEditavel = s => !!editorDe(s);
 
 function hubSb(){ try { return window.parent.HUB && window.parent.HUB.sb; } catch (e) { return null; } }
@@ -387,6 +392,58 @@ function temaFoto(t){
     : (i && PARTICULAS_TEMA.has(w)) ? w.toLowerCase() : w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
 }
 
+/* Exposições do SGPG: a mesma regra de exposicoes_sgpg/periodo_sgpg do
+   build_comite.py. A partir de SGPG_DESDE; antes, o conteúdo digitado no comitê. */
+const SGPG_DESDE = '2026-08';
+const FALTA_SGPG = 'registre as exposições do ano no SGPG (aba SGPG do hub)';
+let sgpgPromessa = null;
+function buscaSgpg(){
+  if (sgpgPromessa) return sgpgPromessa;
+  const sb = hubSb();
+  if (!sb) return (sgpgPromessa = Promise.resolve(null));
+  sgpgPromessa = Promise.all([
+    sb.from('sgpg_exposicao').select('*').order('inicio'),
+    sb.from('sgpg_premiacao').select('*').order('exposicao_id').order('ordem'),
+  ]).then(([e, p]) => (e.error || p.error) ? null : {expos: e.data || [], premios: p.data || []})
+    .catch(() => null);
+  return sgpgPromessa;
+}
+function periodoSgpg(e){
+  const dd = n => String(n).padStart(2, '0');
+  const [ia, im, id] = e.inicio.split('-').map(Number), [fa, fm, fd] = e.fim.split('-').map(Number);
+  if (e.so_mes) return `${MESES_PT[im - 1]}/${ia}`;
+  if (e.inicio === e.fim) return `${dd(id)}/${dd(im)}/${ia}`;
+  if (ia === fa && im === fm) return `${dd(id)} a ${dd(fd)}/${dd(fm)}/${fa}`;
+  if (ia === fa) return `${dd(id)}/${dd(im)} a ${dd(fd)}/${dd(fm)}/${fa}`;
+  return `${dd(id)}/${dd(im)}/${ia} a ${dd(fd)}/${dd(fm)}/${fa}`;
+}
+function exposicoesSgpg(sg, ano, mNum){
+  const fimMes = `${ano}-${String(mNum).padStart(2, '0')}-${String(new Date(ano, mNum, 0).getDate()).padStart(2, '0')}`;
+  const doAno = sg.expos.filter(e => e.inicio.slice(0, 4) === String(ano));
+  const resultados = [];
+  for (const e of doAno) {
+    const ps = sg.premios.filter(p => p.exposicao_id === e.id);
+    if (e.status !== 'Realizada' || !ps.length || e.inicio > fimMes) continue;
+    resultados.push({titulo: `RESULTADOS — ${e.nome.toUpperCase()}`, sub: periodoSgpg(e),
+                     animais: ps.map(p => ({nome: p.animal, premios: [p.premio]}))});
+  }
+  return {programacao: doAno.map(e => [e.nome, periodoSgpg(e), e.local || '', e.status]), resultados};
+}
+function slidesExposicoesSgpg(sg, ano, mNum){
+  const {programacao: prog, resultados: res} = exposicoesSgpg(sg, ano, mNum);
+  const fonte = 'SGPG › Exposições e premiações';
+  const s = [prog.length
+    ? {t:'tabela', n:23, titulo:`EXPOSIÇÕES ${ano} — PROGRAMAÇÃO`, sub:'',
+       cols:['EVENTO','DATA','LOCAL','STATUS'], rows: expoProgramacao(prog)}
+    : {t:'pendente', n:23, titulo:`EXPOSIÇÕES ${ano} — PROGRAMAÇÃO`, sub:'Calendário de participações',
+       fonte, motivo: FALTA_SGPG}];
+  res.forEach((r, k) => { const [titulo, sub] = expoResultado(r, prog);
+    s.push({t:'resultados', n:24+k, titulo, sub, animais:expoAnimais(r.animais)}); });
+  if (!res.length) s.push({t:'pendente', n:24, titulo:'RESULTADOS DAS EXPOSIÇÕES',
+    sub:'Animais, títulos e colocações', fonte, motivo: FALTA_SGPG});
+  return s;
+}
+
 /* 'Jul', 'Julho', 'JULHO' -> 7 */
 const mesDoRotulo = r => {
   const k = String(r || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().slice(0, 3);
@@ -409,10 +466,12 @@ function slidesManejo(hist, mNum, ano){
 }
 
 async function montaSlidesAoVivo(mes){
-  const c = await buscaConteudoAoVivo(mes);
-  if (!c) return null;
+  const doSgpg = mes >= SGPG_DESDE;
+  const [c, sg] = await Promise.all([buscaConteudoAoVivo(mes), doSgpg ? buscaSgpg() : null]);
   const [ano, mNum] = mes.split('-').map(Number);
   const out = {};
+  if (sg) out.exposicoes = slidesExposicoesSgpg(sg, ano, mNum);
+  if (!c) return sg ? out : null;
   const MES = MESES_PT[mNum - 1];
 
   // mesmos títulos e subtítulos do build_comite.py — o slide ao vivo substitui
@@ -444,7 +503,7 @@ async function montaSlidesAoVivo(mes){
       prog.splice(pos, 0, base[i]);
     }
   }
-  if (prog.length || res.length) {
+  if (!doSgpg && (prog.length || res.length)) {
     const s = [];
     if (prog.length) s.push({t:'tabela', n:23, titulo:`EXPOSIÇÕES ${ano} — PROGRAMAÇÃO`,
       sub:'', cols:['EVENTO','DATA','LOCAL','STATUS'], rows: expoProgramacao(prog)});
@@ -507,7 +566,7 @@ function substituiSlidesDoTipo(chave, novos){
   let primeiro = -1;
   slides = slides.filter((s, i) => {
     // a agenda só EMPRESTA o editor de pendências — nunca é substituída
-    const bate = s.t !== 'agenda' && editorDe(s) === chave;
+    const bate = s.t !== 'agenda' && grupoDe(s) === chave;
     if (bate && primeiro === -1) primeiro = i;
     return !bate;
   });
@@ -592,11 +651,10 @@ async function abreEditor(s){
   document.getElementById('edSalvar').disabled = false;
 }
 
-const TITULO_EDITOR = {comentarios: 'Comentários', manejo: 'Manejo', exposicoes: 'Exposições',
+const TITULO_EDITOR = {comentarios: 'Comentários', manejo: 'Manejo',
                        pendencias: 'Pendências da apresentação anterior', fotos: 'Fotos'};
 const RENDER_EDITOR = {comentarios: () => renderComentarios(), manejo: () => renderManejo(),
-                       exposicoes: () => renderExposicoes(), pendencias: () => renderPendencias(),
-                       fotos: () => renderFotos()};
+                       pendencias: () => renderPendencias(), fotos: () => renderFotos()};
 const rotuloMes = mes => (SPEC.labels && SPEC.labels[mes]) || mes;
 function mesAnteriorDe(mes){
   const [a, m] = mes.split('-').map(Number);
@@ -608,19 +666,13 @@ function mesAnteriorDe(mes){
    rascunho não pode alterar o que está no cache. */
 function estadoDe(tipo, c){
   const copia = x => JSON.parse(JSON.stringify(x));
-  if (tipo === 'exposicoes') {
-    const e = c.exposicoes || {};
-    return {programacao: copia(e.programacao || []), resultados: copia(e.resultados || [])};
-  }
   if (tipo === 'fotos') {
     const f = c.fotos || [];
     return copia(typeof f[0] === 'string' ? [{tema: '', arquivos: f}] : f);
   }
   return copia(c[tipo] || []);
 }
-const estadoVazio = (tipo, e) => tipo === 'exposicoes'
-  ? !(e.programacao.length || e.resultados.length)
-  : !e.length;
+const estadoVazio = (tipo, e) => !e.length;
 
 /* Traz para o editor o conteúdo que o mês anterior tem do mesmo tipo. Só
    preenche o rascunho: nada vai para o banco até o Salvar, então dá para
@@ -688,52 +740,6 @@ function renderManejo(){
   });
   corpo.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { estado.splice(+b.dataset.rm, 1); renderManejo(); });
   document.getElementById('edAdd').onclick = () => { estado.push(['', '']); renderManejo(); };
-}
-
-/* ---- exposições: programação (linhas [evento,data,local,status]) +
-   resultados ({titulo,sub,animais}, animais editado como texto "Nome:
-   prêmio1; prêmio2" por linha — mais simples que formulário aninhado) ---- */
-function animaisParaTexto(animais){
-  return (animais || []).map(a => `${a.nome}: ${(a.premios || []).join('; ')}`).join('\n');
-}
-function textoParaAnimais(txt){
-  return txt.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-    const [nome, resto] = l.split(':');
-    return {nome: (nome || '').trim(), premios: (resto || '').split(';').map(p => p.trim()).filter(Boolean)};
-  });
-}
-function renderExposicoes(){
-  const corpo = document.getElementById('edCorpo');
-  const prog = estado.programacao.map((r, i) => `
-    <div class="ed-linha ed-linha4">
-      <input data-pi="${i}" data-pf="0" value="${escAttr(r[0])}" placeholder="Evento">
-      <input data-pi="${i}" data-pf="1" value="${escAttr(r[1])}" placeholder="Data">
-      <input data-pi="${i}" data-pf="2" value="${escAttr(r[2])}" placeholder="Local">
-      <input data-pi="${i}" data-pf="3" value="${escAttr(r[3])}" placeholder="Status">
-      <button type="button" class="ed-rm" data-rmp="${i}">✕</button>
-    </div>`).join('');
-  const res = estado.resultados.map((r, i) => `
-    <div class="ed-bloco">
-      <input data-ri="${i}" data-rf="titulo" value="${escAttr(r.titulo)}" placeholder="Título do slide">
-      <input data-ri="${i}" data-rf="sub" value="${escAttr(r.sub)}" placeholder="Subtítulo">
-      <textarea data-ri="${i}" data-rf="animais" rows="4" placeholder="Um animal por linha: Nome: prêmio 1; prêmio 2">${esc(animaisParaTexto(r.animais))}</textarea>
-      <button type="button" class="ed-rm" data-rmr="${i}">✕ remover resultado</button>
-    </div>`).join('');
-  corpo.innerHTML = `<h4>Programação</h4>${prog}
-    <button type="button" id="edAddP" class="ed-add">+ evento</button>
-    <h4>Resultados</h4>${res}
-    <button type="button" id="edAddR" class="ed-add">+ resultado</button>`;
-  corpo.querySelectorAll('[data-pi]').forEach(inp => inp.oninput = () => {
-    estado.programacao[+inp.dataset.pi][+inp.dataset.pf] = inp.value;
-  });
-  corpo.querySelectorAll('[data-rmp]').forEach(b => b.onclick = () => { estado.programacao.splice(+b.dataset.rmp, 1); renderExposicoes(); });
-  corpo.querySelectorAll('[data-ri]').forEach(inp => inp.oninput = () => {
-    const r = estado.resultados[+inp.dataset.ri], f = inp.dataset.rf;
-    r[f === 'animais' ? '_txt' : f] = inp.value;
-  });
-  corpo.querySelectorAll('[data-rmr]').forEach(b => b.onclick = () => { estado.resultados.splice(+b.dataset.rmr, 1); renderExposicoes(); });
-  document.getElementById('edAddP').onclick = () => { estado.programacao.push(['', '', '', '']); renderExposicoes(); };
-  document.getElementById('edAddR').onclick = () => { estado.resultados.push({titulo:'', sub:'', animais:[]}); renderExposicoes(); };
 }
 
 /* ---- fotos: grupos {tema, arquivos[]} — upload direto no bucket ao
@@ -901,13 +907,6 @@ async function salvaEditor(){
   else if (tipoAtual === 'manejo') { coluna = 'manejo'; valor = estado; }
   else if (tipoAtual === 'fotos') { coluna = 'fotos'; valor = estado; }
   else if (tipoAtual === 'pendencias') { coluna = 'pendencias'; valor = estado.map(x => String(x || '').trim()).filter(Boolean); }
-  else if (tipoAtual === 'exposicoes') {
-    coluna = 'exposicoes';
-    valor = {
-      programacao: estado.programacao,
-      resultados: estado.resultados.map(r => ({titulo: r.titulo, sub: r.sub, animais: textoParaAnimais(r._txt ?? animaisParaTexto(r.animais))})),
-    };
-  }
   const { error } = await sb.from('comite_conteudo').upsert({mes: mesAtual, [coluna]: valor});
   document.getElementById('edSalvar').disabled = false;
   if (error) { document.getElementById('edStatus').textContent = ''; alert('Falha ao salvar: ' + error.message); return; }

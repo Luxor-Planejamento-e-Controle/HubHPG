@@ -17,6 +17,7 @@ Uso:
     python tools/build_comite.py          # todos os meses com dado
     python tools/build_comite.py 06/2026  # só esse mês
 """
+import calendar
 import json
 import base64
 import os
@@ -2949,11 +2950,81 @@ def programacao_com_resultados(prog: list, res: list, todos, m, ano) -> list:
     return out
 
 
-def slides_exposicoes(c, ano, todos=None, m=None):
-    exp = c.get("exposicoes") or {}
+# Exposições e premiações vêm do SGPG (aba SGPG do hub, tabelas sgpg_exposicao e
+# sgpg_premiacao) a partir de agosto/2026 — o registro foi montado com o conteúdo
+# daquele mês. Os decks anteriores seguem com o que foi digitado no conteúdo do
+# comitê: o SGPG só guarda o status de HOJE (a Nacional sairia "Realizada" no deck
+# de junho, que a mostrava como "Próxima") e mês fechado não muda.
+SGPG_DESDE = "2026-08"
+FALTA_SGPG = "registre as exposições do ano no SGPG (aba SGPG do hub)"
+
+
+def le_sgpg():
+    """{"expos": [...], "premios": [...]} das tabelas do SGPG, ou None se o banco não
+    responder — aí o deck cai no conteúdo do comitê, como antes do SGPG."""
+    url, key = _supabase_env()
+    if not url:
+        return None
+    h = {"apikey": key, "Authorization": f"Bearer {key}"}
+    try:
+        e = requests.get(f"{url}/rest/v1/sgpg_exposicao?select=*&order=inicio", headers=h, timeout=15)
+        p = requests.get(f"{url}/rest/v1/sgpg_premiacao?select=*&order=exposicao_id,ordem",
+                         headers=h, timeout=15)
+        e.raise_for_status()
+        p.raise_for_status()
+    except Exception as exc:
+        aviso(f"SGPG indisponível ({exc!r}) — exposições do deck saem do conteúdo do comitê")
+        return None
+    expos, premios = e.json(), p.json()
+    quando = max([x.get("alterado_em") or "" for x in expos + premios] or [""]) or None
+    _registra_remoto("exposições e premiações (SGPG)", "sgpg_exposicao · sgpg_premiacao",
+                     "Supabase › tabelas sgpg_exposicao e sgpg_premiacao (aba SGPG do hub)", quando)
+    return {"expos": expos, "premios": premios}
+
+
+def periodo_sgpg(e: dict) -> str:
+    """Datas como o relatório escreve: 'Junho/2026', '24/09/2026', '06 a 12/04/2026',
+    '25/04 a 02/05/2026' (a mesma regra da tela do SGPG)."""
+    i, f = date.fromisoformat(e["inicio"]), date.fromisoformat(e["fim"])
+    if e.get("so_mes"):
+        return f"{MESES[i.month - 1]}/{i.year}"
+    if i == f:
+        return f"{i:%d/%m/%Y}"
+    if (i.year, i.month) == (f.year, f.month):
+        return f"{i:%d} a {f:%d/%m/%Y}"
+    if i.year == f.year:
+        return f"{i:%d/%m} a {f:%d/%m/%Y}"
+    return f"{i:%d/%m/%Y} a {f:%d/%m/%Y}"
+
+
+def exposicoes_sgpg(sg: dict, ano: int, m: int) -> dict:
+    """O registro do SGPG no formato do conteúdo do comitê ({programacao, resultados}),
+    para o resto do caminho (expo_programacao, expo_resultado) não mudar.
+
+    Programação: as exposições do ano, na ordem das datas — inclusive as que ainda vão
+    acontecer. Resultados: as realizadas até o fim do mês do deck que têm premiação,
+    uma linha por prêmio, como o haras escrevia."""
+    fim_mes = date(ano, m, calendar.monthrange(ano, m)[1]).isoformat()
+    do_ano = [e for e in sg["expos"] if e["inicio"][:4] == str(ano)]
+    prog = [[e["nome"], periodo_sgpg(e), e.get("local") or "", e["status"]] for e in do_ano]
+    res = []
+    for e in do_ano:
+        ps = [p for p in sg["premios"] if p["exposicao_id"] == e["id"]]
+        if e["status"] != "Realizada" or not ps or e["inicio"] > fim_mes:
+            continue
+        res.append({"titulo": f"RESULTADOS — {e['nome'].upper()}", "sub": periodo_sgpg(e),
+                    "animais": [{"nome": p["animal"], "premios": [p["premio"]]} for p in ps]})
+    return {"programacao": prog, "resultados": res}
+
+
+def slides_exposicoes(c, ano, todos=None, m=None, sg=None):
+    do_sgpg = bool(m) and f"{ano}-{m:02d}" >= SGPG_DESDE and sg is not None
+    exp = exposicoes_sgpg(sg, ano, m) if do_sgpg else (c.get("exposicoes") or {})
     prog, res = exp.get("programacao") or [], exp.get("resultados") or []
-    if todos is not None and m and prog:
+    if not do_sgpg and todos is not None and m and prog:
         prog = programacao_com_resultados(prog, res, todos, m, ano)
+    fonte = "SGPG › Exposições e premiações" if do_sgpg else "comite_conteudo → exposicoes"
+    motivo = FALTA_SGPG if do_sgpg else FALTA_CONTEUDO
     out = []
     if prog:
         out.append({"t": "tabela", "n": 23, "titulo": f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO",
@@ -2961,8 +3032,7 @@ def slides_exposicoes(c, ano, todos=None, m=None):
                     "cols": ["EVENTO", "DATA", "LOCAL", "STATUS"], "rows": expo_programacao(prog)})
     else:
         out.append(pend(23, f"EXPOSIÇÕES {ano} — PROGRAMAÇÃO", "Calendário de participações",
-                        "_docs/comite_conteudo.json → exposicoes.programacao", FALTA_CONTEUDO,
-                        edita="exposicoes"))
+                        fonte, motivo))
     if res:
         for k, r in enumerate(res):
             tit, sub = expo_resultado(r, prog)
@@ -2970,8 +3040,7 @@ def slides_exposicoes(c, ano, todos=None, m=None):
                         "animais": expo_animais(r["animais"])})
     else:
         out.append(pend(24, "RESULTADOS DAS EXPOSIÇÕES", "Animais, títulos e colocações",
-                        "_docs/comite_conteudo.json → exposicoes.resultados", FALTA_CONTEUDO,
-                        edita="exposicoes"))
+                        fonte, motivo))
     return out
 
 
@@ -3434,7 +3503,7 @@ def monta_deck(m, ano, ctx):
     s.append(cob_slide)
 
     s.append(divisor(3, "EXPOSIÇÕES", f"Programação  ·  Resultados  |  {MES} {ano}"))
-    s += slides_exposicoes(cont, ano, ctx["conteudo"], m)
+    s += slides_exposicoes(cont, ano, ctx["conteudo"], m, ctx.get("sgpg"))
 
     s.append(divisor(4, "VENDAS", f"Pipeline Comercial  ·  Contratos {ano}  |  {MES} {ano}"))
     s += slides_vendas(m, ano)
@@ -3494,6 +3563,7 @@ def build(so_mes=None, base=None):
     # diferentes (julho é 25/26, agosto é 26/27) — resolve por safra, uma vez cada
     ctx["estacao_por_safra"] = {}
     ctx["conteudo"] = le_conteudo()
+    ctx["sgpg"] = le_sgpg()
 
     alvo = [so_mes.month] if so_mes else meses
     decks = {}

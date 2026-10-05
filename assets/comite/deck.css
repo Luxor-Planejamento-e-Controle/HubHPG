@@ -164,8 +164,6 @@ body.play .slide{box-shadow:none;border:0}
 #edFechar{background:transparent;border:0;color:var(--ink-2);font-size:16px;cursor:pointer;padding:4px 8px}
 #edFechar:hover{color:var(--ink)}
 #edCorpo{padding:16px 20px;overflow-y:auto;flex:1 1 auto;font-size:13px;color:var(--ink)}
-#edCorpo h4{margin:18px 0 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber)}
-#edCorpo h4:first-child{margin-top:0}
 #edCorpo input,#edCorpo textarea{
   background:var(--card);border:1px solid var(--line);color:var(--ink);
   border-radius:7px;padding:7px 9px;font:inherit;font-size:12.5px;width:100%;
@@ -173,7 +171,6 @@ body.play .slide{box-shadow:none;border:0}
 }
 #edCorpo input:focus,#edCorpo textarea:focus{outline:none;border-color:var(--amber)}
 .ed-linha{display:grid;grid-template-columns:1fr 2fr 90px auto;gap:8px;align-items:start;margin-bottom:8px}
-.ed-linha4{grid-template-columns:1.4fr 1fr 1fr .8fr auto}
 .ed-linha2{grid-template-columns:1fr auto}
 .ed-curta{width:100%}
 .ed-rm{background:transparent;border:1px solid var(--line);color:var(--ink-3);
@@ -182,9 +179,6 @@ body.play .slide{box-shadow:none;border:0}
 .ed-add{background:transparent;border:1px dashed var(--line-2);color:var(--ink-2);
   border-radius:8px;padding:7px 14px;font:inherit;font-size:12.5px;cursor:pointer;margin-top:2px}
 .ed-add:hover{border-color:var(--amber);color:var(--amber)}
-.ed-bloco{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px;
-  display:flex;flex-direction:column;gap:7px}
-.ed-bloco .ed-rm{width:auto;padding:0 10px;align-self:flex-start}
 .ed-grupo{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;
   background:rgba(234,240,244,.02)}
 .ed-grupo-head{display:flex;gap:8px;align-items:center;margin-bottom:12px}
@@ -235,7 +229,6 @@ body.play .slide{box-shadow:none;border:0}
   #editorPanel{max-height:94vh}
   .ed-linha{grid-template-columns:1fr;gap:6px}
   .ed-linha .ed-rm{justify-self:end}
-  .ed-linha4{grid-template-columns:1fr}
   /* sem hover em touch — ações da foto ficam sempre visíveis */
   .ed-fotos-grade{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
   .ed-foto-acoes{opacity:1}
