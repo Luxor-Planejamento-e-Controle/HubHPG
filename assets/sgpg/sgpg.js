@@ -6,9 +6,9 @@
    registro é pela ficha da exposição, na mesma tela.
    O comitê mensal lê este registro (build_comite.py e deck.js, a partir de ago/2026).
 
-   O prêmio aponta para um animal do plantel (sgpg_animal, sincronizado do controle
-   mensal do haras pelo tools/sync_sgpg_animais.py): o registro só oferece quem está no
-   plantel; quem saiu continua no histórico com o que ganhou.
+   O prêmio aponta para um animal do plantel (sgpg_animal, derivada no banco do último
+   mês importado na aba Plantel do hub — ver a migration 20261005210000): o registro só
+   oferece quem está no plantel; quem saiu continua no histórico com o que ganhou.
 
    Sessão e cliente do Supabase vêm do hub (window.parent.HUB). Quem grava é decidido
    pelo banco (hub_sgpg_editor: admin e sgpg_editores); aqui só se escondem os botões

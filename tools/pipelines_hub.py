@@ -33,9 +33,6 @@ PIPELINES = {
         # planilhas do Drive são sobrescritas a cada semana (ver publish_hub.py).
         ("monta a auditoria", [PY, "tools/build_auditoria.py"]),
         ("publica no bucket", [PY, "tools/publish_hub.py", "semanal", "auditoria", "estado"]),
-        # a lista de animais do SGPG (quem pode receber prêmio) segue o mesmo controle
-        # mensal que o fechamento acabou de ler; falhar aqui só deixa um aviso no log
-        ("atualiza os animais do SGPG", [PY, "tools/sync_sgpg_animais.py"]),
     ],
     # O comitê tem dois pedidos (`detalhe.acao` no hub_job): atualizar o mês no ar
     # e gerar o seguinte. Nenhum remonta os outros meses — vêm do comite.json
