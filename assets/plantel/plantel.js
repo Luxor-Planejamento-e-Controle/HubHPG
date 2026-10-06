@@ -1434,10 +1434,13 @@ function opcoesDe(itens, qual, txtDe, ordDe, i){
    cara duas vezes: ocupava altura e, por ter largura mínima própria, esticava
    coluna estreita (QTDE, LETRA, SEXO) muito além do texto que mostra. O que
    está filtrado é dito ACIMA da tabela, em etiqueta, não dentro da coluna. */
+/* Funil, e não "▾": o triângulo ao lado do ▲/▼ da ordenação lia como a direção da
+   classificação, e ninguém achava o filtro (Arthur, 06/10/2026). Aceso = coluna filtrada. */
+const FUNIL = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3h11l-4.3 5.3v4.4l-2.4 1.2V8.3z"/></svg>';
 function iconeFiltro(qual, i, rot){
   const sel = ST.filtros[qual][i] || [];
   return `<button type="button" class="fbtn${sel.length ? ' on' : ''}" data-fb="${qual}:${i}"`
-    + ` title="filtrar ${esc(rot)}">▾</button>`;
+    + ` title="Filtrar ${esc(rot)}" aria-label="Filtrar ${esc(rot)}">${FUNIL}</button>`;
 }
 
 function cabFiltro(qual, i, rot, ehNum, ordem){
@@ -1767,7 +1770,7 @@ function subMovimentacoes(){
     <div class="barra-filtro">
       <span class="barra-rot">filtrar</span>
       ${FILTRAVEIS.map(i => `<button type="button" class="fbtn-rot${
-        (ST.filtros.mov[i] || []).length ? ' on' : ''}" data-fb="mov:${i}">${COLS_MOV[i][0]} ▾</button>`).join('')}
+        (ST.filtros.mov[i] || []).length ? ' on' : ''}" data-fb="mov:${i}">${FUNIL}${COLS_MOV[i][0]}</button>`).join('')}
       <span class="barra-rot">ordenar</span>
       <button type="button" class="fbtn-rot${ST.ordem.mov.col == null ? ' on' : ''}" data-ord="mov:">maior Δ</button>
       <button type="button" class="fbtn-rot${ST.ordem.mov.col === 0 ? ' on' : ''}" data-ord="mov:0">nome</button>

@@ -56,13 +56,18 @@ table.t th{text-align:right;padding:6px 7px;font-size:10px;letter-spacing:.05em;
 table.t th:hover{color:var(--ink)}
 table.t th.ord{color:var(--amber)}
 /* o ícone de filtro fica na MESMA linha do nome: nada de linha extra de altura */
-.th-in{display:inline-flex;align-items:center;gap:4px;max-width:100%}
+.th-in{display:inline-flex;align-items:center;gap:7px;max-width:100%}
 table.t th.l .th-in{justify-content:flex-start}
 .th-rot{overflow:hidden;text-overflow:ellipsis}
-.fbtn{flex:none;background:transparent;border:0;color:var(--ink-3);cursor:pointer;
-  font:inherit;font-size:11px;line-height:1;padding:2px 3px;border-radius:4px;opacity:.55}
-.fbtn:hover{color:var(--ink);background:var(--card);opacity:1}
-.fbtn.on{color:var(--amber);opacity:1}
+/* botão de filtro do cabeçalho: funil numa caixinha própria, para não se confundir
+   com a seta da ordenação; dourado e cheio quando a coluna está filtrada */
+.fbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;
+  padding:0;background:transparent;border:1px solid var(--line);border-radius:5px;color:var(--ink-3);cursor:pointer}
+.fbtn svg,.fbtn-rot svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round}
+.fbtn:hover{color:var(--ink);border-color:var(--line-2);background:var(--card)}
+.fbtn.on{color:#1a1300;background:var(--amber);border-color:var(--amber)}
+.fbtn.on svg,.fbtn-rot.on svg{fill:currentColor}
+.fbtn:focus-visible,.fbtn-rot:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
 
 /* etiquetas do que está filtrado, acima da tabela */
 .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
@@ -155,8 +160,8 @@ table.t td.oque .log{display:block;white-space:normal;word-break:break-word}
 .cls-ok:hover{background:var(--amber);color:#1a1300}
 .barra-filtro{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:10px}
 .barra-rot{color:var(--ink-3);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-.fbtn-rot{background:var(--card);border:1px solid var(--line);color:var(--ink-2);border-radius:7px;
-  padding:4px 10px;font:inherit;font-size:11.5px;cursor:pointer;white-space:nowrap}
+.fbtn-rot{display:inline-flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);
+  color:var(--ink-2);border-radius:7px;padding:4px 10px;font:inherit;font-size:11.5px;cursor:pointer;white-space:nowrap}
 .fbtn-rot:hover{border-color:var(--line-2);color:var(--ink)}
 .fbtn-rot.on{border-color:var(--amber);color:var(--amber)}
 
