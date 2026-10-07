@@ -19,6 +19,12 @@
 const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const CLASSES_MOV = ['compra', 'embriao', 'venda', 'morte', 'doacao', 'reavaliacao',
                      'renome', 'sem_efeito'];
+/* Movimentação que não condiz com a realidade (Arthur, 07/10/2026): sai da fila, não
+   entra no resumo e fica listada na Conciliação com o motivo, para restaurar se for o
+   caso. Não é classificação, por isso não está em CLASSES_MOV (o <select>); o banco
+   aceita pela constraint plantel_mov_classe_ck (migration 20261007120000). */
+const CLASSE_REMOVIDA = 'removida';
+const removida = (mes, m) => (ST.decisoes[`${mes}|${m.chave}`] || {}).classe === CLASSE_REMOVIDA;
 /* Mês aberto ou fechado. A verdade mora na tabela `plantel_mes_status` e é a
    MESMA que o banco consulta em `plantel_mes_fechado` — a tela não decide nada
    sozinha, só evita oferecer o que o RLS vai recusar.
@@ -410,7 +416,7 @@ function tipoLog(oc){
   const o = norm(oc);
   if (/MUDOU DE NOME|MUDOU O NOME|ALTEROU O NOME|TROCOU O NOME|ADICAO DE SUFIXO/.test(o)) return 'nome';
   if (/NASCEU/.test(o) && /(ESTAVA|MUDOU A CATEGORIA)/.test(o)) return 'nome';
-  if (/MUDOU O LOCAL|MUDOU DE LOCAL|FOI PARA O CENTRO DE TREINAMENTO/.test(o)) return 'local';
+  if (/MUDOU O LOCAL|MUDOU DE LOCAL|FOI PARA O CENTRO DE TREINAMENTO|SAIU DO HARAS|CHEGOU (NO|AO) HARAS|ARRENDAMENTO/.test(o)) return 'local';
   return 'financeira';
 }
 
@@ -524,8 +530,13 @@ function movimentacaoDoMes(mes){
     const loA = a ? norm(a[ixa.local]) : '', loB = b ? norm(b[ixb.local]) : '';
     const mudouStatus = a && b && stA !== stB;
     const mudouLocal = a && b && loA !== loB;
+    /* Nascimento: o embrião vira POTRO/POTRA com o mesmo nome, cota e valor, então
+       nada acima mudava e o nascimento sumia (os dois de 17/09/2026: GABRIELA ELFAR X
+       IMPERIO SAPECADO e BELA Q-MARCHA X ENCANTADO). Entra sem efeito no patrimônio. */
+    const caA = a ? norm(a[ixa.categoria]) : '', caB = b ? norm(b[ixb.categoria]) : '';
+    const nasceu = a && b && caA !== caB && /EMBRI/.test(caA);
     const trocouDono = !!(a && b && donoDaLinha(a, ixa) !== donoDaLinha(b, ixb));
-    if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && !trocouDono && a && b) continue;
+    if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && !nasceu && !trocouDono && a && b) continue;
 
     const linha = b || a, ixL = b ? ixb : ixa;
     const dono = donoDaLinha(linha, ixL);
@@ -552,6 +563,7 @@ function movimentacaoDoMes(mes){
       mudou_dono: donoAnt !== dono ? [donoAnt, dono] : null,
       mudou_status: mudouStatus ? [a[ixa.status], b[ixb.status]] : null,
       mudou_local: mudouLocal ? [a[ixa.local], b[ixb.local]] : null,
+      mudou_categoria: nasceu ? [a[ixa.categoria], b[ixb.categoria]] : null,
       posterior, no_escopo: noEscopo(linha),
     };
     /* proporção do delta que cabe a cada escopo, para repartir evento a evento
@@ -631,6 +643,35 @@ function movimentacaoDoMes(mes){
                 receptoras: ehLinhaReceptoras(linha[ixL.nome])}),
         itensLog, null);
     }
+  }
+  /* Ocorrência de local que o registro do mês traz e a planilha não mostra: o LEGADO
+     DA PAO GRANDE foi para o arrendamento em 05/09/2026, mas a cópia de agosto
+     (AGO_26_v3, editada já em setembro) trazia o local novo. De agosto para setembro
+     nada mudava e a saída sumia do mês em que aconteceu. Vira movimentação sem
+     efeito no patrimônio, com a ocorrência como origem. */
+  const comMov = new Set(movs.map(m => m.chave_linha));
+  const soLog = new Map();
+  for (const x of log) {
+    if (x.tipo !== 'local') continue;
+    const k = achaNome(norm(x.produto), idxAtual) || `LOG:${norm(x.produto)}`;
+    if (comMov.has(k)) continue;
+    if (!soLog.has(k)) soLog.set(k, []);
+    soLog.get(k).push(x);
+  }
+  for (const [k, itens] of soLog) {
+    const pb = B[k], l = pb ? pb.l : null, ixl = pb ? pb.ix : ix;
+    const q = l ? num(l[ixl.cota]) : 0, v = l ? num(l[ixl.valor]) : 0;
+    const dono = l ? donoDaLinha(l, ixl) : null;
+    movs.push({
+      chave: `${k}#log`, chave_linha: k, linha: l,
+      nome: l ? l[ixl.nome] : itens[0].produto, sufixo: l ? l[ixl.sufixo] : '',
+      categoria: l ? l[ixl.categoria] : '', status: l ? l[ixl.status] : '', dono,
+      cota_ant: q, cota_atual: q, valor_ant: v, valor_atual: v, patr_ant: q * v, patr_atual: q * v,
+      entrou: false, saiu: false, renome: null, dono_ant: dono, mudou_dono: null,
+      mudou_status: null, mudou_local: null, mudou_categoria: null, posterior: null,
+      no_escopo: true, so_log: true, local_atual: l ? l[ixl.local] : '',
+      delta: 0, delta_carla: 0, delta_ce: 0, sugestao: 'sem_efeito', log: itens, evento: null,
+    });
   }
   movs.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
   return {movs, log, renomes};
@@ -1023,8 +1064,9 @@ function resumoAno(){
       if (!mo.delta_carla) continue;
       const dec = ST.decisoes[`${m}|${mo.chave}`];
       const classe = dec ? dec.classe : mo.sugestao;
-      // sem decisão e sem sugestão: não entra em causa nenhuma até ser classificada
-      if (!classe) continue;
+      // sem decisão e sem sugestão: não entra em causa nenhuma até ser classificada;
+      // removida também não (não aconteceu)
+      if (!classe || classe === CLASSE_REMOVIDA) continue;
       causas[classe] = +((causas[classe] || 0) + mo.delta_carla).toFixed(2);
     }
     /* lançamento manual entra na causa dele como qualquer outro: é dinheiro que
@@ -1666,6 +1708,8 @@ function fichaMov(m){
   if (m.cota_ant !== m.cota_atual) deltas.push(['cota', `${pct(m.cota_ant)} → ${pct(m.cota_atual)}`]);
   if (m.valor_ant !== m.valor_atual) deltas.push(['valor', `${rs(m.valor_ant)} → ${rs(m.valor_atual)}`]);
   if (m.mudou_local) deltas.push(['local', `${esc(m.mudou_local[0])} → ${esc(m.mudou_local[1])}`]);
+  if (m.mudou_categoria) deltas.push(['nascimento', `${esc(m.mudou_categoria[0])} → ${esc(m.mudou_categoria[1])}`]);
+  if (m.so_log && m.local_atual) deltas.push(['local', `${esc(m.local_atual)} (já estava na planilha anterior)`]);
   if (m.mudou_dono) deltas.push(['dono', `${ATRIB[m.mudou_dono[0]] || '—'} → ${ATRIB[m.mudou_dono[1]] || '—'}`]);
   if (m.renome) deltas.push(['nome', `${esc(m.renome.de)} → ${esc(m.renome.para)}`]);
   if (m.entrou) deltas.push(['entrada', 'entrou no plantel']);
@@ -1684,7 +1728,9 @@ function fichaMov(m){
      01/09/2025. Sem descrição, o card não dizia POR QUE estava na fila. A
      origem é sempre a comparação das duas planilhas; dizer isso, e dizer que o
      log do mês está calado, é o que falta pra decidir. */
-  const origem = !(m.log || []).length
+  const origem = m.so_log
+    ? `só no log de ${rotMes(ST.mes)}: a planilha do mês anterior já trazia a mudança`
+    : !(m.log || []).length
     ? `${deltas.length ? deltas.map(([r]) => r).join(', ') : 'valor'} mudou entre as planilhas`
       + ` · sem ocorrência no log de ${rotMes(ST.mes)}`
     : '';
@@ -1719,7 +1765,9 @@ function fichaMov(m){
       <span class="ficha-perg-rot${m.sugestao ? '' : ' sem-palpite'}">${m.sugestao
         ? 'Confirma movimentação:' : 'Sem sugestão — classifique:'}</span>
       <select class="cls-sel" data-sel="${esc(m.chave)}">${opcoes}</select>
-      <button type="button" class="cls-ok" data-ok="${esc(m.chave)}">OK</button>`
+      <button type="button" class="cls-ok" data-ok="${esc(m.chave)}">OK</button>
+      <button type="button" class="cls-rm" data-rm="${esc(m.chave)}"
+        title="Tira da fila e do resumo — para movimentação que não aconteceu">remover</button>`
       : `<span class="ficha-perg-rot${m.sugestao ? '' : ' sem-palpite'}">${m.sugestao
         ? `Sugerido: <b>${esc(m.sugestao)}</b>` : 'Sem sugestão'}</span>`}
     </div>
@@ -1796,9 +1844,10 @@ function subConciliacao(){
      tela (ou por ela), e listar só o que passou pelo botão diria que um mês
      fechado está vazio. Mês aberto lista o que já foi confirmado. */
   const registradas = mv.movs
-    .filter(m => (m.no_escopo || m.dono)
+    .filter(m => (m.no_escopo || m.dono) && !removida(ST.mes, m)
                  && (mesFechado(ST.mes) || ST.decisoes[`${ST.mes}|${m.chave}`]))
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const removidas = mv.movs.filter(m => removida(ST.mes, m));
   const bloco = (titulo, itens, render) => !itens.length ? '' :
     `<h3>${titulo} <span class="cont">${itens.length}</span></h3>${itens.map(render).join('')}`;
   /* trancado = sem escrita: mês fechado, ou quem só vê a aba — que lê a
@@ -1850,6 +1899,15 @@ function subConciliacao(){
           <td class="${clsN(registradas.reduce((s, m) => s + m.delta, 0))}">${
             rs(registradas.reduce((s, m) => s + m.delta, 0))}</td><td></td></tr>
         </tbody></table></div>`}
+    ${!removidas.length ? '' : `
+      <h3>Removidas <span class="cont">${removidas.length}</span></h3>
+      ${removidas.map(m => {
+        const d = ST.decisoes[`${ST.mes}|${m.chave}`] || {};
+        return `<div class="item"><b>${esc(m.nome)}</b> · <b class="${clsN(m.delta)}">${rs(m.delta)}</b>
+          ${d.nota ? `· ${esc(d.nota)}` : ''}<span class="autor">${esc(d.autor || '')}</span>
+          ${trancado ? '' : `<span class="acoes"><button type="button" data-restaura="${esc(m.chave)}">restaurar</button></span>`}
+        </div>`;
+      }).join('')}`}
     ${bloco('Movimentação sem ocorrência no log do haras', semLog, m =>
       `<div class="item"><b>${esc(m.nome)}</b> · ${rs(m.delta)} ·
         cota ${pct(m.cota_ant)} → ${pct(m.cota_atual)} · valor ${rs(m.valor_ant)} → ${rs(m.valor_atual)}
@@ -2037,7 +2095,7 @@ function abaMovsXls(){
   const fmt = {};
   COLS_MOV.forEach(([rot, , ehNum], i) => { if (ehNum) fmt[i] = rot === 'Cota' ? FMT_PCT : FMT_RS; });
   fmt[COLS_MOV.length + 1] = FMT_RS;                 // Δ Carla
-  const linhas = (mv ? mv.movs : []).map(m => [
+  const linhas = (mv ? mv.movs : []).filter(m => !removida(ST.mes, m)).map(m => [
     ...COLS_MOV.map(([, pega]) => pega(m)),
     classeDe(m) || '(sem classe)', m.delta_carla, 'apurado',
     (m.log || []).map(l => l.ocorrencia).join(' / '),
@@ -2225,6 +2283,33 @@ function liga(){
                   + 'Elas voltam para a fila da aba Movimentações. Não dá pra desfazer.')) {
         if (await reiniciaMes(mes)) pinta();
       }
+      return;
+    }
+    const rm = e.target.closest('[data-rm]');
+    if (rm) {
+      const mv = movimentacaoDoMes(ST.mes);
+      const mov = mv && mv.movs.find(m => m.chave === rm.dataset.rm);
+      if (!mov) return;
+      const mexe = Math.abs(mov.delta) >= 0.01
+        ? `\n\nEla mexe ${rs(mov.delta)} no patrimônio. Removida, esse valor fica sem causa no `
+          + 'resumo e o check de estoque × resumo vai mostrar a diferença.' : '';
+      const motivo = prompt(`Remover "${mov.nome}" das movimentações de ${rotMes(ST.mes)}?${mexe}`
+                            + '\n\nMotivo (opcional):', '');
+      if (motivo === null) return;
+      if (await registra(ST.mes, mov, CLASSE_REMOVIDA, motivo.trim())) pinta();
+      return;
+    }
+    const rest = e.target.closest('[data-restaura]');
+    if (rest) {
+      const chave = rest.dataset.restaura;
+      const c = sb();
+      if (c) {
+        const { error } = await c.from('plantel_mov_classificacao').delete()
+          .eq('mes', ST.mes).eq('chave', chave);
+        if (error) { alert('não restaurou: ' + error.message); return; }
+      }
+      delete ST.decisoes[`${ST.mes}|${chave}`];
+      pinta();
       return;
     }
     /* a ficha grava no OK, não na escolha: o `<select>` ao lado guarda a classe
