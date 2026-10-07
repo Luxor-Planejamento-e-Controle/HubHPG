@@ -358,30 +358,47 @@ function posterioresDoMes(mes){
   return o;
 }
 
-function linhasEfetivas(mes){
-  const d = ST.meses[mes];
-  if (!d) return [];
-  const ant = ST.meses[mesAnterior(mes)];
-  const pos = posterioresDoMes(mes);
-  if (!ant || !Object.keys(pos).length) return d.linhas;
-  const porChave = {};
-  for (const l of ant.linhas) porChave[chaveCom(l, ant.ix)] = l;
-  return d.linhas.map(l => {
-    if (!pos[norm(l[d.ix.nome])]) return l;
-    const velha = porChave[chaveCom(l, d.ix)];
-    return velha || l;   // sem linha anterior, fica a do arquivo
-  });
+/* Animais com movimentação REMOVIDA no mês (a chave da linha, sem o sufixo do evento).
+   Remover diz que o que a planilha mostrou não aconteceu: o animal fica no mês com a
+   linha do mês anterior. Sem isso a remoção tirava só a ficha e o plantel seguia com
+   o valor errado — RELIQUIA DA TERRA BRAVA, set/2026: a planilha zerou o valor (50%
+   de R$ 15.600) e o estoque ficava zerado mesmo com a movimentação removida. */
+function chavesRemovidas(mes){
+  const pre = mes + '|', out = new Set();
+  for (const [k, d] of Object.entries(ST.decisoes))
+    if (d && d.classe === CLASSE_REMOVIDA && k.startsWith(pre)) out.add(k.slice(pre.length).split('#')[0]);
+  return out;
 }
 
-/* Cada linha efetiva pode vir do mês anterior, e o layout de colunas muda de
-   arquivo pra arquivo — então a linha anda junto com o seu ix. */
-function linhasEfetivasIx(mes){
+/* As linhas que valem no mês, cada uma com o seu ix (o layout de colunas muda de
+   arquivo pra arquivo, e a linha pode vir do mês anterior):
+   - tocada por ocorrência POSTERIOR ao mês: a linha do arquivo anterior, como antes;
+   - com movimentação removida: a linha EFETIVA do mês anterior (a remoção do mês
+     passado continua valendo), e quem só "entrou" ou só "saiu" volta ao que era. */
+function paresEfetivos(mes){
   const d = ST.meses[mes];
   if (!d) return [];
+  const pares = d.linhas.map(l => ({l, ix: d.ix}));
   const ant = ST.meses[mesAnterior(mes)];
-  return linhasEfetivas(mes).map((l, i) =>
-    ({l, ix: l === d.linhas[i] ? d.ix : (ant ? ant.ix : d.ix)}));
+  const pos = posterioresDoMes(mes), rem = chavesRemovidas(mes);
+  if (!ant || (!Object.keys(pos).length && !rem.size)) return pares;
+  const doArquivoAnt = {};
+  for (const l of ant.linhas) doArquivoAnt[chaveCom(l, ant.ix)] = {l, ix: ant.ix};
+  const efetivaAnt = {};
+  if (rem.size) for (const par of paresEfetivos(mesAnterior(mes))) efetivaAnt[chaveCom(par.l, par.ix)] = par;
+  const out = [], vistas = new Set();
+  for (const par of pares) {
+    const k = chaveCom(par.l, par.ix);
+    vistas.add(k);
+    if (rem.has(k)) { if (efetivaAnt[k]) out.push(efetivaAnt[k]); continue; }
+    if (pos[norm(par.l[par.ix.nome])] && doArquivoAnt[k]) { out.push(doArquivoAnt[k]); continue; }
+    out.push(par);   // sem linha anterior, fica a do arquivo
+  }
+  for (const k of rem) if (!vistas.has(k) && efetivaAnt[k]) out.push(efetivaAnt[k]);
+  return out;
 }
+const linhasEfetivas = mes => paresEfetivos(mes).map(par => par.l);
+const linhasEfetivasIx = mes => paresEfetivos(mes);
 
 const patrMes = (mes, escopo) =>
   linhasEfetivasIx(mes).reduce((s, par) => s + patr(par.l, escopo, par.ix, mes), 0);
@@ -1403,7 +1420,7 @@ const manuaisDoMes = mes => Object.entries(ST.decisoes)
 
 async function registra(mes, mov, classe, nota){
   const k = `${mes}|${mov.chave}`, antes = ST.decisoes[k];
-  ST.decisoes[k] = {classe, nota, autor: eu() || '(local)'};
+  ST.decisoes[k] = {classe, nota, autor: eu() || '(local)', nome: mov.nome};
   const c = sb();
   if (c) {
     const { error } = await c.from('plantel_mov_classificacao')
@@ -1847,7 +1864,11 @@ function subConciliacao(){
     .filter(m => (m.no_escopo || m.dono) && !removida(ST.mes, m)
                  && (mesFechado(ST.mes) || ST.decisoes[`${ST.mes}|${m.chave}`]))
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-  const removidas = mv.movs.filter(m => removida(ST.mes, m));
+  /* a movimentação removida some do diff (a linha voltou a ser a do mês anterior),
+     então a lista sai das decisões, com o que a planilha dizia de cada uma */
+  const removidas = Object.entries(ST.decisoes)
+    .filter(([k, d]) => d && d.classe === CLASSE_REMOVIDA && k.startsWith(ST.mes + '|'))
+    .map(([k, d]) => ({...d, chave: k.slice(ST.mes.length + 1)}));
   const bloco = (titulo, itens, render) => !itens.length ? '' :
     `<h3>${titulo} <span class="cont">${itens.length}</span></h3>${itens.map(render).join('')}`;
   /* trancado = sem escrita: mês fechado, ou quem só vê a aba — que lê a
@@ -1901,13 +1922,11 @@ function subConciliacao(){
         </tbody></table></div>`}
     ${!removidas.length ? '' : `
       <h3>Removidas <span class="cont">${removidas.length}</span></h3>
-      ${removidas.map(m => {
-        const d = ST.decisoes[`${ST.mes}|${m.chave}`] || {};
-        return `<div class="item"><b>${esc(m.nome)}</b> · <b class="${clsN(m.delta)}">${rs(m.delta)}</b>
-          ${d.nota ? `· ${esc(d.nota)}` : ''}<span class="autor">${esc(d.autor || '')}</span>
-          ${trancado ? '' : `<span class="acoes"><button type="button" data-restaura="${esc(m.chave)}">restaurar</button></span>`}
-        </div>`;
-      }).join('')}`}
+      ${removidas.map(x => `<div class="item"><b>${esc(x.nome || x.chave.split('|')[0])}</b>
+          · <span class="log">${esc(oQueAPlanilhaDizia(ST.mes, x.chave.split('#')[0]))}</span>
+          ${x.nota ? `· ${esc(x.nota)}` : ''}<span class="autor">${esc(x.autor || '')}</span>
+          ${trancado ? '' : `<span class="acoes"><button type="button" data-restaura="${esc(x.chave)}">restaurar</button></span>`}
+        </div>`).join('')}`}
     ${bloco('Movimentação sem ocorrência no log do haras', semLog, m =>
       `<div class="item"><b>${esc(m.nome)}</b> · ${rs(m.delta)} ·
         cota ${pct(m.cota_ant)} → ${pct(m.cota_atual)} · valor ${rs(m.valor_ant)} → ${rs(m.valor_atual)}
@@ -1915,6 +1934,26 @@ function subConciliacao(){
     ${bloco('Ocorrência no log sem efeito no patrimônio', logSemEfeito, l =>
       `<div class="item"><b>${esc(l.produto)}</b> · ${dataBR(l.data)}<br><span class="log">${esc(l.ocorrencia)}</span></div>`)}
 `;
+}
+
+/* O que a planilha do haras mostrava para o animal da movimentação removida, contra
+   a linha que ficou valendo (a do mês anterior). */
+function oQueAPlanilhaDizia(mes, k){
+  const d = ST.meses[mes], ant = ST.meses[mesAnterior(mes)];
+  if (!d || !ant) return '';
+  const noArquivo = d.linhas.find(l => chaveCom(l, d.ix) === k);
+  const mantida = paresEfetivos(mesAnterior(mes)).find(par => chaveCom(par.l, par.ix) === k);
+  if (!noArquivo) return 'a planilha tirou o animal; fica a linha do mês anterior';
+  if (!mantida) return 'a planilha incluiu o animal; ele não entra no mês';
+  const partes = [];
+  const q0 = num(mantida.l[mantida.ix.cota]), q1 = num(noArquivo[d.ix.cota]);
+  const v0 = num(mantida.l[mantida.ix.valor]), v1 = num(noArquivo[d.ix.valor]);
+  if (q0 !== q1) partes.push(`cota ${pct(q0)} → ${pct(q1)}`);
+  if (v0 !== v1) partes.push(`valor ${rs(v0)} → ${rs(v1)}`);
+  const st0 = norm(mantida.l[mantida.ix.status]), st1 = norm(noArquivo[d.ix.status]);
+  if (st0 !== st1) partes.push(`status ${st0} → ${st1}`);
+  return partes.length ? `na planilha: ${partes.join(' · ')} — mantido o mês anterior`
+                       : 'mantida a linha do mês anterior';
 }
 
 function subChecks(){
@@ -1944,14 +1983,29 @@ function subChecks(){
   // o check do fluxo é na régua do fluxo: cota × valor, como a Controladoria faz
   const iniProp = patrMesProp(mesAnterior(ST.mes), 'hpg'), fimProp = patrMesProp(ST.mes, 'hpg');
 
+  /* Movimentação removida faz o plantel Luxor divergir do arquivo DE PROPÓSITO (a
+     linha do mês anterior fica no lugar da planilha). Esse efeito é descontado dos
+     três checks e mostrado em linha própria, para a divergência ter nome. */
+  const rem = chavesRemovidas(ST.mes);
+  const efeitoRem = campo => {
+    if (!rem.size) return 0;
+    const val = (l, ixl) => campo === 'comissao' ? comissaoDaLinha(l, ixl) : num(l[ixl[campo]]);
+    const ef = linhasEfetivasIx(ST.mes).filter(par => rem.has(chaveCom(par.l, par.ix)))
+      .reduce((s, par) => s + val(par.l, par.ix), 0);
+    const arq = (d.linhas || []).filter(l => rem.has(chaveCom(l, d.ix))).reduce((s, l) => s + val(l, d.ix), 0);
+    return ef - arq;
+  };
   const linhas = [
     ['Valor: soma do plantel Luxor = soma do plantel do haras',
-     somaEfetiva('valor'), somaArquivo('valor')],
+     somaEfetiva('valor') - efeitoRem('valor'), somaArquivo('valor')],
     ['Comissões: soma do plantel Luxor = soma do plantel do haras',
-     somaEfetiva('comissao'), somaArquivo('comissao')],
+     somaEfetiva('comissao') - efeitoRem('comissao'), somaArquivo('comissao')],
     ['Cotas (%): soma do plantel Luxor = soma do plantel do haras',
-     somaEfetiva('cota'), somaArquivo('cota'), 'cota'],
+     somaEfetiva('cota') - efeitoRem('cota'), somaArquivo('cota'), 'cota'],
   ];
+  if (rem.size) linhas.push(
+    [`Movimentações removidas (${rem.size}): valor mantido do mês anterior × planilha`,
+     somaArquivo('valor') + efeitoRem('valor'), somaArquivo('valor'), 'info']);
   // sem o mês anterior carregado não há 'inicial': o check acusaria diferença
   // que é só ausência de base
   if (ant) linhas.push(
@@ -1995,6 +2049,9 @@ function subChecks(){
       const tol = un === 'cota' ? 0.0001 : un === 'divulgado' ? 1 : 0.005;
       const ok = Math.abs(dif) < tol;
       const f = un === 'cota' ? pct : rs;   // 'divulgado' também é dinheiro
+      // linha informativa: a diferença é a que se escolheu ter
+      if (un === 'info') return `<tr><td class="l">${t}</td><td>${f(a)}</td><td>${f(b)}</td>
+        <td>${f(dif)}</td><td class="l"><span class="tag">removidas</span></td></tr>`;
       return `<tr><td class="l">${t}</td><td>${f(a)}</td><td>${f(b)}</td>
         <td class="${ok ? 'pos' : 'neg'}">${f(dif)}</td>
         <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
@@ -2290,10 +2347,12 @@ function liga(){
       const mv = movimentacaoDoMes(ST.mes);
       const mov = mv && mv.movs.find(m => m.chave === rm.dataset.rm);
       if (!mov) return;
-      const mexe = Math.abs(mov.delta) >= 0.01
-        ? `\n\nEla mexe ${rs(mov.delta)} no patrimônio. Removida, esse valor fica sem causa no `
-          + 'resumo e o check de estoque × resumo vai mostrar a diferença.' : '';
-      const motivo = prompt(`Remover "${mov.nome}" das movimentações de ${rotMes(ST.mes)}?${mexe}`
+      const irmas = mv.movs.filter(x => x.chave_linha === mov.chave_linha).length;
+      const efeito = mov.so_log ? ''
+        : `\n\n${mov.nome} fica em ${rotMes(ST.mes)} com a linha do mês anterior `
+          + `(cota, valor e status), como se a planilha não tivesse mudado`
+          + (irmas > 1 ? ` — as ${irmas} movimentações dele no mês saem juntas.` : '.');
+      const motivo = prompt(`Remover "${mov.nome}" das movimentações de ${rotMes(ST.mes)}?${efeito}`
                             + '\n\nMotivo (opcional):', '');
       if (motivo === null) return;
       if (await registra(ST.mes, mov, CLASSE_REMOVIDA, motivo.trim())) pinta();
