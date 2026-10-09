@@ -11,10 +11,10 @@ Duas coisas que NÃO podem se perder na cópia, porque o pipeline depende delas:
 
   - a estrutura de pastas ('PLANTEL/Estação 2026-2027/...'), porque a resolução de
     fonte varre as pastas de estação e escolhe a mais recente;
-  - o mtime, porque a guarda de fonte velha compara a data do arquivo com a janela
-    da semana e ABORTA se a planilha for anterior. Copiar com a data de hoje faria
-    toda fonte parecer fresca — exatamente o silêncio que a guarda existe para
-    quebrar. Aqui o mtime vem do `modifiedTime` do Drive.
+  - o mtime, porque é ele que decide qual cópia é a mais nova quando o mesmo
+    arquivo existe em mais de uma pasta de estação, e é a data que o log mostra
+    para fonte não salva na semana. Copiar com a data de hoje empataria todas.
+    Aqui o mtime vem do `modifiedTime` do Drive.
 
 Autenticação: OAuth com refresh token de uma conta que já enxerga a pasta
 (HPG_GOOGLE_OAUTH_CLIENT_ID/_SECRET/_REFRESH_TOKEN — gere com
@@ -163,7 +163,7 @@ def _baixar(svc, arq: dict, destino: Path) -> bool:
     # pedidos, e ninguém pode abrir uma planilha pela metade
     tmp = destino.with_name(destino.name + ".baixando")
     tmp.write_bytes(buf.getvalue())
-    os.utime(tmp, (quando, quando))        # a guarda de fonte velha depende disto
+    os.utime(tmp, (quando, quando))        # a escolha do arquivo mais novo depende disto
     os.replace(tmp, destino)
     return True
 

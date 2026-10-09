@@ -87,8 +87,7 @@ ESTACAO_MONTA_BASE = DRIVE_ROOT / "REPRODUÇÃO" / "ESTAÇÃO DE MONTA"
 # SETEMBRO" passaram para "Estação 2026-2027", porque setembro abre estacao nova.
 # Olhar so a pasta da estacao corrente fez o pipeline concluir que os arquivos tinham
 # sido apagados e cair numa copia congelada de 05/08. Varremos TODAS as pastas de
-# estacao e ficamos com o mais recente — aqui frescor e o que importa, e a guarda de
-# fonte velha cobre o resto.
+# estacao e ficamos com o mais recente — aqui frescor e o que importa.
 PLANTEL_DIR_BASE = DRIVE_ROOT / "PLANTEL"
 PLANTEL_ESTACAO_GLOB = "Estação *"
 RECEPTORAS_DIR = PLANTEL_DIR_BASE / "Estação 2025-2026"   # so p/ mensagens de erro
@@ -308,28 +307,15 @@ def caminho_curto(f) -> str:
             return str(p)
 
 
-# so o orquestrador libera, via --forcar
-PERMITIR_FONTE_VELHA = False
-# Fontes de ESTADO: descrevem quem esta onde AGORA e por isso mudam toda semana.
-# Paradas, a fonte esta perdida (mudou de pasta, foi renomeada, apagada) e o
-# fechamento nao pode publicar o retrato de outra semana como se fosse esta.
-#
-# Estacao de monta e 'EMBRIÕES E MATRIZES' NAO entram aqui, e isso foi corrigido em
-# 10/09/2026: elas sao fonte de EVENTO — sem IA, confirmacao, parição ou aborto na
-# semana, nao ha por que salvar o arquivo, e mtime parado significa "nada
-# aconteceu", nao "dado faltando". Naquele fechamento as duas estavam em 04/09 e a
-# liberacao do haras dizia exatamente a mesma coisa: confirmados '--',
-# nascimentos '--', abortos '--', acumulado parado em 01. O bloqueio travou um
-# fechamento correto. Para essas o aviso sai e o run segue — quem confirma que
-# nada aconteceu e o confronto com a liberacao, no placar.
-FONTES_SEMANAIS = ("receptoras", "controle mensal", "roster do plantel")
-
-
 def _avisar_fontes_velhas(ini: date, fim: date):
-    """Fonte salva antes do inicio da janela nao pode descrever esta semana.
+    """Lista no log as fontes salvas antes do inicio da janela. Só avisa.
 
-    BLOQUEIA antes de congelar o snapshot: avisar depois nao serve, porque o numero
-    errado ja foi publicado. Em 21/08/2026 isso aconteceu duas vezes seguidas."""
+    Até 09/10/2026 receptoras, controle mensal e roster BLOQUEAVAM o fechamento.
+    Naquela sexta a agenda das 09:00 rodou antes de a Ana salvar as receptoras
+    (09:30), e três pedidos seguidos saíram "falhou" sem nada que se pudesse fazer
+    pelo hub. Decisão do Arthur: lê o arquivo mais novo que existir e publica.
+    Rodar de novo na mesma semana atualiza o snapshot, então quem salvar a
+    planilha depois só precisa clicar de novo."""
     velhas = []
     for rotulo, f in sorted(_FONTES_USADAS.items()):
         try:
@@ -340,23 +326,10 @@ def _avisar_fontes_velhas(ini: date, fim: date):
             velhas.append((rotulo, f.name, m))
     if not velhas:
         return
-    bloqueiam = [v for v in velhas if v[0] in FONTES_SEMANAIS]
-    print(f"  [fontes] !! {len(velhas)} fonte(s) mais VELHAS que a janela "
-          f"({ini.strftime('%d/%m')}-{fim.strftime('%d/%m')}) — o que sai delas nao "
-          f"descreve esta semana:")
+    print(f"  [fontes] {len(velhas)} fonte(s) sem alteração na janela "
+          f"({ini.strftime('%d/%m')}-{fim.strftime('%d/%m')}), lidas como estão:")
     for rotulo, nome, m in velhas:
-        marca = ("  <- estado da semana, BLOQUEIA" if rotulo in FONTES_SEMANAIS
-                 else "  (fonte de evento: parada = nada aconteceu; conferir no placar)")
-        print(f"    - {rotulo}: {nome} (salvo em {m.strftime('%d/%m/%Y')}){marca}")
-    if not bloqueiam:
-        print("    Nenhuma delas descreve estado — segue, e o placar confronta com a liberação.")
-        return
-    print("    Conferir se a copia de trabalho mudou de pasta, foi apagada ou renomeada.")
-    if not PERMITIR_FONTE_VELHA:
-        raise RuntimeError(
-            "fonte(s) semanal(is) mais velha(s) que a janela: "
-            + "; ".join(f"{r} ({n}, {m:%d/%m})" for r, n, m in bloqueiam)
-            + " — snapshot NAO congelado. Use --forcar para gravar assim mesmo.")
+        print(f"    - {rotulo}: {nome} (salvo em {m.strftime('%d/%m/%Y')})")
 
 
 def _latest_by_mtime(folder: Path, pattern: str) -> Path:
@@ -2529,7 +2502,7 @@ def _monta_report(ini: date, fim: date) -> Report:
     # nascimentos e acusava movimentacao fantasma que se resolvia duas linhas depois
     _conferir_delta(rep)
     _avisar_pasta_de_saida()
-    _avisar_fontes_velhas(ini, fim)                # BLOQUEIA se a fonte for velha
+    _avisar_fontes_velhas(ini, fim)                # só avisa; lê o que tiver
     _arquivar_linhas(rep)                         # historico linha a linha
     _persist_snapshot(rep)                        # congela snapshot CALCULADO desta semana
     rep.calendario = _calendario_dos_snapshots(rep.snapshots)

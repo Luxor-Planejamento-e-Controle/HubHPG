@@ -48,8 +48,8 @@ PIPELINES = {
     ],
 }
 
-# O script sai com código 0 mesmo quando se recusa a rodar (fonte velha, semana
-# posterior já congelada). Recusa não é sucesso: o hub tem de mostrar em
+# O script sai com código 0 mesmo quando se recusa a rodar (semana posterior já
+# congelada). Recusa não é sucesso: o hub tem de mostrar em
 # vermelho, senão o usuário acha que atualizou.
 RECUSAS = ("ABORTADO", "ATENCAO: ja existe(m) semana(s) congelada(s)")
 

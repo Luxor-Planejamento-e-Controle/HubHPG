@@ -131,8 +131,8 @@ def _prepara_nuvem(env: dict, job: dict) -> list[str]:
               f"({time.time() - t:.0f} s)"]
     # O espelho do Drive fica na instância (HPG_DRIVE_CACHE) e só baixa o que mudou; o
     # pedido trabalha numa cópia própria, feita sob a trava, para outro pedido não
-    # trocar uma planilha no meio da leitura. copy2 mantém o mtime, que a guarda de
-    # fonte velha lê.
+    # trocar uma planilha no meio da leitura. copy2 mantém o mtime, que decide qual
+    # cópia é a mais nova.
     t = time.time()
     compartilhado = Path(os.getenv("HPG_DRIVE_CACHE") or (REPO / "_drive"))
     proprio = REPO / "_drive"

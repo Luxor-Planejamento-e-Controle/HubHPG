@@ -214,7 +214,6 @@ def main():
     args = sys.argv[1:]
     do_open = "--no-open" not in args
     do_docx = "--no-docx" not in args
-    R.PERMITIR_FONTE_VELHA = '--forcar' in args
     ref = _parse_ref(args)
     ini, fim = _janela(ref)
 
@@ -273,7 +272,7 @@ def main():
     try:
         rep = R.build_report(ini, fim, forcar='--forcar' in args)
     except RuntimeError as exc:
-        # fonte velha nao e crash: e recusa deliberada de publicar numero errado
+        # semana posterior ja congelada nao e crash: e recusa deliberada de regravar
         _log("2/4 CALC", "ABORTADO")
         print("   " + str(exc))
         return
