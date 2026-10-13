@@ -2905,6 +2905,7 @@ def slides_comentarios(c, m, ano):
     o escrito à mão no hub; senão o slide fica pendente, para escrever."""
     texto = comentario_trello(m, ano)
     titulo = f"COMENTÁRIOS — {MESES[m-1].upper()} {ano}"
+    _CONFERENCIAS[f"{ano}-{m:02d}"] = confere_trello(texto, m, ano) if texto else None
     if texto:
         face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m),
                                     gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
@@ -3678,10 +3679,14 @@ def build(so_mes=None, base=None):
         fontes[rotulo] = {"arquivo": p.name, "caminho": caminho_curto(p),
                           "pasta": p.parent.name, "modificado": quando}
     fontes.update(_FONTES_REMOTAS)
+    # comentário × DRE, por mês, para a auditoria; o mês remontado substitui o
+    # publicado, e o que ficou sem comentário sai
+    conferencias = {k: v for k, v in {**(base or {}).get("conferencias", {}),
+                                      **_CONFERENCIAS}.items() if v}
 
     payload = {"meses": chaves, "padrao": chaves[-1], "avisos": avisos,
                "labels": {k: f"{MESES[int(k[5:]) - 1]} {k[:4]}" for k in chaves},
-               "fontes": fontes, "decks": decks}
+               "fontes": fontes, "conferencias": conferencias, "decks": decks}
     OUT.mkdir(parents=True, exist_ok=True)
     js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=_json_default)
     (OUT / "spec.json").write_text(js, encoding="utf-8")
