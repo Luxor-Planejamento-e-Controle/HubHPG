@@ -2745,6 +2745,93 @@ def itens_trello(texto: str, face_cx: list) -> list:
     return out
 
 
+# ------------------------------------- conferência do comentário × DRE caixa
+# O ∆ que o comentário cita é digitado pela Controladoria, e o deck mostra o texto
+# como veio. Em ago/26 quatro não batiam com o DRE vigente — Outras Despesas com
+# Pessoal -5K ainda com o orçado da v2, de antes da revisão; Suplemento Pista e Com
+# Exposição sem reproduzir em versão nenhuma — e o deck dizia -5k nos comentários e
+# -6k na análise. Cada natureza citada é casada com a linha de mesmo nome no DRE
+# caixa do mês; o que não bate vai para o log do pedido e para a auditoria, nunca
+# para o slide: o texto é da Controladoria, e quem corrige é ela, no Trello.
+_CONFERENCIAS: dict = {}
+
+
+def _chave_solta(x) -> str:
+    """Nome sem o parêntese e sem o S do fim de cada palavra, para o que o
+    comentário escreve diferente da base: 'Consumo De Luz' × 'CONSUMO DE LUZ (30%)',
+    'Custos RJ' × 'CUSTO RJ'."""
+    x = unicodedata.normalize("NFKD", str(x)).encode("ascii", "ignore").decode().upper()
+    x = re.sub(r"\([^)]*\)", " ", x)
+    return "".join(re.sub(r"S$", "", w) for w in re.findall(r"[A-Z0-9]+", x))
+
+
+def _k_citado(v: float) -> str:
+    return f"{'-' if v < 0 else '+' if v > 0 else ''}R$ {abs(v):g}k".replace(".", ",")
+
+
+def confere_trello(texto: str, m: int, ano: int):
+    """Cada natureza do comentário que traz valor × ∆ (realizado − orçado) da linha
+    de mesmo nome no DRE caixa do mês. Bate quando o citado é o ∆ arredondado — o
+    comentário escreve em mil, meio pra longe do zero. Nome que existe em mais de um
+    bloco (Ração do Haras e a de Vassouras) bate se um deles bater; se nenhum bate,
+    a divergência mostra o mais próximo do citado. None quando o DRE do mês não
+    está na base."""
+    h = le_historico()
+    if not h:
+        return None
+    g = h["geral"]
+    df = g[(g["Centro de Custo"] == "HPG") & (g["Modelo"] == "Caixa")
+           & (g["ano"] == ano) & (g["mes"] == m)]
+    if df.empty:
+        print(f"  [trello] DRE caixa de {MESES[m-1].lower()}/{ano} fora da base — comentário não conferido")
+        return None
+    nat = df["Natureza de Lançamento"]
+    df = df.assign(_k=nat.map(_chave_dre), _s=nat.map(_chave_solta),
+                   _o=df["Orçado"].map(lambda x: num(x) or 0.0),
+                   _r=df["Realizado"].map(lambda x: num(x) or 0.0))
+
+    def candidatos(nome):
+        k = _chave_dre(nome)
+        # o comentário chama o arrendamento como a face; a base, pelo bloco
+        if "ARRENDAMENTO" in k and ("LUDIA" in k or "VASSOURAS" in k):
+            alvo = _chave_dre(_LUDIA if "LUDIA" in k else _VASSOURAS)
+            return df[(df["_k"] == alvo) & df["É Subtotal"].astype(bool)]
+        c = df[df["_k"] == k]
+        return c if not c.empty else df[df["_s"] == _chave_solta(nome)]
+
+    conferidos, divergem, sem_par = 0, [], []
+    for bruto in texto.splitlines():
+        mm = RE_ITEM_TRELLO.match(re.sub(r"^[-•·.\s]+", "", bruto.replace("**", "")).strip())
+        if not mm:
+            continue
+        nome = mm.group("nome").strip(" :")
+        txt_num = mm.group("num").rstrip(".,")
+        casas = len(txt_num.split(",")[1]) if "," in txt_num else 0
+        citado = float(txt_num.replace(".", "").replace(",", ".")) * (-1 if mm.group("sin") else 1)
+        c = candidatos(nome)
+        if c.empty:
+            sem_par.append({"nome": nome, "citado": citado})
+            continue
+        conferidos += 1
+        deltas = (c["_r"] - c["_o"]) / 1000.0
+        perto = (deltas - citado).abs().idxmin()
+        if abs(deltas[perto] - citado) <= 0.5 * 10 ** -casas + 1e-6:
+            continue
+        divergem.append({"nome": nome, "citado": citado, "dre": float(deltas[perto]),
+                         "orcado": float(c.at[perto, "_o"]), "realizado": float(c.at[perto, "_r"])})
+
+    print(f"  [trello] {MESES[m-1].lower()}/{ano}: {conferidos} valores do comentário conferidos "
+          f"com o DRE caixa, {len(divergem)} não batem"
+          + (f", {len(sem_par)} sem natureza de mesmo nome no DRE" if sem_par else ""))
+    for d in divergem:
+        print(f"  [trello]   {d['nome']}: comentário {_k_citado(d['citado'])}, DRE "
+              f"{'-' if d['dre'] < 0 else '+'}R$ {abs(d['dre']):.1f}k".replace(".", ",")
+              + f" (orçado {brl_cheio(d['orcado'])}, realizado {brl_cheio(d['realizado'])})")
+    for d in sem_par:
+        print(f"  [trello]   {d['nome']} ({_k_citado(d['citado'])}): sem natureza de mesmo nome no DRE")
+    return {"conferidos": conferidos, "divergem": divergem, "sem_par": sem_par}
+
+
 # Largura de avanço da Calibri (unidades de 2048/em) — a MESMA tabela do
 # layout.js, para o build repartir o texto nos slides com a conta que o
 # desenho vai fazer.
