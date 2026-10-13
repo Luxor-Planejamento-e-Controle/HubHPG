@@ -2667,12 +2667,16 @@ def _registra_trello(salvo: dict, arquivado: bool = False):
     _registra_remoto("Comentários do DRE (Trello)", salvo.get("card") or "—", caminho, salvo.get("data"))
 
 
+# natureza, o valor entre parênteses (em mil) e a explicação de um item do comentário
+RE_ITEM_TRELLO = re.compile(r"^(?P<nome>.*?)\s*\(\s*(?P<sin>[-−–]?)\s*R\$\s*(?P<num>\d[\d.,]*)\s*[kK]?\s*\)?\s*:?\s*(?P<txt>.*)$")
+
+
 def _item_trello(linha: str):
     """'Ração (R$ 1K): Gasto abaixo do orçado' -> ('Ração', '+R$ 1k', 'Gasto...').
     Aguenta o que a formatação do comentário varia: parêntese sem fechar, dois
     pontos dentro do negrito, natureza sem valor."""
     s = re.sub(r"^[-•.\s]+", "", linha.replace("**", "")).strip()
-    mm = re.match(r"^(?P<nome>.*?)\s*\(\s*(?P<sin>[-−–]?)\s*R\$\s*(?P<num>\d[\d.,]*)\s*[kK]?\s*\)?\s*:?\s*(?P<txt>.*)$", s)
+    mm = RE_ITEM_TRELLO.match(s)
     if mm:
         num = mm.group("num").rstrip(".,")
         zero = not re.sub(r"[0.,]", "", num)
