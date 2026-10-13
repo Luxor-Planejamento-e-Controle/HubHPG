@@ -212,6 +212,40 @@ def _linhas_da_semana(semana):
     return snap, dx, comparaveis
 
 
+def _k(v: float, fmt: str = "g") -> str:
+    """-R$ 3k como o comentário do DRE escreve; fmt '.1f' dá -R$ 3,4k."""
+    return f"{'-' if v < 0 else '+' if v > 0 else ''}R$ " + f"{abs(v):{fmt}}k".replace(".", ",")
+
+
+def _brl(v: float) -> str:
+    return ("-" if v < 0 else "") + "R$ " + f"{abs(v):,.0f}".replace(",", ".")
+
+
+def _conferencia_trello(conf: dict | None) -> tuple[str, str]:
+    """Tile e tabela do comentário do DRE (Trello) × DRE caixa, que o build do comitê
+    confere (build_comite.confere_trello). Vazio quando o mês não tem comentário."""
+    if not conf:
+        return "", ""
+    div, sem = conf.get("divergem") or [], conf.get("sem_par") or []
+    tile = (f'<div class="tile {"bad" if div else "ok"}"><span class="num">{len(div)}</span>'
+            f'<span class="lab">valores do comentário (Trello) que não batem com o DRE caixa, '
+            f'de {conf.get("conferidos", 0)}</span></div>')
+    linhas = [f'<tr><td>{html.escape(d["nome"])}</td><td class="num">{_k(d["citado"])}</td>'
+              f'<td class="num">{_k(d["dre"], ".1f")}</td><td class="num">{_brl(d["orcado"])}</td>'
+              f'<td class="num">{_brl(d["realizado"])}</td></tr>' for d in div]
+    linhas += [f'<tr><td>{html.escape(d["nome"])}</td><td class="num">{_k(d["citado"])}</td>'
+               f'<td colspan="3"><span class="chip neu">sem natureza de mesmo nome no DRE</span></td></tr>'
+               for d in sem]
+    if not linhas:
+        return tile, ""
+    return tile, f"""<div class="scroll" style="margin-bottom:18px"><table>
+    <thead><tr><th>Comentário do DRE (Trello)</th><th>Citado</th><th>∆ DRE caixa</th><th>Orçado</th><th>Realizado</th></tr></thead>
+    <tbody>
+{chr(10).join(linhas)}
+    </tbody>
+  </table></div>"""
+
+
 def _secao_comite() -> str:
     """Tabelas do comitê a partir de assets/comite/spec.json."""
     if not SPEC_COMITE.exists():
@@ -222,6 +256,7 @@ def _secao_comite() -> str:
     mes = spec.get("padrao")
     deck = (spec.get("decks") or {}).get(mes) or []
     fontes = spec.get("fontes") or {}
+    tile_conf, tabela_conf = _conferencia_trello((spec.get("conferencias") or {}).get(mes))
 
     linhas_f, velhas = [], 0
     for rotulo in sorted(fontes):
@@ -268,7 +303,9 @@ def _secao_comite() -> str:
     <div class="tile ok"><span class="num">{com_dado}</span><span class="lab">slides com dado, de {len(linhas_s)} com fonte</span></div>
     <div class="tile bad"><span class="num">{pendentes}</span><span class="lab">pendentes — falta conteúdo ou fonte</span></div>
     <div class="tile neu"><span class="num">{len(fontes)}</span><span class="lab">arquivos lidos no build{(" · " + str(velhas) + " com mais de " + str(DIAS_FONTE_VELHA) + " dias") if velhas else ""}</span></div>
+    {tile_conf}
   </div>
+  {tabela_conf}
   <div class="scroll"><table>
     <thead><tr><th>Rótulo</th><th>Arquivo &middot; pasta</th><th>Modificado</th><th>Idade</th></tr></thead>
     <tbody>
