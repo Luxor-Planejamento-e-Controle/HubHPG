@@ -2804,8 +2804,12 @@ def confere_trello(texto: str, m: int, ano: int):
     def candidatos(nome):
         k = _chave_dre(nome)
         c = df[df["_k"] == k]
+        s = _chave_solta(nome)
         if c.empty:
-            c = df[df["_s"] == _chave_solta(nome)]
+            c = df[df["_s"] == s]
+        # 'Receita Com Venda De Óvulo' no comentário; 'ÓVULOS' na base
+        if c.empty and s.startswith("RECEITACOMVENDADE"):
+            c = df[df["_s"] == s[len("RECEITACOMVENDADE"):]]
         # o bloco de arrendamento o comentário chama como a face ('Arrendamento
         # Vassouras'); a base, pelo nome do bloco. Só depois do nome: 'Arrendamento
         # De Pasto (Vassouras)' é a natureza dentro do bloco, não ele inteiro
