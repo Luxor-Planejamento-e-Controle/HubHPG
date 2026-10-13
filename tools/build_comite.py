@@ -2793,12 +2793,16 @@ def confere_trello(texto: str, m: int, ano: int):
 
     def candidatos(nome):
         k = _chave_dre(nome)
-        # o comentário chama o arrendamento como a face; a base, pelo bloco
-        if "ARRENDAMENTO" in k and ("LUDIA" in k or "VASSOURAS" in k):
-            alvo = _chave_dre(_LUDIA if "LUDIA" in k else _VASSOURAS)
-            return df[(df["_k"] == alvo) & df["É Subtotal"].astype(bool)]
         c = df[df["_k"] == k]
-        return c if not c.empty else df[df["_s"] == _chave_solta(nome)]
+        if c.empty:
+            c = df[df["_s"] == _chave_solta(nome)]
+        # o bloco de arrendamento o comentário chama como a face ('Arrendamento
+        # Vassouras'); a base, pelo nome do bloco. Só depois do nome: 'Arrendamento
+        # De Pasto (Vassouras)' é a natureza dentro do bloco, não ele inteiro
+        if c.empty and "ARRENDAMENTO" in k and ("LUDIA" in k or "VASSOURAS" in k):
+            alvo = _chave_dre(_LUDIA if "LUDIA" in k else _VASSOURAS)
+            c = df[(df["_k"] == alvo) & df["É Subtotal"].astype(bool)]
+        return c
 
     conferidos, divergem, sem_par = 0, [], []
     for bruto in texto.splitlines():
