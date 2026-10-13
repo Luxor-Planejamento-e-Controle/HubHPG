@@ -2765,8 +2765,9 @@ def _chave_solta(x) -> str:
     return "".join(re.sub(r"S$", "", w) for w in re.findall(r"[A-Z0-9]+", x))
 
 
-def _k_citado(v: float) -> str:
-    return f"{'-' if v < 0 else '+' if v > 0 else ''}R$ {abs(v):g}k".replace(".", ",")
+def _k_citado(v: float, fmt: str = "g") -> str:
+    """-R$ 5k como o comentário escreve; fmt '.1f' dá o ∆ do DRE, -R$ 6,0k."""
+    return f"{'-' if v < 0 else '+' if v > 0 else ''}R$ " + f"{abs(v):{fmt}}k".replace(".", ",")
 
 
 def confere_trello(texto: str, m: int, ano: int):
@@ -2824,9 +2825,9 @@ def confere_trello(texto: str, m: int, ano: int):
           f"com o DRE caixa, {len(divergem)} não batem"
           + (f", {len(sem_par)} sem natureza de mesmo nome no DRE" if sem_par else ""))
     for d in divergem:
-        print(f"  [trello]   {d['nome']}: comentário {_k_citado(d['citado'])}, DRE "
-              f"{'-' if d['dre'] < 0 else '+'}R$ {abs(d['dre']):.1f}k".replace(".", ",")
-              + f" (orçado {brl_cheio(d['orcado'])}, realizado {brl_cheio(d['realizado'])})")
+        print(f"  [trello]   {d['nome']}: comentário {_k_citado(d['citado'])}, "
+              f"DRE {_k_citado(d['dre'], '.1f')} "
+              f"(orçado {brl_cheio(d['orcado'])}, realizado {brl_cheio(d['realizado'])})")
     for d in sem_par:
         print(f"  [trello]   {d['nome']} ({_k_citado(d['citado'])}): sem natureza de mesmo nome no DRE")
     return {"conferidos": conferidos, "divergem": divergem, "sem_par": sem_par}
