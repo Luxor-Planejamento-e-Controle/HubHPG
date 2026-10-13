@@ -1759,7 +1759,12 @@ def garanhoes(wb, safra):
     # A aba é mantida à mão e esquece garanhão: em 25/26 faltavam Latino, Esteio
     # e Invencível, que o relatório trouxe da aba ESTAÇÃO. Mesma regra aqui —
     # quem teve tentativa na safra e não está na aba entra com a conta da ESTAÇÃO.
+    # Só até a 25/26: da 26/27 em diante a lista é a da aba, e a ESTAÇÃO só
+    # completa a conta de quem está nela. O Damasco teve uma tentativa na 26/27,
+    # não está no planejamento e não entra (Arthur, 13/10/2026).
     for k, d in _garanhoes_da_estacao(wb, safra).items():
+        if k not in aba and safra >= GARANHOES_TODOS_DESDE:
+            continue
         if k not in aba or not aba[k]["lav"]:
             if not d["lav"]:
                 continue
