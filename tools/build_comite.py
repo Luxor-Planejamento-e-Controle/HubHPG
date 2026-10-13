@@ -2747,12 +2747,12 @@ def itens_trello(texto: str, face_cx: list) -> list:
 
 # ------------------------------------- conferência do comentário × DRE caixa
 # O ∆ que o comentário cita é digitado pela Controladoria, e o deck mostra o texto
-# como veio. Em ago/26 quatro não batiam com o DRE vigente — Outras Despesas com
-# Pessoal -5K ainda com o orçado da v2, de antes da revisão; Suplemento Pista e Com
-# Exposição sem reproduzir em versão nenhuma — e o deck dizia -5k nos comentários e
-# -6k na análise. Cada natureza citada é casada com a linha de mesmo nome no DRE
-# caixa do mês; o que não bate vai para o log do pedido e para a auditoria, nunca
-# para o slide: o texto é da Controladoria, e quem corrige é ela, no Trello.
+# como veio. Em ago/26 quatro não batiam com o DRE vigente — um ainda com o orçado
+# de antes da revisão (v2 → v3), dois sem reproduzir em versão nenhuma — e o deck
+# mostrava um número na página de comentários e outro na análise. Cada natureza
+# citada é casada com a linha de mesmo nome no DRE caixa do mês; o que não bate vai
+# para o log do pedido e para a auditoria, nunca para o slide: o texto é da
+# Controladoria, e quem corrige é ela, no Trello.
 _CONFERENCIAS: dict = {}
 
 
@@ -2766,7 +2766,7 @@ def _chave_solta(x) -> str:
 
 
 def _k_citado(v: float, fmt: str = "g") -> str:
-    """-R$ 5k como o comentário escreve; fmt '.1f' dá o ∆ do DRE, -R$ 6,0k."""
+    """-R$ 3k como o comentário escreve; fmt '.1f' dá o ∆ do DRE, -R$ 3,4k."""
     return f"{'-' if v < 0 else '+' if v > 0 else ''}R$ " + f"{abs(v):{fmt}}k".replace(".", ",")
 
 
