@@ -1691,6 +1691,11 @@ def funil(wb, safra):
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
         if i < 3 or r[0] is None or _s(r[35]) != safra:
             continue
+        # o haras deixa a próxima linha numerada e com a safra, mas sem doadora,
+        # garanhão nem lavado: não é tentativa. Na 26/27 ela entrava no funil e
+        # derrubava a taxa de recuperação de um mês com todos os lavados positivos
+        if not (_s(r[2]) or _s(r[3]) or _s(r[10])):
+            continue
         tent += 1
         if _norm(r[10]) != "+":
             continue
