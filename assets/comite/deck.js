@@ -923,7 +923,9 @@ let mesAtual = SPEC.padrao;
    O comitê trimestral olha o acumulado do ANO, não o do trimestre — então os
    slides de YTD, que já existem, são justamente os que ficam. */
 let modo = 'mensal';
-const doModo = d => modo === 'trimestral' ? d.filter(x => !x.so_mensal) : d;
+/* trimestral tira o que recorta o mês; mensal tira o que é só do trimestral
+   (o gráfico do DRE por ano, desde 14/10/2026) */
+const doModo = d => d.filter(x => modo === 'trimestral' ? !x.so_mensal : !x.so_trimestral);
 let slides = doModo(SPEC.decks[mesAtual]);
 let idx = 0;
 const stage = document.getElementById('stage');

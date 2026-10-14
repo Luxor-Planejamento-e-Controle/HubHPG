@@ -281,6 +281,53 @@
     return P;
   };
 
+  /* ---------------- DRE: orçado × realizado por ano ----------------
+     O gráfico do painel DRE do hub do P&C: um painel por natureza, barras do
+     acumulado jan–mês de cada ano. Altura pelo valor absoluto (custo é negativo
+     na base); a cor do ∆ segue o sinal, como no resto do DRE. Só no trimestral. */
+  const curtoM = v => { const a = Math.abs(v); return a >= 1e6 ? nf(a / 1e6, 1) + 'M' : nf(a / 1e3, 0) + 'k'; };
+  const COR_ORC = COR.azul2, COR_REAL = COR.ouro;
+  L.dre_anos = s => {
+    const P = claro(s, []);
+    const n = s.paineis.length, gap = 19.2, w = (1190.4 - gap * (n - 1)) / n;
+    const y0 = topo(s), base = 640;
+    s.paineis.forEach((p, j) => {
+      const x = 44.8 + j * (w + gap);
+      P.push(R(x, y0, w, 34.6, {fill: COR.navy}));
+      P.push(C(x + 12, y0, w - 24, 34.6, p.nome.toUpperCase(), {pt: 9, b: 1, c: 'FFFFFF', va: 'm'}));
+      const ult = p.anos[p.anos.length - 1];
+      if (ult) {
+        const d = ult.real - ult.orc, pc = ult.orc ? d / Math.abs(ult.orc) : null;
+        P.push(C(x + 12, y0 + 42, w - 24, 22, `${ult.ano}: orçado ${curtoM(ult.orc)} · realizado ${curtoM(ult.real)}`,
+                 {pt: 8, c: COR.cinza, va: 'm'}));
+        P.push(C(x + 12, y0 + 64, w - 24, 26, `${deltaK(d / 1000)}  ·  ${deltaP(pc)}`,
+                 {pt: 11, b: 1, c: corDelta(d, COR.cinza), va: 'm'}));
+      }
+      const k = p.anos.length;
+      if (!k) return;
+      const hMax = base - (y0 + 120) - 22;
+      const max = Math.max(1, ...p.anos.flatMap(a => [Math.abs(a.orc), Math.abs(a.real)]));
+      P.push(R(x, base, w, 1.5, {fill: COR.cinzaClaro}));
+      const slot = w / Math.max(k, 3), bw = Math.min(46, slot * 0.34);
+      const xs = x + (w - slot * k) / 2;
+      p.anos.forEach((a, i) => {
+        const cx = xs + i * slot + slot / 2;
+        [[a.orc, COR_ORC, cx - bw - 2], [a.real, COR_REAL, cx + 2]].forEach(([v, cor, bx]) => {
+          const h = Math.max(1.5, hMax * Math.abs(v) / max);
+          P.push(R(bx, base - h, bw, h, {fill: cor}));
+          P.push(T(bx - 14, base - h - 20, bw + 28, 18, curtoM(v), {pt: 7.5, b: 1, c: COR.tinta, al: 'c', va: 'm'}));
+        });
+        P.push(T(cx - slot / 2, base + 4, slot, 22, String(a.ano), {pt: 9, b: 1, c: COR.tinta, al: 'c', va: 'm'}));
+      });
+    });
+    [['Orçado', COR_ORC], ['Realizado', COR_REAL]].forEach(([t, cor], i) => {
+      const lx = 532 + i * 120;
+      P.push(R(lx, 686, 13, 13, {fill: cor}));
+      P.push(T(lx + 19, 680, 95, 25, t, {pt: 8.5, c: COR.cinza, va: 'm'}));
+    });
+    return P;
+  };
+
   /* ---------------- investimentos, mês a mês ---------------- */
   L.lista_mes = s => {
     const P = claro(s, []);
@@ -904,7 +951,7 @@
   /* Slide sem subtítulo: a faixa dele (até y≈124) ficava vazia e o conteúdo
      parecia baixo. DRE e comentários já começam mais alto (topo()); nos outros
      o conteúdo sobe inteiro, até logo abaixo do logo. */
-  const PROPRIO_TOPO = new Set(['dre', 'comentarios', 'capa', 'agenda', 'divisor', 'encerramento', 'fotos', 'pendente']);
+  const PROPRIO_TOPO = new Set(['dre', 'comentarios', 'capa', 'agenda', 'divisor', 'encerramento', 'fotos', 'pendente', 'dre_anos']);
   const sobe = (s, P) => {
     if (s.sub || PROPRIO_TOPO.has(s.t)) return P;
     const ys = P.map(p => p.k === 'a' ? p.cy - p.r : p.y).filter(y => y > 100);

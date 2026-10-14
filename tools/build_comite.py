@@ -3491,6 +3491,48 @@ def divide_contratos(slide):
                  titulo=f"{slide['titulo']} ({k + 1}/{n})") for k in range(n)]
 
 
+# ------------------------------------- gráfico do DRE do hub do P&C (trimestral)
+# O "Orçado × Realizado por ano" do painel DRE do P&C, no deck: o acumulado
+# jan–mês de cada ano, modelo Competência, para três naturezas. Só na
+# apresentação trimestral, depois da análise de despesas do acumulado (pedido do
+# Arthur, 14/10/2026). Anos desde 2024: até 2023 a receita bruta somava ativo
+# biológico e reavaliação e "custos e despesas" tinha outro corte — pôr na mesma
+# régua misturaria duas estruturas de DRE.
+GRAFICO_DRE = [("Receita Bruta", "RECEITA OPERACIONAL BRUTA"),
+               ("Custos e Despesas", "CUSTOS E DESPESAS OPERACIONAIS"),
+               ("Investimentos", "INVESTIMENTOS")]
+GRAFICO_DRE_DESDE = 2024
+
+
+def slide_grafico_dre(ano: int, m: int):
+    titulo = f"HARAS COMPETÊNCIA — ORÇADO × REALIZADO JAN–{ABR[m-1].upper()}, POR ANO"
+    h = le_historico()
+    if not h:
+        return pend(7, titulo, "", "DRE_Historico.xlsx", "base do DRE não encontrada")
+    y = h["ytd"]
+    df = y[(y["Centro de Custo"] == "HPG") & (y["Modelo"] == "Competência")
+           & (y["Acumulado"] == f"{m:02d}-Jan a {ABR[m-1]}") & y["É Subtotal"].astype(bool)
+           & (y["ano"] >= GRAFICO_DRE_DESDE) & (y["ano"] <= ano)]
+    chave = df["Natureza de Lançamento"].map(lambda x: _chave_dre(x) if isinstance(x, str) else "")
+    paineis = []
+    for rot, nat in GRAFICO_DRE:
+        anos = []
+        for a, g in df[chave == _chave_dre(nat)].groupby("ano"):
+            o, r = g["Orçado YTD"].map(lambda x: num(x) or 0.0), g["Realizado YTD"].map(lambda x: num(x) or 0.0)
+            i = (o.abs() + r.abs()).idxmax()
+            anos.append({"ano": int(a), "orc": float(o[i]), "real": float(r[i])})
+        paineis.append({"nome": rot, "anos": anos})
+    if not any(p["anos"] for p in paineis):
+        return so_trimestral(pend(7, titulo, "", "DRE_Historico.xlsx", "sem acumulado dessas naturezas na base"))
+    return so_trimestral({"t": "dre_anos", "n": 7, "titulo": titulo, "sub": "", "paineis": paineis})
+
+
+def so_trimestral(slide):
+    """O contrário do so_mensal: slide que só entra na apresentação trimestral."""
+    slide["so_trimestral"] = True
+    return slide
+
+
 def so_mensal(slides):
     """Marca os slides que recortam o MÊS — os que não vão no trimestral.
 
@@ -3592,6 +3634,7 @@ def monta_deck(m, ano, ctx):
                 if x["t"] == "dre":
                     x["cab"] = ["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"]
                 s.append(x)
+    s.append(slide_grafico_dre(ano, m))
     s.append(slide_movimentacao(m, ano))
     # a aba Investimentos é do mesmo DRE anual e se preenche no mesmo fechamento
     s += (slides_investimentos(m, ano) if fechado else
@@ -3601,6 +3644,14 @@ def monta_deck(m, ano, ctx):
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
                        "",
                        linhas_face(face_cx, gab_caixa), "caixa"))
+    # o acumulado do caixa, na geometria do slide do mês (pedido do Arthur, 14/10/2026)
+    face_cx_ytd = _na_ordem_oficial(dre_ytd("HPG", "Caixa", ano, m),
+                                    gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
+    cx_ytd = dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}", "",
+                 linhas_face(face_cx_ytd, gab_caixa), "caixa")
+    if cx_ytd["t"] == "dre":
+        cx_ytd["cab"] = ["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"]
+    s.append(cx_ytd)
     s.append(slide_estoque(m, ano))
     face_casa = _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m),
                                   gabarito(_registra("DRE anual (Casa)", DRE_CASA), "Real x Orçado"))
