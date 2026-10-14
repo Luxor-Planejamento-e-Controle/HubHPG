@@ -1,0 +1,203 @@
+/* Aba Naturezas do Hub HPG — cadastro do painel de Gastos. Roda em iframe do hub (mesma
+   origem). Mesma paleta do hub, do SGPG e da aba Plantel: é o mesmo produto. */
+/* ============================================================
+   Tokens da identidade Luxor P&C.
+   Declarados aqui (não importados do hub) para o painel ser
+   autocontido: abre por file://, sem servidor e sem dependência.
+   Fonte: mesma pilha do hub — usa Fakt Pro se instalada, senão
+   degrada para a de sistema. Nenhum binário copiado.
+   ============================================================ */
+:root{
+  --bg:#04223B; --bg-2:#072B49;
+  --surface:#0A3050; --surface-2:#0F3E63;
+  --ink:#EAF0F4; --ink-2:#B6C8D6; --ink-3:#93AABC;
+  --amber:#CA9703; --amber-deep:#A87D02; --amber-soft:rgba(202,151,3,.16);
+  --teal:#7FA8C4; --teal-light:#9CC0D6;
+  --pos:#4CC38A; --neg:#F07A7A; --warn:#E0B341;
+  --line:#1B486B; --line-strong:#2A5F87;
+  --r:14px; --r-sm:9px; --ctl-h:36px;
+  /* Sem teto a linha da tabela fica longa demais em monitor grande; com teto E
+     centralização, a tela grande sobra em margem, não em conteúdo colado num canto. */
+  --largura-max:1800px;
+  --gutter:22px;
+  --shadow-card:0 1px 3px rgba(0,0,0,.4);
+  --font-sans:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;
+  --font-serif:"Segoe UI",system-ui,-apple-system,Georgia,serif;
+  --neg-soft:rgba(240,122,122,.16);
+  --warn-soft:rgba(224,179,65,.16);
+}
+[hidden]{display:none !important}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:var(--font-sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface-2);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---- topbar ---- */
+.topbar{
+  border-bottom:1px solid var(--line);background:var(--bg-2);
+  position:sticky;top:0;z-index:5;
+}
+/* A barra estica de ponta a ponta (o fundo e a borda devem cortar a tela
+   inteira), mas o conteúdo dela segue o mesmo eixo do .content — senão em
+   monitor grande o título fica na borda e os cards centralizados. */
+/* Faixa fina: sobrou só a linha de contexto, já que marca e título vêm do hub.
+   Continua sticky de propósito — a tabela é longa, e saber de que mês é a lista
+   importa depois de rolar cem fornecedores. */
+.topbar-inner{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:9px var(--gutter);
+  max-width:var(--largura-max);margin-inline:auto;
+}
+.topbar .sub{color:var(--ink-3);font-size:12px}
+.topbar .spacer{flex:1}
+.content{
+  padding:22px var(--gutter) 56px;
+  max-width:var(--largura-max);
+  /* centraliza: sem isto, em tela mais larga que o teto o painel inteiro fica
+     encostado à esquerda com um vazio à direita */
+  margin-inline:auto;
+}
+
+/* ---- avisos ---- */
+.banner{
+  border-radius:var(--r-sm);padding:11px 15px;font-size:12.5px;margin-bottom:18px;
+  display:flex;gap:10px;align-items:flex-start;
+  background:var(--amber-soft);border:1px solid rgba(202,151,3,.4);color:var(--ink);
+}
+.banner svg{flex:0 0 auto;margin-top:1px}
+.banner b{color:var(--ink)}
+
+/* ---- barra de filtros: UMA linha, acima de tudo que ela filtra ---- */
+.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:18px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+select,input[type=search]{
+  background:var(--surface);border:1px solid var(--line);color:var(--ink);
+  padding:0 12px;border-radius:var(--r-sm);font:inherit;font-size:13px;outline:none;
+  height:var(--ctl-h);
+}
+select:focus,input:focus{border-color:var(--amber)}
+input[type=search]{min-width:230px}
+/* O campo de busca pode ENCOLHER, mas não crescer (flex-grow 0). Sem isso, a
+   entrada do seletor de fonte empurrava o botão "Limpar filtros" para uma
+   segunda linha órfã; e deixando crescer, a busca engolia a sobra e empurrava
+   o botão do mesmo jeito. */
+.field.cresce{flex:0 1 220px;min-width:0}
+.field.cresce input[type=search]{width:100%;min-width:150px}
+.seg{
+  display:inline-flex;align-items:center;padding:3px;gap:3px;height:var(--ctl-h);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
+}
+.seg button{
+  background:transparent;border:0;color:var(--ink-2);padding:0 12px;
+  height:calc(var(--ctl-h) - 8px);border-radius:6px;cursor:pointer;font:inherit;font-size:12px;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--amber);color:#1a1300;font-weight:600}
+.btn-ghost{
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);height:var(--ctl-h);
+  padding:0 14px;border-radius:var(--r-sm);font:inherit;font-size:13px;cursor:pointer;
+}
+.btn-ghost:hover{border-color:var(--amber);color:var(--amber)}
+
+/* ---- telas estreitas ----
+   Dentro do iframe do hub a largura é a da janela menos os 248px da sidebar (a tela toda
+   abaixo de 760px, quando a sidebar vira overlay). O campo de busca tem base 220px e,
+   sem poder encolher, estourava um iframe de 390px e fazia a PÁGINA rolar na horizontal. */
+@media(max-width:620px){
+  .field,.field.cresce{min-width:0;max-width:100%}
+  .field.cresce input[type=search]{min-width:0}
+  .toolbar{gap:10px}
+}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-card);padding:18px;
+}
+.card-title{display:flex;align-items:center;gap:9px;margin-bottom:14px;flex-wrap:wrap}
+.card-title h2{font-family:var(--font-serif);font-size:15px;margin:0;font-weight:600}
+.card-title .muted{color:var(--ink-3);font-size:12px;font-weight:400}
+
+.tbl-wrap{overflow-x:auto;border-radius:var(--r-sm);max-height:calc(100vh - 200px)}
+table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+table.data th{
+  text-align:left;padding:9px 13px;background:#04223B;color:var(--ink-2);
+  font-weight:600;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+  position:sticky;top:0;z-index:1;white-space:nowrap;
+}
+table.data th.num,table.data td.num{text-align:right}
+table.data td{padding:8px 13px;border-top:1px solid var(--line);color:var(--ink);vertical-align:top}
+table.data tbody tr:hover td{background:rgba(255,255,255,.03)}
+.sub2{color:var(--ink-3);font-size:11px;margin-top:2px}
+.nowrap{white-space:nowrap}
+.empty{display:grid;place-items:center;text-align:center;padding:60px 20px;color:var(--ink-3)}
+.empty .big{font-size:40px;margin-bottom:10px;opacity:.5}
+.empty code{background:var(--surface-2);padding:2px 7px;border-radius:5px;color:var(--amber);font-size:12.5px}
+
+/* ---- tela de cadastro (CP_CADASTRO) ----
+   Botão primário e caixa de erro não existiam neste painel, que é só de leitura.
+   Os valores vêm do theme.css do hub, não de escolhas novas. */
+.btn-acao{
+  background:var(--amber);border:1px solid var(--amber);color:#1a1300;height:var(--ctl-h);
+  padding:0 18px;border-radius:var(--r-sm);font:inherit;font-size:13px;font-weight:600;
+  cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+}
+.btn-acao:hover:not(:disabled){background:var(--amber-deep);border-color:var(--amber-deep)}
+.btn-acao:disabled{opacity:.45;cursor:default}
+.erro-box{
+  margin-bottom:14px;padding:11px 14px;border-radius:var(--r-sm);font-size:12.5px;
+  background:rgba(240,122,122,.16);border:1px solid rgba(240,122,122,.45);color:var(--ink);
+}
+.cpc-acoes{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-top:20px;padding-top:16px;border-top:1px solid var(--line);
+}
+.cpc-acoes .txt{flex:1;min-width:210px;font-size:12.5px;color:var(--ink-2)}
+
+/* Campos do cadastro: padrão de controle do hub (altura --ctl-h, fundo --surface),
+   o mesmo de qualquer outro campo do produto. */
+table.data input.cpc,table.data select.cpc{
+  background:var(--surface);border:1px solid var(--line);color:var(--ink);
+  height:var(--ctl-h);padding:0 10px;border-radius:var(--r-sm);
+  font:inherit;font-size:13px;max-width:100%;
+}
+table.data input.cpc:focus,table.data select.cpc:focus{border-color:var(--amber);outline:none}
+table.data input.cpc::placeholder{color:var(--ink-3)}
+/* Empresa gravada com grafia que o robô não reconhece. Não é erro de digitação inofensivo:
+   o batimento casa título com fornecedor por este nome, então a linha nunca casaria e
+   apareceria "Não Recebido" todo mês. A borda avisa; o valor fica, para quem vê decidir. */
+table.data select.cpc[data-fora]{border-color:var(--warn);background:var(--warn-soft)}
+table.data.cadastro td{vertical-align:top;padding-top:9px;padding-bottom:9px}
+table.data.cadastro tr.inativo td{opacity:.6}
+table.data.cadastro tr.inativo td:first-child{box-shadow:inset 3px 0 0 var(--ink-3)}
+
+/* ---- específico desta tela ---- */
+table.data.cadastro tr.grupo td{
+  background:#04223B;color:var(--ink-2);font-size:11px;letter-spacing:.06em;
+  text-transform:uppercase;font-weight:600;padding:7px 13px;border-top:1px solid var(--line-strong);
+}
+table.data.cadastro tr.grupo .muted{color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0}
+/* Código do Bimer que não é inteiro: o campo avisa, e o problema aparece na caixa de erros. */
+table.data input.cpc.ruim{border-color:var(--neg);background:var(--neg-soft)}
+/* Pendente: o dinheiro está FORA do painel por grupo — é o único card que pede ação. */
+.card.destaque{border-color:rgba(240,122,122,.45);background:linear-gradient(180deg,var(--neg-soft),var(--surface) 70%)}
+.card + .card, .card + .toolbar, .erro-box + .card, .banner + .card{margin-top:16px}
+.toolbar{margin-top:18px}
+.btn-mv{
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);width:26px;height:26px;
+  border-radius:6px;cursor:pointer;font:inherit;font-size:13px;line-height:1;padding:0;
+}
+.btn-mv:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+.btn-mv:disabled{opacity:.3;cursor:default}
+details > summary{cursor:pointer;list-style:none}
+details > summary::-webkit-details-marker{display:none}
+details > summary::before{content:'▸';color:var(--ink-3);margin-right:8px}
+details[open] > summary::before{content:'▾'}
+.muted{color:var(--ink-3);font-size:12.5px}
+
+select,input{color-scheme:dark}

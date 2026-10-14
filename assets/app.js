@@ -17,6 +17,8 @@ const ICON = {
   plantel:'M4 20V8l8-5 8 5v12M9 20v-6h6v6',
   gastos:'M3 3v18h18M7 15l4-5 4 3 5-7',
   sgpg:'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4',
+  // lista com marcadores: o cadastro das naturezas que montam o painel de Gastos
+  naturezas:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
@@ -30,12 +32,17 @@ const ROUTES = [
    render:renderPlantel},
   {id:'gastos', title:'Gastos', sub:'Orçado × realizado por natureza — Haras Pao Grande',
    icon:'gastos', render:renderGastos},
+  /* Não é um painel com permissão própria: segue a de 'gastos' (`perm`). Quem vê o
+     painel vê de que natureza e de quem ele é feito; gravar é decisão do banco
+     (gastos_editores), e a tela vira só consulta para os demais. */
+  {id:'naturezas', perm:'gastos', nav:'Naturezas', title:'Naturezas — cadastro do painel de Gastos',
+   sub:'O que entra no Controle, em qual grupo e de quem é', icon:'naturezas', render:renderNaturezas},
   {id:'sgpg', nav:'SGPG', title:'SGPG — Sistema de Gestão Pao Grande',
    sub:'Exposições e premiações', icon:'sgpg', render:renderSgpg},
 ];
 function allowed(){
   const ok=(window.HUB&&window.HUB.dashboards)||[];
-  return ROUTES.filter(r=>!r.id||ok.includes(r.id));
+  return ROUTES.filter(r=>!r.id||ok.includes(r.perm||r.id));
 }
 const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 
@@ -201,6 +208,18 @@ function renderGastos(el){
   f.className='embed auto-h'; f.title='Gastos';
   f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
   f.srcdoc=html;
+  el.appendChild(f);
+}
+
+/* ---- Naturezas ----
+   O cadastro que a rotina publicar_gastos_haras lê para montar o painel de Gastos
+   (naturezas.html). Iframe de mesma origem, pelo mesmo motivo do SGPG: a página grava, e a
+   sessão do Supabase vem de window.parent.HUB. */
+function renderNaturezas(el){
+  el.classList.add('flush');
+  const f=document.createElement('iframe');
+  f.className='embed'; f.title='Naturezas';
+  f.src='naturezas.html';
   el.appendChild(f);
 }
 

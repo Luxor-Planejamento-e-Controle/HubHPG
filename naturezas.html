@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naturezas — cadastro do painel de Gastos</title>
+<link rel="icon" href="assets/pg-logo.png">
+<link rel="stylesheet" href="assets/naturezas/naturezas.css?v=202610141200">
+</head>
+<body>
+<!-- Cadastro de naturezas do painel de Gastos. Roda em iframe do hub (mesma origem): o
+     cliente e a sessão do Supabase vêm de window.parent.HUB, e o que se grava vai para a
+     tabela gastos_cadastro sob a policy do hub_gastos_editor (admin e gastos_editores). -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="sub" id="pageSub">carregando…</div>
+  </div>
+</header>
+
+<div class="content" id="content">
+  <div class="empty"><div>Carregando o cadastro…</div></div>
+</div>
+
+<script src="assets/naturezas/nat_dados.js?v=202610141200"></script>
+<script src="assets/naturezas/nat_fonte.js?v=202610141200"></script>
+<script src="assets/naturezas/nat_cadastro.js?v=202610141200"></script>
+<script>
+'use strict';
+
+function subtitulo(est) {
+  var n = est.doc.naturezas.length, i = est.doc.ignoradas.length;
+  return n + ' naturezas no Controle · ' + i + ' fora do escopo' +
+    (est.pendentes ? ' · pendentes de ' + String(est.pendentes.gerado_em || '').slice(0, 10)
+      .split('-').reverse().join('/') : '');
+}
+
+async function carregarTela() {
+  var est = await NAT_FONTE.carregar();
+  document.getElementById('pageSub').textContent = subtitulo(est);
+  NAT_CADASTRO.abrir(document.getElementById('content'), est, {
+    salvar: async function (cad) {
+      var r = await NAT_FONTE.salvar(cad);
+      document.getElementById('pageSub').textContent =
+        subtitulo({ doc: r, pendentes: est.pendentes });
+      return r;
+    }
+  });
+}
+
+(async function boot() {
+  try {
+    await carregarTela();
+  } catch (e) {
+    document.getElementById('pageSub').textContent = 'não foi possível carregar';
+    var box = document.createElement('div');
+    box.className = 'erro-box';
+    box.textContent = 'Não foi possível carregar o cadastro: ' + e.message;
+    var c = document.getElementById('content');
+    c.innerHTML = '';
+    c.appendChild(box);
+  }
+})();
+</script>
+</body>
+</html>
