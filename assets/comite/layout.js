@@ -281,53 +281,6 @@
     return P;
   };
 
-  /* ---------------- DRE: orçado × realizado por ano ----------------
-     O gráfico do painel DRE do hub do P&C: um painel por natureza, barras do
-     acumulado jan–mês de cada ano. Altura pelo valor absoluto (custo é negativo
-     na base); a cor do ∆ segue o sinal, como no resto do DRE. Só no trimestral. */
-  const curtoM = v => { const a = Math.abs(v); return a >= 1e6 ? nf(a / 1e6, 1) + 'M' : nf(a / 1e3, 0) + 'k'; };
-  const COR_ORC = COR.azul2, COR_REAL = COR.ouro;
-  L.dre_anos = s => {
-    const P = claro(s, []);
-    const n = s.paineis.length, gap = 19.2, w = (1190.4 - gap * (n - 1)) / n;
-    const y0 = topo(s), base = 640;
-    s.paineis.forEach((p, j) => {
-      const x = 44.8 + j * (w + gap);
-      P.push(R(x, y0, w, 34.6, {fill: COR.navy}));
-      P.push(C(x + 12, y0, w - 24, 34.6, p.nome.toUpperCase(), {pt: 9, b: 1, c: 'FFFFFF', va: 'm'}));
-      const ult = p.anos[p.anos.length - 1];
-      if (ult) {
-        const d = ult.real - ult.orc, pc = ult.orc ? d / Math.abs(ult.orc) : null;
-        P.push(C(x + 12, y0 + 42, w - 24, 22, `${ult.ano}: orçado ${curtoM(ult.orc)} · realizado ${curtoM(ult.real)}`,
-                 {pt: 8, c: COR.cinza, va: 'm'}));
-        P.push(C(x + 12, y0 + 64, w - 24, 26, `${deltaK(d / 1000)}  ·  ${deltaP(pc)}`,
-                 {pt: 11, b: 1, c: corDelta(d, COR.cinza), va: 'm'}));
-      }
-      const k = p.anos.length;
-      if (!k) return;
-      const hMax = base - (y0 + 120) - 22;
-      const max = Math.max(1, ...p.anos.flatMap(a => [Math.abs(a.orc), Math.abs(a.real)]));
-      P.push(R(x, base, w, 1.5, {fill: COR.cinzaClaro}));
-      const slot = w / Math.max(k, 3), bw = Math.min(46, slot * 0.34);
-      const xs = x + (w - slot * k) / 2;
-      p.anos.forEach((a, i) => {
-        const cx = xs + i * slot + slot / 2;
-        [[a.orc, COR_ORC, cx - bw - 2], [a.real, COR_REAL, cx + 2]].forEach(([v, cor, bx]) => {
-          const h = Math.max(1.5, hMax * Math.abs(v) / max);
-          P.push(R(bx, base - h, bw, h, {fill: cor}));
-          P.push(T(bx - 14, base - h - 20, bw + 28, 18, curtoM(v), {pt: 7.5, b: 1, c: COR.tinta, al: 'c', va: 'm'}));
-        });
-        P.push(T(cx - slot / 2, base + 4, slot, 22, String(a.ano), {pt: 9, b: 1, c: COR.tinta, al: 'c', va: 'm'}));
-      });
-    });
-    [['Orçado', COR_ORC], ['Realizado', COR_REAL]].forEach(([t, cor], i) => {
-      const lx = 532 + i * 120;
-      P.push(R(lx, 686, 13, 13, {fill: cor}));
-      P.push(T(lx + 19, 680, 95, 25, t, {pt: 8.5, c: COR.cinza, va: 'm'}));
-    });
-    return P;
-  };
-
   /* ---------------- investimentos, mês a mês ---------------- */
   L.lista_mes = s => {
     const P = claro(s, []);
@@ -759,6 +712,65 @@
         if (h > 0.5) P.push(R(x0 + q * (bw + 2), gy + gh - h, bw, h, {fill: c}));
       });
       P.push(T(gx + j * slot, gy + gh + 4, slot, 18, an.ano, {pt: 6.5, c: PAINEL.apoio, al: 'c', va: 'm'}));
+    });
+    return P;
+  };
+
+  /* ---------------- DRE: orçado × realizado por ano (o card do P&C) ----------------
+     O "Orçado × Realizado por ano" do painel DRE do hub do P&C, no fundo do painel
+     como a inadimplência: os quatro KPIs (somas dos anos do gráfico, como lá), a
+     grade com o eixo em Mi e as barras com rótulo. Cores e formatos do P&C. */
+  const PC = {teal: '2E97A6', laranja: 'FFA400', pos: '46B678', neg: 'E5674E', grade: '28505C'};
+  const mi2 = v => nf(v / 1e6, 2) + ' Mi';
+  const pctPC = v => v == null ? '—' : (v >= 0 ? '+' : '') + nf(v, 2) + '%';
+  L.dre_anos = s => {
+    const P = claro(s, []);
+    P.push(R(0, 141, 1280, 535, {fill: PAINEL.fundo}));
+    const anos = s.anos || [];
+    const totO = anos.reduce((x, a) => x + a.orc, 0), totR = anos.reduce((x, a) => x + a.real, 0);
+    const dev = totR - totO, devP = totO ? dev / Math.abs(totO) * 100 : null;
+    const corV = v => v == null ? PAINEL.txt : (v >= 0 ? PC.pos : PC.neg);
+    [['ORÇADO (ACUM.)', mi2(totO), brl2(totO), PAINEL.txt], ['REALIZADO (ACUM.)', mi2(totR), brl2(totR), PAINEL.txt],
+     ['DESVIO (REAL − ORÇ)', mi2(dev), brl2(dev), corV(dev)], ['DESVIO %', pctPC(devP), '', corV(devP)]]
+      .forEach(([rot, v, apoio, c], j) => {
+        const x = 16 + j * 314, y = 153, w = 306, h = 86;
+        P.push(R(x, y, w, h, {fill: PAINEL.card, line: PAINEL.borda}));
+        P.push(T(x + 16, y + 8, w - 32, 18, rot, {pt: 7, c: PAINEL.apoio, va: 'm', sp: 1}));
+        P.push(T(x + 16, y + 26, w - 32, 34, v, {pt: 16, b: 1, c, va: 'm'}));
+        if (apoio) P.push(T(x + 16, y + 60, w - 32, 18, apoio, {pt: 7.5, c: PAINEL.txt, va: 'm'}));
+      });
+    P.push(R(16, 251, 1248, 413, {fill: PAINEL.card, line: PAINEL.borda}));
+    P.push(T(36, 261, 600, 26, 'Orçado × Realizado por ano', {pt: 10, b: 1, c: PAINEL.txt, va: 'm'}));
+    [['Orçado', PC.teal], ['Realizado', PC.laranja]].forEach(([t, c], i) => {
+      const x = 1040 + i * 104;
+      P.push(R(x, 268, 12, 12, {fill: c}));
+      P.push(T(x + 18, 262, 84, 24, t, {pt: 8, c: PAINEL.txt, va: 'm'}));
+    });
+    // eixo com passo "redondo", como o do ECharts, sempre passando pelo zero
+    const vals = anos.flatMap(a => [a.orc, a.real]);
+    let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+    if (lo === hi) hi = 1;
+    const redondo = r => { const e = Math.pow(10, Math.floor(Math.log10(r))), f = r / e;
+      return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e; };
+    const st = redondo((hi - lo) / 5);
+    lo = Math.floor(lo / st) * st; hi = Math.ceil(hi / st) * st;
+    const gx = 100, gy = 316, gw = 1136, gh = 268;
+    const Y = v => gy + gh - (v - lo) / (hi - lo) * gh;
+    for (let t = lo; t <= hi + st / 2; t += st) {
+      const y = Y(t);
+      P.push(R(gx, y, gw, 0.8, {fill: PC.grade}));
+      P.push(T(gx - 70, y - 8, 62, 16, (t / 1e6).toLocaleString('pt-BR', {maximumFractionDigits: 2}) + ' Mi', {pt: 6.5, c: PAINEL.apoio, al: 'r', va: 'm'}));
+    }
+    const slot = gw / Math.max(anos.length, 1), bw = Math.min(46, slot * 0.17), y0 = Y(0);
+    anos.forEach((a, j) => {
+      const cx = gx + j * slot + slot / 2;
+      [[a.orc, PC.teal, cx - bw - 4], [a.real, PC.laranja, cx + 4]].forEach(([v, c, bx]) => {
+        const yv = Y(v), topoB = Math.min(yv, y0), h = Math.abs(yv - y0);
+        if (h > 0.5) P.push(R(bx, topoB, bw, h, {fill: c}));
+        P.push(T(bx - 30, v < 0 ? y0 + h + 2 : topoB - 18, bw + 60, 16, mi2(v),
+                 {pt: 6.5, c: PAINEL.apoio, al: 'c', va: 'm'}));
+      });
+      P.push(T(gx + j * slot, gy + gh + 24, slot, 18, String(a.ano), {pt: 7.5, c: PAINEL.apoio, al: 'c', va: 'm'}));
     });
     return P;
   };

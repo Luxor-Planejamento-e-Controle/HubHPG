@@ -3492,39 +3492,48 @@ def divide_contratos(slide):
 
 
 # ------------------------------------- gráfico do DRE do hub do P&C (trimestral)
-# O "Orçado × Realizado por ano" do painel DRE do P&C, no deck: o acumulado
-# jan–mês de cada ano, modelo Competência, para três naturezas. Só na
-# apresentação trimestral, depois da análise de despesas do acumulado (pedido do
-# Arthur, 14/10/2026). Anos desde 2024: até 2023 a receita bruta somava ativo
-# biológico e reavaliação e "custos e despesas" tinha outro corte — pôr na mesma
-# régua misturaria duas estruturas de DRE.
+# O card "Orçado × Realizado por ano" do painel DRE do P&C, no deck, um slide por
+# natureza (modelo Competência, acumulado jan–mês de cada ano). Só na apresentação
+# trimestral, depois da análise de despesas do acumulado (pedido do Arthur,
+# 14/10/2026). Fiel ao P&C também nos números: os anos são todos os da base e a
+# natureza é casada pelo nome — ano em que o DRE a chamava de outro jeito (até 2023)
+# sai zerado, como lá.
 GRAFICO_DRE = [("Receita Bruta", "RECEITA OPERACIONAL BRUTA"),
                ("Custos e Despesas", "CUSTOS E DESPESAS OPERACIONAIS"),
                ("Investimentos", "INVESTIMENTOS")]
-GRAFICO_DRE_DESDE = 2024
 
 
-def slide_grafico_dre(ano: int, m: int):
-    titulo = f"HARAS COMPETÊNCIA — ORÇADO × REALIZADO JAN–{ABR[m-1].upper()}, POR ANO"
+def slides_grafico_dre(ano: int, m: int) -> list:
+    titulo = lambda rot: f"HARAS COMPETÊNCIA — ORÇADO × REALIZADO POR ANO — {rot.upper()}"
+    sub = f"Acumulado Jan–{ABR[m-1]} de cada ano"
     h = le_historico()
     if not h:
-        return pend(7, titulo, "", "DRE_Historico.xlsx", "base do DRE não encontrada")
+        return [so_trimestral(pend(7, titulo(r), sub, "DRE_Historico.xlsx", "base do DRE não encontrada"))
+                for r, _ in GRAFICO_DRE]
     y = h["ytd"]
-    df = y[(y["Centro de Custo"] == "HPG") & (y["Modelo"] == "Competência")
-           & (y["Acumulado"] == f"{m:02d}-Jan a {ABR[m-1]}") & y["É Subtotal"].astype(bool)
-           & (y["ano"] >= GRAFICO_DRE_DESDE) & (y["ano"] <= ano)]
+    faixa = y[(y["Centro de Custo"] == "HPG") & (y["Modelo"] == "Competência")
+              & (y["Acumulado"] == f"{m:02d}-Jan a {ABR[m-1]}") & (y["ano"] <= ano)]
+    anos = sorted(int(a) for a in faixa["ano"].unique())
+    df = faixa[faixa["É Subtotal"].astype(bool)]
     chave = df["Natureza de Lançamento"].map(lambda x: _chave_dre(x) if isinstance(x, str) else "")
-    paineis = []
+    out = []
     for rot, nat in GRAFICO_DRE:
-        anos = []
-        for a, g in df[chave == _chave_dre(nat)].groupby("ano"):
+        sel = df[chave == _chave_dre(nat)]
+        vals = []
+        for a in anos:
+            g = sel[sel["ano"] == a]
+            if g.empty:
+                vals.append({"ano": a, "orc": 0.0, "real": 0.0})
+                continue
             o, r = g["Orçado YTD"].map(lambda x: num(x) or 0.0), g["Realizado YTD"].map(lambda x: num(x) or 0.0)
             i = (o.abs() + r.abs()).idxmax()
-            anos.append({"ano": int(a), "orc": float(o[i]), "real": float(r[i])})
-        paineis.append({"nome": rot, "anos": anos})
-    if not any(p["anos"] for p in paineis):
-        return so_trimestral(pend(7, titulo, "", "DRE_Historico.xlsx", "sem acumulado dessas naturezas na base"))
-    return so_trimestral({"t": "dre_anos", "n": 7, "titulo": titulo, "sub": "", "paineis": paineis})
+            vals.append({"ano": a, "orc": float(o[i]), "real": float(r[i])})
+        if not any(v["orc"] or v["real"] for v in vals):
+            out.append(so_trimestral(pend(7, titulo(rot), sub, "DRE_Historico.xlsx",
+                                          "sem acumulado dessa natureza na base")))
+            continue
+        out.append(so_trimestral({"t": "dre_anos", "n": 7, "titulo": titulo(rot), "sub": sub, "anos": vals}))
+    return out
 
 
 def so_trimestral(slide):
@@ -3635,7 +3644,7 @@ def monta_deck(m, ano, ctx):
                 if x["t"] == "dre":
                     x["cab"] = ["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"]
                 s.append(x)
-    s.append(slide_grafico_dre(ano, m))
+    s += slides_grafico_dre(ano, m)
     # estoque e movimentação do plantel andam juntos (Arthur, 14/10/2026)
     s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
