@@ -320,13 +320,177 @@ window.NAT_CADASTRO = (function () {
     if (t) t.textContent = statusTexto(alterados, probs);
   }
 
-  function novaNatureza(extra) {
-    var n = Object.assign({
-      ordem: D.ordemNoFimDoGrupo(nats, [], null), cod: '', alt: '', nome: '', resp: '',
-      bimer: [], path: [], uid: proximoUid++
-    }, extra || {});
-    nats.push(n);
-    return n;
+  // ---------------------------------------------------------------- formulário "Nova natureza"
+
+  /* Incluir uma natureza é uma TELA PRÓPRIA, com os campos que a chefe pediu — nome,
+   * código e grupo — e não uma linha em branco no fim da tabela de 150. A linha em branco
+   * mandava procurar a nova linha lá embaixo, e deixava a natureza existir inválida (sem
+   * código, sem grupo) até alguém completar. Aqui ela só entra no cadastro COMPLETA e sem
+   * conflito, no fim do grupo escolhido.
+   *
+   * Além dos três, pede Responsável e código do Bimer: o responsável é obrigatório no
+   * cadastro (o painel agrupa por ele) e o código do Bimer é o que liga os lançamentos à
+   * natureza — sem ele a natureza existe e fica vazia, por isso a dica.
+   *
+   * `pre`: { nome, bimer: [int], ignorada } — vem de uma pendente ou de uma "fora do
+   * escopo". A ignorada só SAI da lista quando a natureza é confirmada: abrir e cancelar
+   * não pode mudar nada. */
+  var NOVO_GRUPO = '__novo__';
+
+  function abrirFormulario(pre, el) {
+    pre = pre || {};
+    var fundo = document.createElement('div');
+    fundo.className = 'modal-fundo';
+    var caminhos = D.caminhos(nats);
+    var bimerPre = (pre.bimer || []).join(', ');
+
+    fundo.innerHTML =
+      '<div class="modal" id="natForm" role="dialog" aria-modal="true" aria-labelledby="natFTitulo">' +
+        '<h2 id="natFTitulo">Nova natureza no Controle</h2>' +
+        (pre.nome ? '<div class="muted" style="margin-bottom:12px">Vinda do Bimer: ' +
+          '<b>' + esc(pre.nome) + '</b>' + (bimerPre ? ' · código ' + esc(bimerPre) : '') +
+          '</div>' : '') +
+        '<div class="form-campo"><label for="natFNome">Nome</label>' +
+          '<input type="text" id="natFNome" value="' + esc(pre.nome || '') + '" ' +
+          'placeholder="como aparece no painel"><div class="form-erro" data-erro="nome"></div></div>' +
+        '<div class="form-campo"><label for="natFCod">Código</label>' +
+          '<input type="text" id="natFCod" placeholder="ex.: 10.4.2.03.21">' +
+          '<div class="form-dica">A classificação da natureza no plano de contas — a mesma do DRE.</div>' +
+          '<div class="form-erro" data-erro="cod"></div></div>' +
+        '<div class="form-campo"><label for="natFGrupo">Grupo</label>' +
+          '<select id="natFGrupo"><option value="">— escolha o grupo —</option>' +
+          caminhos.map(function (c) {
+            var k = D.caminho(c);
+            return '<option value="' + esc(k) + '">' + esc(k) + '</option>';
+          }).join('') + '<option value="' + NOVO_GRUPO + '">＋ criar novo grupo…</option></select>' +
+          '<input type="text" id="natFNovoGrupo" hidden style="margin-top:8px" ' +
+            'placeholder="Custos e Despesas > Custos > Sanidade">' +
+          '<div class="form-dica" id="natFDicaGrupo" hidden>Do grupo raiz até o grupo, separado por ' +
+            '&gt;. A natureza vai para o fim dele.</div>' +
+          '<div class="form-erro" data-erro="grupo"></div></div>' +
+        '<div class="form-campo"><label for="natFResp">Responsável</label>' +
+          '<input type="text" id="natFResp" list="natFRespLista" placeholder="quem acompanha o gasto">' +
+          '<datalist id="natFRespLista">' + responsaveis().map(function (r) {
+            return '<option value="' + esc(r) + '">';
+          }).join('') + '</datalist><div class="form-erro" data-erro="resp"></div></div>' +
+        '<div class="form-campo"><label for="natFBimer">Código do Bimer <span class="muted">' +
+          '(opcional)</span></label>' +
+          '<input type="text" id="natFBimer" value="' + esc(bimerPre) + '" placeholder="ex.: 1880">' +
+          '<div class="form-dica">O número que o relatório do Bimer traz para esta natureza. ' +
+          'Sem ele, nenhum lançamento é ligado a ela.</div>' +
+          '<div class="form-erro" data-erro="bimer"></div></div>' +
+        '<div class="form-falta" id="natFFalta"></div>' +
+        '<div class="form-acoes">' +
+          '<button type="button" class="btn-ghost" id="natFCancel">Cancelar</button>' +
+          '<button type="button" class="btn-acao" id="natFAdd" disabled>Adicionar ao Controle</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(fundo);
+
+    function v(id) { return fundo.querySelector('#' + id); }
+
+    function caminhoEscolhido() {
+      var g = v('natFGrupo').value;
+      if (g === NOVO_GRUPO) return D.lerCaminho(v('natFNovoGrupo').value);
+      return g ? g.split(D.SEP) : [];
+    }
+
+    /* Tudo o que impede de adicionar. `erros` = conflito (mensagem no campo); `falta` = campo
+     * vazio (vira "Falta preencher: …"). O conflito é calculado contra o cadastro DE AGORA,
+     * inclusive o que ainda não foi gravado. */
+    function avaliar() {
+      var e = {}, falta = [];
+      var nome = v('natFNome').value.trim(), cod = v('natFCod').value.trim();
+      var resp = v('natFResp').value.trim(), path = caminhoEscolhido();
+      var b = D.lerBimer(v('natFBimer').value);
+
+      if (!nome) falta.push('nome');
+      if (!cod) falta.push('código');
+      else {
+        var dono = nats.find(function (n) { return n.cod === cod || (n.alt && n.alt === cod); });
+        if (dono) e.cod = 'Este código já é de «' + dono.nome + '».';
+      }
+      if (!path.length) falta.push('grupo');
+      if (!resp) falta.push('responsável');
+
+      if (b.invalidos.length) e.bimer = 'Não é número: ' + b.invalidos.join(', ') + '.';
+      else {
+        b.ints.forEach(function (c) {
+          if (e.bimer) return;
+          var dono = nats.find(function (n) { return n.bimer.indexOf(c) >= 0; });
+          if (dono) { e.bimer = 'O código ' + c + ' já pertence a «' + dono.nome + '».'; return; }
+          var ign = ignoradas.find(function (g) { return g.bimer === c && g !== pre.ignorada; });
+          if (ign) e.bimer = 'O código ' + c + ' está em "Fora do escopo" (' + ign.nome +
+            '). Use "Incluir no Controle" lá.';
+        });
+      }
+      return { erros: e, falta: falta, nome: nome, cod: cod, resp: resp, path: path, bimer: b.ints };
+    }
+
+    function atualizar() {
+      var r = avaliar();
+      fundo.querySelectorAll('[data-erro]').forEach(function (x) {
+        x.textContent = r.erros[x.getAttribute('data-erro')] || '';
+      });
+      v('natFFalta').textContent = r.falta.length ? 'Falta preencher: ' + r.falta.join(', ') + '.' : '';
+      v('natFAdd').disabled = Object.keys(r.erros).length > 0 || r.falta.length > 0;
+    }
+
+    function sujo() {
+      return !!(v('natFNome').value !== (pre.nome || '') || v('natFCod').value ||
+        v('natFGrupo').value || v('natFResp').value || v('natFBimer').value !== bimerPre);
+    }
+
+    function fechar(forcado) {
+      if (!forcado && sujo() && !window.confirm('Descartar o que foi preenchido?')) return;
+      document.removeEventListener('keydown', teclas, true);
+      fundo.remove();
+    }
+
+    function adicionar() {
+      if (v('natFAdd').disabled) return;
+      var r = avaliar();
+      var n = {
+        ordem: D.ordemNoFimDoGrupo(nats, r.path, null), cod: r.cod, alt: '', nome: r.nome,
+        resp: r.resp, bimer: r.bimer, path: r.path, uid: proximoUid++
+      };
+      nats.push(n);
+      if (pre.ignorada) ignoradas = ignoradas.filter(function (g) { return g !== pre.ignorada; });
+      filtro = { busca: '', grupo: '' };
+      avisoSalvo = 'Natureza «' + n.nome + '» adicionada ao grupo «' + D.caminho(n.path) +
+        '». Falta gravar o cadastro para valer.';
+      fechar(true);
+      render(el);
+      var linha = el.querySelector('tr[data-uid="' + n.uid + '"]');
+      if (linha) { linha.scrollIntoView({ block: 'center' }); linha.classList.add('nova'); }
+    }
+
+    /* Esc fecha; Tab fica dentro da janela (aria-modal não prende o foco sozinho). */
+    function teclas(ev) {
+      if (ev.key === 'Escape') { ev.preventDefault(); fechar(false); return; }
+      if (ev.key !== 'Tab') return;
+      var foc = Array.prototype.filter.call(
+        fundo.querySelectorAll('input, select, button'),
+        function (x) { return !x.disabled && !x.hidden && x.offsetParent !== null; });
+      if (!foc.length) return;
+      var primeiro = foc[0], ultimo = foc[foc.length - 1];
+      if (ev.shiftKey && document.activeElement === primeiro) { ev.preventDefault(); ultimo.focus(); }
+      else if (!ev.shiftKey && document.activeElement === ultimo) { ev.preventDefault(); primeiro.focus(); }
+    }
+    document.addEventListener('keydown', teclas, true);
+
+    fundo.addEventListener('input', atualizar);
+    v('natFGrupo').addEventListener('change', function () {
+      var novo = v('natFGrupo').value === NOVO_GRUPO;
+      v('natFNovoGrupo').hidden = !novo;
+      v('natFDicaGrupo').hidden = !novo;
+      if (novo) v('natFNovoGrupo').focus();
+      atualizar();
+    });
+    v('natFCancel').onclick = function () { fechar(false); };
+    v('natFAdd').onclick = adicionar;
+    atualizar();
+    (pre.nome ? v('natFCod') : v('natFNome')).focus();
   }
 
   function ligar(el) {
@@ -406,15 +570,7 @@ window.NAT_CADASTRO = (function () {
     }
 
     var add = document.getElementById('natAdd');
-    if (add) add.onclick = function () {
-      /* Nova natureza nasce SEM grupo e no fim: quem cria escolhe o grupo, e é esse
-       * `change` que a põe no lugar certo. Filtro limpo para ela aparecer. */
-      filtro = { busca: '', grupo: '' };
-      var n = novaNatureza();
-      render(el);
-      var c = el.querySelector('tr[data-uid="' + n.uid + '"] input[data-campo="cod"]');
-      if (c) { c.scrollIntoView({ block: 'center' }); c.focus(); }
-    };
+    if (add) add.onclick = function () { abrirFormulario({}, el); };
 
     el.querySelectorAll('[data-pa]').forEach(function (b) {
       b.onclick = function () {
@@ -426,11 +582,7 @@ window.NAT_CADASTRO = (function () {
           render(el);
           return;
         }
-        filtro = { busca: '', grupo: '' };
-        var n = novaNatureza({ nome: p.nome, bimer: [p.bimer] });
-        render(el);
-        var c = el.querySelector('tr[data-uid="' + n.uid + '"] input[data-campo="cod"]');
-        if (c) { c.scrollIntoView({ block: 'center' }); c.focus(); }
+        abrirFormulario({ nome: p.nome, bimer: [p.bimer] }, el);
       };
     });
 
@@ -442,15 +594,12 @@ window.NAT_CADASTRO = (function () {
         var cod = parseInt(b.getAttribute('data-bimer'), 10);
         var g = ignoradas.find(function (x) { return x.bimer === cod; });
         if (!g) return;
-        ignoradas = ignoradas.filter(function (x) { return x !== g; });
         ignAberto = true;
         if (b.getAttribute('data-ia') === 'incluir') {
-          filtro = { busca: '', grupo: '' };
-          var n = novaNatureza({ nome: g.nome, bimer: [g.bimer] });
-          render(el);
-          var c = el.querySelector('tr[data-uid="' + n.uid + '"] input[data-campo="cod"]');
-          if (c) { c.scrollIntoView({ block: 'center' }); c.focus(); }
+          /* a ignorada só sai da lista quando a natureza for confirmada no formulário */
+          abrirFormulario({ nome: g.nome, bimer: [g.bimer], ignorada: g }, el);
         } else {
+          ignoradas = ignoradas.filter(function (x) { return x !== g; });
           render(el);
         }
       };

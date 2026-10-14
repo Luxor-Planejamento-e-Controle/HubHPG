@@ -40,12 +40,25 @@ var NAT_DADOS = (function () {
    * tela nunca ter de perguntar se `naturezas` existe. */
   function normalizar(doc) {
     doc = doc || {};
+    /* Ausente vira vazio (a linha inicial é '{}'), mas FORMA errada não: um `naturezas` que
+     * não é lista (correção à mão no banco, seed mal formado) não pode virar uma tela vazia
+     * — o próximo "Gravar" apagaria o que estava lá. Melhor recusar com a razão. */
+    ['naturezas', 'ignoradas'].forEach(function (c) {
+      if (doc[c] !== undefined && doc[c] !== null && !Array.isArray(doc[c])) {
+        throw new Error('o cadastro no banco está com formato inválido: `' + c +
+                        '` não é uma lista — corrija o documento antes de abrir a aba');
+      }
+    });
     return Object.assign({}, doc, {
       versao: doc.versao || 1,
       naturezas: (doc.naturezas || []).map(function (n) {
         return Object.assign({}, n, {
           ordem: n.ordem, cod: n.cod || '', alt: n.alt || '', nome: n.nome || '',
-          resp: n.resp || '', bimer: (n.bimer || []).slice(), path: (n.path || []).slice()
+          resp: n.resp || '',
+          /* `bimer` e `path` só são copiados se forem lista: uma string aqui NÃO vira
+           * `[]` em silêncio — problemas() a aponta. */
+          bimer: Array.isArray(n.bimer) ? n.bimer.slice() : (n.bimer === undefined ? [] : n.bimer),
+          path: Array.isArray(n.path) ? n.path.slice() : (n.path === undefined ? [] : n.path)
         });
       }),
       ignoradas: (doc.ignoradas || []).map(function (g) { return Object.assign({}, g); })
@@ -103,7 +116,14 @@ var NAT_DADOS = (function () {
    * não interpretado, e só a tela os conhece. */
   function problemas(doc) {
     var erros = [];
-    var nats = doc.naturezas || [];
+    /* Forma do documento, antes de qualquer laço — a mesma primeira linha do validar() do
+     * Python. Sem isto, um documento que não veio da tela (seed, SQL na mão, service_role)
+     * passava por aqui e só quebrava na publicação, ou estourava com TypeError e deixava a
+     * aba em branco sem dizer o que houve. */
+    if (!doc || typeof doc !== 'object' || !Array.isArray(doc.naturezas)) {
+      return [{ onde: 'documento', erro: 'sem a lista `naturezas`' }];
+    }
+    var nats = doc.naturezas;
 
     nats.forEach(function (n, i) {
       var rot = 'natureza #' + (i + 1) + ' (' + (texto(n.cod) || '?') + ')';
@@ -114,6 +134,13 @@ var NAT_DADOS = (function () {
         erros.push({ onde: rot, erro: 'sem grupo' });
       }
       if (!ehInteiro(n.ordem)) erros.push({ onde: rot, erro: '`ordem` não numérica' });
+      /* Tipo de cada código do Bimer. A tela só produz inteiros (lerBimer), mas o documento
+       * pode ter vindo de outro lugar: '999', 1.5, true ou null aqui fariam o Python recusar
+       * o que este portão deixava passar. */
+      var bm = n.bimer === undefined ? [] : n.bimer;
+      if (!Array.isArray(bm) || !bm.every(ehInteiro)) {
+        erros.push({ onde: rot, erro: '`bimer` precisa ser lista de inteiros' });
+      }
       if (n._bimer_invalido && n._bimer_invalido.length) {
         erros.push({ onde: rot, erro: 'código do Bimer inválido: ' + n._bimer_invalido.join(', ') });
       }
@@ -124,10 +151,15 @@ var NAT_DADOS = (function () {
     nats.forEach(function (n) { classif.push(texto(n.cod), texto(n.alt)); });
     repetidos(erros, 'classificação', classif);
     var bimers = [];
-    nats.forEach(function (n) { (n.bimer || []).forEach(function (b) { bimers.push(b); }); });
+    nats.forEach(function (n) {
+      if (Array.isArray(n.bimer)) n.bimer.forEach(function (b) { bimers.push(b); });
+    });
     repetidos(erros, 'código do Bimer', bimers);
     repetidos(erros, 'ordem', nats.map(function (n) { return n.ordem; }));
 
+    if (doc.ignoradas !== undefined && !Array.isArray(doc.ignoradas)) {
+      return erros.concat([{ onde: 'documento', erro: '`ignoradas` precisa ser uma lista' }]);
+    }
     var ign = doc.ignoradas || [];
     var codIgn = [];
     ign.forEach(function (g, i) {

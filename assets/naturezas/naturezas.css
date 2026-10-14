@@ -201,3 +201,35 @@ details[open] > summary::before{content:'▾'}
 .muted{color:var(--ink-3);font-size:12.5px}
 
 select,input{color-scheme:dark}
+
+/* ---- formulário "Nova natureza" ----
+   Janela por cima da aba (que é um iframe: cobre só ele, não o hub). Não fecha clicando fora:
+   é um formulário com campos preenchidos, e perdê-los por um clique perdido é o tipo de
+   custo que não compensa. */
+.modal-fundo{
+  position:fixed;inset:0;z-index:50;background:rgba(2,14,24,.72);
+  display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow:auto;
+}
+.modal{
+  width:100%;max-width:560px;background:var(--surface);border:1px solid var(--line-strong);
+  border-radius:var(--r);box-shadow:0 12px 40px rgba(0,0,0,.55);padding:22px;
+}
+.modal h2{font-family:var(--font-serif);font-size:17px;margin:0 0 14px;font-weight:600}
+.form-campo{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.form-campo label{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.form-campo input,.form-campo select{
+  width:100%;background:var(--bg-2);border:1px solid var(--line);color:var(--ink);
+  height:var(--ctl-h);padding:0 11px;border-radius:var(--r-sm);font:inherit;font-size:13.5px;
+}
+.form-campo input:focus,.form-campo select:focus{border-color:var(--amber);outline:none;
+  box-shadow:0 0 0 3px var(--amber-soft)}
+.form-dica{font-size:11.5px;color:var(--ink-3)}
+.form-erro{font-size:12px;color:var(--neg);min-height:0}
+.form-erro:empty{display:none}
+.form-falta{font-size:12.5px;color:var(--ink-2);min-height:18px;margin:2px 0 4px}
+.form-acoes{display:flex;justify-content:flex-end;gap:10px;margin-top:10px;padding-top:16px;
+  border-top:1px solid var(--line)}
+/* a natureza que acabou de entrar: some o destaque sozinho, mas dá tempo de achar a linha */
+table.data.cadastro tr.nova td{background:var(--amber-soft);animation:nova-some 6s ease-out forwards}
+@keyframes nova-some{to{background:transparent}}
+@media(max-width:620px){.modal-fundo{padding:12px 8px}.modal{padding:16px}}

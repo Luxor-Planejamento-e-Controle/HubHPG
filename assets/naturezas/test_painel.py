@@ -181,11 +181,23 @@ class Base(unittest.TestCase):
         self.assertTrue(self.gravacoes, "nada foi gravado")
         return self.gravacoes[-1]["data"]
 
-    def preencher_nova(self, cod, resp, grupo_valor):
-        self.pg.fill('tr[data-uid] input[data-campo="cod"] >> nth=-1', cod)  # a nova é a última (sem grupo)
-        sel = 'select[data-campo="grupo"] >> nth=-1'
-        self.pg.select_option(sel, value=grupo_valor)
-        self.pg.fill(f'{self.linha(cod)} input[data-campo="resp"]', resp)
+    def preencher_form(self, nome=None, cod=None, grupo=None, resp=None, bimer=None):
+        """Preenche o formulário "Nova natureza". `grupo` é o caminho com ' › '."""
+        pg = self.pg
+        if nome is not None:
+            pg.fill("#natFNome", nome)
+        if cod is not None:
+            pg.fill("#natFCod", cod)
+        if grupo is not None:
+            pg.select_option("#natFGrupo", value=grupo)
+        if resp is not None:
+            pg.fill("#natFResp", resp)
+        if bimer is not None:
+            pg.fill("#natFBimer", bimer)
+
+    def adicionar(self):
+        self.pg.click("#natFAdd")
+        self.pg.wait_for_selector("#natForm", state="detached")
 
 
 class TestAbertura(Base):
@@ -235,31 +247,34 @@ class TestPendentes(Base):
         self.assertEqual(ign[1881]["atualizado_por"], "fulano@luxor.com.br")
         self.assertEqual(ign[900]["atualizado_por"], "alguem@luxor.com.br", "a antiga não é recarimbada")
 
-    def test_incluir_no_controle_exige_cod_resp_e_grupo(self):
+    def test_incluir_no_controle_abre_o_formulario_ja_preenchido(self):
         pg = self.abrir()
         pg.click('tr[data-pend="1880"] [data-pa="incluir"]')
-        self.assertEqual(pg.locator("tr[data-pend]").count(), 1)
-        # nasce com o nome e o código do Bimer, mas sem cód/resp/grupo: não pode gravar
-        self.assertTrue(pg.is_disabled("#natSalvar"))
-        erros = pg.inner_text("#natProbs")
-        for esperado in ("`cod` vazio", "`resp` vazio", "sem grupo"):
-            self.assertIn(esperado, erros)
-        self.assertEqual(pg.input_value('tr[data-uid] input[data-campo="nome"] >> nth=-1'),
-                         "MATERIAL DE REPRODUÇÃO")
-        self.assertEqual(pg.input_value('tr[data-uid] input[data-campo="bimer"] >> nth=-1'), "1880")
+        self.assertTrue(pg.is_visible("#natForm"))
+        self.assertEqual(pg.input_value("#natFNome"), "MATERIAL DE REPRODUÇÃO")
+        self.assertEqual(pg.input_value("#natFBimer"), "1880")
+        self.assertIn("Vinda do Bimer", pg.inner_text("#natForm"))
+        # faltam código, grupo e responsável: a natureza NÃO entra incompleta
+        self.assertTrue(pg.is_disabled("#natFAdd"))
+        self.assertEqual(pg.inner_text("#natFFalta"), "Falta preencher: código, grupo, responsável.")
+        self.assertEqual(pg.locator("tr[data-pend]").count(), 2, "só some da lista ao confirmar")
+        self.assertEqual(self.ordem_na_tela(), ["10.1", "10.2", "20.1"])
 
     def test_incluir_completo_entra_no_fim_do_grupo_e_grava(self):
         pg = self.abrir()
         pg.click('tr[data-pend="1880"] [data-pa="incluir"]')
-        self.preencher_nova("10.4.2.03.21", "Diogo", " › ".join(SAN))
-        self.assertFalse(pg.is_disabled("#natSalvar"))
-        self.assertEqual(pg.inner_text("#natProbs"), "", "problemas resolvidos somem sem recarregar")
+        self.preencher_form(cod="10.4.2.03.21", grupo=" › ".join(SAN), resp="Diogo")
+        self.assertFalse(pg.is_disabled("#natFAdd"))
+        self.adicionar()
+        self.assertEqual(pg.locator("tr[data-pend]").count(), 1, "decidida, sai da lista")
+        self.assertEqual(pg.inner_text("#natProbs"), "")
         pg.click("#natSalvar")
         pg.wait_for_function("() => /gravado/.test(document.getElementById('natStatus').textContent)")
         d = self.gravado()
         novo = next(n for n in d["naturezas"] if n["cod"] == "10.4.2.03.21")
         self.assertEqual(novo["bimer"], [1880])
         self.assertEqual(novo["path"], SAN)
+        self.assertEqual(novo["nome"], "MATERIAL DE REPRODUÇÃO")
         self.assertEqual(novo["atualizado_por"], "fulano@luxor.com.br")
         # fim do grupo Sanidade, ANTES de Investimentos: o grupo continua num bloco só
         ordem = [n["cod"] for n in sorted(d["naturezas"], key=lambda n: n["ordem"])]
@@ -387,6 +402,220 @@ class TestValidacao(Base):
         pg.fill(f'{self.linha("10.2")} input[data-campo="cod"]', "10.1")
         self.assertTrue(pg.is_disabled("#natSalvar"))
         self.assertIn("classificação — repetido", pg.inner_text("#natProbs"))
+
+
+class TestFormulario(Base):
+    """"Nova natureza": os campos que a chefe pediu — nome, código e grupo — numa tela
+    própria, e a natureza só entra no cadastro completa e sem conflito."""
+
+    def test_botao_abre_o_formulario_com_os_campos_pedidos(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.assertTrue(pg.is_visible("#natForm"))
+        rotulos = [t.lower() for t in pg.eval_on_selector_all(
+            "#natForm .form-campo label", "els => els.map(e => e.textContent)")]
+        for pedido in ("nome", "código", "grupo"):
+            self.assertTrue(any(r.startswith(pedido) for r in rotulos), f"campo {pedido}")
+        self.assertTrue(pg.is_disabled("#natFAdd"))
+        self.assertEqual(pg.inner_text("#natFFalta"),
+                         "Falta preencher: nome, código, grupo, responsável.")
+        self.assertEqual(pg.evaluate("document.activeElement.id"), "natFNome", "foco no 1º campo")
+        self.assertEqual(self.ordem_na_tela(), ["10.1", "10.2", "20.1"], "nada entrou ainda")
+
+    def test_nao_ha_mais_linha_em_branco_na_tabela(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.assertEqual(pg.locator("table.cadastro tr[data-uid]").count(), 3)
+
+    def test_grupo_lista_os_existentes_e_a_opcao_de_criar(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        ops = pg.eval_on_selector_all("#natFGrupo option", "els => els.map(e => e.textContent)")
+        self.assertIn("Custos e Despesas › Sanidade", ops)
+        self.assertIn("Investimentos › Compra", ops)
+        self.assertTrue(any("novo grupo" in o for o in ops))
+
+    def test_adicionar_manual_entra_no_fim_do_grupo_e_grava(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.preencher_form(nome="Exame de DNA", cod="10.9", grupo=" › ".join(SAN),
+                            resp="Diogo", bimer="777")
+        self.assertFalse(pg.is_disabled("#natFAdd"))
+        self.adicionar()
+        self.assertEqual(self.ordem_na_tela(), ["10.1", "10.2", "10.9", "20.1"])
+        self.assertIn("Falta gravar", pg.inner_text("#natStatus"))
+        self.assertEqual(pg.locator("tr.nova").count(), 1, "a linha nova fica destacada")
+        self.assertIn("gravado", self.salvar())
+        novo = next(n for n in self.gravado()["naturezas"] if n["cod"] == "10.9")
+        self.assertEqual((novo["nome"], novo["resp"], novo["bimer"], novo["path"]),
+                         ("Exame de DNA", "Diogo", [777], SAN))
+
+    def test_bimer_e_opcional(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.preencher_form(nome="Sem Bimer", cod="10.8", grupo=" › ".join(INV), resp="Ana")
+        self.assertFalse(pg.is_disabled("#natFAdd"))
+        self.adicionar()
+        self.salvar()
+        novo = next(n for n in self.gravado()["naturezas"] if n["cod"] == "10.8")
+        self.assertEqual(novo["bimer"], [])
+
+    def test_novo_grupo_vai_para_o_fim(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.assertTrue(pg.is_hidden("#natFNovoGrupo"))
+        pg.select_option("#natFGrupo", value="__novo__")
+        self.assertTrue(pg.is_visible("#natFNovoGrupo"))
+        self.assertEqual(pg.inner_text("#natFFalta"),
+                         "Falta preencher: nome, código, grupo, responsável.")
+        pg.fill("#natFNovoGrupo", "Custos e Despesas > Pista")
+        self.preencher_form(nome="Ferrageamento", cod="10.7", resp="Ana")
+        self.adicionar()
+        self.salvar()
+        novo = next(n for n in self.gravado()["naturezas"] if n["cod"] == "10.7")
+        self.assertEqual(novo["path"], ["Custos e Despesas", "Pista"])
+        self.assertEqual(novo["ordem"], 40, "grupo novo entra no fim de tudo")
+
+    def test_codigo_repetido_bloqueia_com_a_mensagem(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.preencher_form(nome="X", cod="10.1", grupo=" › ".join(SAN), resp="Ana")
+        self.assertIn("já é de «Vacina»", pg.inner_text("#natForm"))
+        self.assertTrue(pg.is_disabled("#natFAdd"))
+        pg.fill("#natFCod", "10.11")
+        self.assertFalse(pg.is_disabled("#natFAdd"), "corrigido, destrava")
+
+    def test_codigo_do_bimer_de_outra_natureza_bloqueia(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.preencher_form(nome="X", cod="10.6", grupo=" › ".join(SAN), resp="Ana", bimer="101")
+        self.assertIn("O código 101 já pertence a «Vacina»", pg.inner_text("#natForm"))
+        self.assertTrue(pg.is_disabled("#natFAdd"))
+
+    def test_codigo_do_bimer_nas_ignoradas_bloqueia_e_aponta_o_caminho(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.preencher_form(nome="X", cod="10.6", grupo=" › ".join(SAN), resp="Ana", bimer="900")
+        txt = pg.inner_text("#natForm")
+        self.assertIn("Fora do escopo", txt)
+        self.assertTrue(pg.is_disabled("#natFAdd"))
+
+    def test_codigo_do_bimer_que_nao_e_numero_bloqueia(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.preencher_form(nome="X", cod="10.6", grupo=" › ".join(SAN), resp="Ana", bimer="13a9")
+        self.assertIn("Não é número: 13a9", pg.inner_text("#natForm"))
+        self.assertTrue(pg.is_disabled("#natFAdd"))
+
+    def test_cancelar_nao_muda_nada(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.preencher_form(nome="Descartada", cod="10.5")
+        pg.click("#natFCancel")           # o confirm "Descartar?" é aceito pelo tratador
+        self.assertEqual(pg.locator("#natForm").count(), 0)
+        self.assertEqual(self.ordem_na_tela(), ["10.1", "10.2", "20.1"])
+        self.assertTrue(pg.is_disabled("#natSalvar"), "nada alterado")
+
+    def test_esc_fecha(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.page.keyboard.press("Escape")
+        self.assertEqual(pg.locator("#natForm").count(), 0)
+
+    def test_clicar_fora_nao_fecha(self):
+        """Janela com campos preenchidos: um clique perdido não pode jogar o trabalho fora."""
+        pg = self.abrir()
+        pg.click("#natAdd")
+        self.preencher_form(nome="Preenchida")
+        self.page.mouse.click(5, 5)
+        self.assertTrue(pg.is_visible("#natForm"))
+        self.assertEqual(pg.input_value("#natFNome"), "Preenchida")
+
+    def test_responsavel_sugere_quem_ja_existe(self):
+        pg = self.abrir()
+        pg.click("#natAdd")
+        sug = pg.eval_on_selector_all("#natFRespLista option", "els => els.map(e => e.value)")
+        self.assertEqual(sorted(sug), ["Ana", "Diogo"])
+
+    def test_ignorada_so_sai_da_lista_ao_confirmar(self):
+        pg = self.abrir()
+        pg.click('summary:has-text("Fora do escopo")')
+        pg.click('tr[data-ign="900"] [data-ia="incluir"]')
+        self.assertEqual(pg.input_value("#natFNome"), "APORTE DE SOCIOS")
+        self.assertEqual(pg.input_value("#natFBimer"), "900", "o próprio código dela não conflita")
+        pg.click("#natFCancel")
+        self.assertEqual(pg.locator('tr[data-ign="900"]').count(), 1, "cancelar não tira da lista")
+        self.assertTrue(pg.is_disabled("#natSalvar"))
+        pg.click('tr[data-ign="900"] [data-ia="incluir"]')
+        self.preencher_form(cod="10.4", grupo=" › ".join(INV), resp="Ana")
+        self.adicionar()
+        self.assertEqual(pg.locator('tr[data-ign="900"]').count(), 0)
+        self.salvar()
+        d = self.gravado()
+        self.assertEqual(d["ignoradas"], [])
+        self.assertIn(900, next(n for n in d["naturezas"] if n["cod"] == "10.4")["bimer"])
+
+
+class TestGuardas(Base):
+    """As duas guardas do validador (revisão do Arthur): documento que NÃO veio da tela
+    tem de ser recusado pelo JS como o Python recusa, e não passar nem estourar."""
+
+    def problemas(self, doc):
+        return self.pg.evaluate("d => NAT_DADOS.problemas(d)", doc)
+
+    def setUp(self):
+        self.abrir(doc={}, pendentes=None)
+
+    def nat(self, **extra):
+        n = {"ordem": 10, "cod": "1", "alt": "", "nome": "n", "resp": "r", "bimer": [1],
+             "path": ["A", "B"]}
+        n.update(extra)
+        return n
+
+    def test_documento_valido_nao_acusa(self):
+        self.assertEqual(self.problemas({"naturezas": [self.nat()], "ignoradas": []}), [])
+
+    def test_forma_do_documento(self):
+        casos = {
+            "sem naturezas": {"ignoradas": []},
+            "naturezas é objeto": {"naturezas": {}},
+            "naturezas é texto": {"naturezas": "abc"},
+            "documento nulo": None,
+            "ignoradas é texto": {"naturezas": [], "ignoradas": "abc"},
+            "ignoradas é objeto": {"naturezas": [], "ignoradas": {}},
+            "ignoradas é nulo": {"naturezas": [], "ignoradas": None},
+        }
+        for nome, doc in casos.items():
+            with self.subTest(nome):
+                self.assertTrue(self.problemas(doc), f"{nome}: tinha de recusar")
+
+    def test_tipo_de_cada_codigo_do_bimer(self):
+        casos = {
+            "bimer é texto": "abc",
+            "bimer tem texto": ["999"],
+            "bimer tem decimal": [1.5],
+            "bimer tem booleano": [True],
+            "bimer tem nulo": [None],
+            "bimer é nulo": None,
+        }
+        for nome, bimer in casos.items():
+            with self.subTest(nome):
+                erros = self.problemas({"naturezas": [self.nat(bimer=bimer)], "ignoradas": []})
+                self.assertTrue(any("lista de inteiros" in e["erro"] for e in erros),
+                                f"{nome}: {erros}")
+
+    def test_bimer_ausente_equivale_a_lista_vazia_como_no_python(self):
+        n = self.nat()
+        del n["bimer"]
+        self.assertEqual(self.problemas({"naturezas": [n], "ignoradas": []}), [])
+
+    def test_documento_malformado_no_banco_abre_com_mensagem_e_nao_com_erro_de_js(self):
+        pg = self.abrir(doc={"naturezas": "abc"}, pendentes=None)
+        txt = pg.inner_text("body")
+        self.assertIn("formato inválido", txt)
+        self.assertIn("naturezas", txt)
+        self.assertEqual(pg.locator("table.cadastro").count(), 0, "não abre uma tela vazia")
+        # (o tearDown confere que não houve erro de JavaScript)
 
 
 class TestConcorrencia(Base):
