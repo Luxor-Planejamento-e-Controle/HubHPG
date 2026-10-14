@@ -1122,8 +1122,8 @@ document.getElementById('play').onclick = play;
 /* ---- versões do conteúdo ----
    Desde 14/10/2026 (migration 20261014120000): cada mudança no conteúdo vira
    versão pelo trigger do banco, guardando o estado NOVO; conteúdo repetido não
-   gera versão; só a última criada fica cravada. A janela mostra qual versão o
-   deck está usando, crava (dá nome) e remove. */
+   gera versão; só a última criada fica cravada, e cravada não se remove. A janela
+   mostra qual versão o deck está usando, crava (dá nome) e remove. */
 async function listaVersoes(mes){
   const sb = hubSb();
   if (!sb) return [];
@@ -1207,8 +1207,8 @@ async function pintaVersoes(){
         : v.cravada ? '<span class="vs-tag">cravada</span>' : ''}</span>
       <span class="vs-acoes">
         ${v.atual ? '' : `<button type="button" class="vs-btn" data-restaura="${v.versao}">Restaurar</button>`}
-        <button type="button" class="vs-btn vs-rm" data-remove="${v.versao}" title="Remover v${v.versao}"
-          aria-label="Remover v${v.versao}">✕</button>
+        ${v.cravada ? '' : `<button type="button" class="vs-btn vs-rm" data-remove="${v.versao}"
+          title="Remover v${v.versao}" aria-label="Remover v${v.versao}">✕</button>`}
       </span>
     </li>`).join('');
   lista.querySelectorAll('[data-restaura]').forEach(b => b.onclick = async () => {

@@ -14,8 +14,8 @@
 --   2) conteúdo igual ao da última versão não cria versão (salvar sem mudar,
 --      cravar duas vezes, pedido de atualização).
 --   3) uma cravada por mês: a última criada. Criar ou remover versão passa a marca.
---   4) remover versão, pelo editor do comitê. A versão que o deck usa só sai se
---      houver outra igual a ela.
+--   4) remover versão, pelo editor do comitê. Cravada não sai; a versão que o deck
+--      usa só sai se houver outra igual a ela.
 
 -- ---------------------------------------------------------------------
 -- núcleo: grava uma versão nova, ou não grava nada se for repetida
@@ -115,14 +115,17 @@ end $$;
 -- ---------------------------------------------------------------------
 create or replace function public.comite_remover_versao(p_mes text, p_versao int)
 returns void language plpgsql security definer set search_path = public as $$
-declare j jsonb; agora jsonb;
+declare j jsonb; agora jsonb; crav boolean;
 begin
   if not (public.hub_comite_editor() or auth.role() = 'service_role') then
     raise exception 'sem permissão para remover versão';
   end if;
-  select conteudo into j from comite_conteudo_versao where mes = p_mes and versao = p_versao;
+  select conteudo, cravada into j, crav from comite_conteudo_versao where mes = p_mes and versao = p_versao;
   if j is null then
     raise exception 'versão % do mês % não existe', p_versao, p_mes;
+  end if;
+  if crav then
+    raise exception 'a v% está cravada e não pode ser removida', p_versao;
   end if;
   agora := public.comite_conteudo_json(p_mes);
   if j = agora and not exists (select 1 from comite_conteudo_versao
