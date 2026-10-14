@@ -7,7 +7,7 @@
 -- HARAS"), que gera o JSON fora do Git, e o SQL resultante fica em
 -- sql/seed_gastos_naturezas.local.sql (ignorado: *.local.sql).
 --
--- Rodar UMA vez, depois da migration 20261014120000_gastos_naturezas. Depois disso o
+-- Rodar UMA vez, depois da migration 20261014150000_gastos_naturezas. Depois disso o
 -- documento é mantido pela aba "Naturezas" — rodar de novo APAGA o que foi editado nela.
 -- =====================================================================
 
