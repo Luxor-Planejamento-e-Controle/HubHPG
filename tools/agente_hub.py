@@ -38,9 +38,8 @@ Duas garantias que o hub sozinho não daria:
   posterior já fechada. Ou seja: o botão nunca retroage nem recalcula semana
   passada, porque não tem como pedir isso.
 
-  comitê — crava uma versão do conteúdo ANTES de atualizar. `build_comite.py` só
-  lê `comite_conteudo`, então atualizar não apagaria texto de todo jeito; a
-  versão cravada é a rede pro caso de alguém rodar isso no meio de uma edição.
+  comitê — não mexe no conteúdo: `build_comite.py` só lê `comite_conteudo`, e cada
+  edição já vira versão pelo trigger do banco (migration 20261014120000).
 """
 from __future__ import annotations
 

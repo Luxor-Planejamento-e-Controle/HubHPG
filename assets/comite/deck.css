@@ -252,22 +252,57 @@ body.play .slide{box-shadow:none;border:0}
 .hj-log{background:none;border:1px solid var(--line);color:var(--ink3);
   border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer}
 
-/* ---- janela de versões ---- */
-#versoesOverlay{position:fixed;inset:0;z-index:55;background:rgba(2,16,28,.78);
-  display:none;align-items:center;justify-content:center;padding:28px}
-#versoesPanel{width:min(680px,94vw);max-height:86vh;overflow:auto;background:var(--bg2);
-  border:1px solid var(--line);border-radius:14px;padding:18px 20px 20px}
-.vs-cravar{display:flex;gap:8px;margin:12px 0 16px}
-.vs-cravar input{flex:1;background:var(--card);border:1px solid var(--line);color:var(--ink);
-  border-radius:8px;padding:8px 10px;font-size:13px}
-.vs-item{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:9px;
-  display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.vs-item.vs-cravada{border-color:rgba(202,151,3,.55)}
-.vs-meta{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink2)}
-.vs-quando{color:var(--ink3)}
-.vs-quem{color:var(--ink3);font-size:11.5px}
-.vs-rotulo{flex:1 0 100%;color:var(--ink);font-size:13px}
-.vs-voltar{margin-left:auto;background:none;border:1px solid var(--line);color:var(--ink2);
-  border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer}
-.vs-voltar:hover{border-color:var(--amber);color:var(--amber)}
-.vs-vazio{color:var(--ink3);font-size:13px;padding:8px 2px}
+/* ---- janela de versões ----
+   Fundo opaco e acima da barra do deck (z-index do editor): antes usava --bg2,
+   --ink2 e --ink3, que não existem — o painel saía transparente, com o slide
+   aparecendo por trás e os botões no estilo do navegador. */
+#versoesOverlay{position:fixed;inset:0;z-index:200;background:rgba(2,16,28,.82);
+  backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:24px}
+#versoesPanel{width:min(640px,100%);max-height:86vh;display:flex;flex-direction:column;
+  background:var(--bg-2);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 20px 60px rgba(0,0,0,.55);color:var(--ink);font-size:13px}
+.vs-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:16px 20px 12px;border-bottom:1px solid var(--line)}
+.vs-sup{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.vs-head h3{margin:2px 0 0;font-size:17px;font-weight:600;color:var(--ink)}
+.vs-x{background:transparent;border:0;color:var(--ink-3);font-size:15px;line-height:1;
+  padding:6px 8px;border-radius:7px;cursor:pointer}
+.vs-x:hover{color:var(--ink);background:rgba(234,240,244,.06)}
+.vs-atual{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;padding:12px 20px 0;
+  color:var(--ink-2);font-size:12.5px}
+.vs-atual:empty{display:none}
+.vs-atual b{color:var(--ink);font-size:14px}
+.vs-atual-l{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);font-weight:600}
+.vs-atual-rot{color:var(--ink)}
+.vs-cravar{display:flex;gap:8px;padding:12px 20px 14px;border-bottom:1px solid var(--line)}
+.vs-cravar input{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);color:var(--ink);
+  border-radius:8px;height:34px;padding:0 10px;font:inherit;font-size:12.5px}
+.vs-cravar input:focus{outline:none;border-color:var(--amber)}
+.vs-btn{background:transparent;border:1px solid var(--line);color:var(--ink-2);height:30px;
+  padding:0 11px;border-radius:7px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+.vs-btn:hover{border-color:var(--amber);color:var(--amber)}
+.vs-btn.primary{height:34px;padding:0 16px;background:var(--amber);border-color:var(--amber);
+  color:#1a1300;font-weight:600}
+.vs-btn.primary:hover{background:#A87D02;border-color:#A87D02;color:#1a1300}
+.vs-btn.vs-rm{width:30px;padding:0;color:var(--ink-3)}
+.vs-btn.vs-rm:hover{border-color:var(--neg);color:var(--neg)}
+.vs-lista{list-style:none;margin:0;padding:6px 12px 12px;overflow-y:auto}
+.vs-row{display:grid;grid-template-columns:44px 1fr auto auto;align-items:center;gap:10px;
+  padding:9px 8px;border-bottom:1px solid rgba(27,72,107,.55)}
+.vs-row:last-child{border-bottom:0}
+.vs-row.atual{background:rgba(202,151,3,.07);border-radius:8px}
+.vs-n{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.vs-info{display:flex;flex-direction:column;min-width:0}
+.vs-rot{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vs-rot i{color:var(--ink-3);font-style:normal}
+.vs-quando{color:var(--ink-3);font-size:11.5px}
+.vs-tag{font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:999px;
+  border:1px solid var(--line-2);color:var(--ink-2)}
+.vs-tag.atual{border-color:var(--amber);color:var(--amber)}
+.vs-acoes{display:flex;gap:6px;justify-content:flex-end}
+.vs-vazio{color:var(--ink-3);font-size:12.5px;padding:12px 8px;list-style:none}
+@media(max-width:600px){
+  .vs-row{grid-template-columns:36px 1fr auto;grid-template-areas:"n info acoes" "n tags tags"}
+  .vs-n{grid-area:n}.vs-info{grid-area:info}.vs-acoes{grid-area:acoes}.vs-tags{grid-area:tags}
+  .vs-cravar{flex-wrap:wrap}
+}

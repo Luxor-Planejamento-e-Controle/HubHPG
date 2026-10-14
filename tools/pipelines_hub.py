@@ -101,20 +101,6 @@ def toma(s, url, jid: int) -> dict | None:
     return (r.json() or [None])[0]
 
 
-def crava_versao(s, url, mes: str, rotulo: str) -> str:
-    """Congela o conteúdo do mês antes de mexer em qualquer coisa."""
-    r = s.post(f"{url}/rest/v1/rpc/comite_cravar_versao",
-               json={"p_mes": mes, "p_rotulo": rotulo}, timeout=60)
-    if r.status_code >= 300:
-        return f"  [versao] não deu pra cravar ({r.status_code}): {r.text[:200]}"
-    return f"  [versao] conteúdo de {mes} cravado como v{r.text.strip()}"
-
-
-def meses_com_conteudo(s, url) -> list[str]:
-    r = s.get(f"{url}/rest/v1/comite_conteudo?select=mes&order=mes", timeout=60)
-    return [x["mes"] for x in r.json()] if r.status_code < 300 else []
-
-
 def roda(passos, raiz: Path = REPO, prefixo: str = "", env: dict | None = None,
          pula=()) -> tuple[bool, str]:
     """Executa a sequência na raiz dada. Devolve (deu certo, log). `pula` são
@@ -162,10 +148,10 @@ def processa(s, url, job: dict, raiz: Path = REPO, env: dict | None = None,
     try:
         if preparo:
             linhas += preparo()
-        if tipo == "comite":
-            marca = datetime.now().strftime("%d/%m/%Y %H:%M")
-            linhas += [crava_versao(s, url, m, f"antes da atualização de {marca}")
-                       for m in meses_com_conteudo(s, url)]
+        # O comitê não crava versão antes de rodar: o build só LÊ comite_conteudo, e
+        # desde 14/10/2026 cada mudança no conteúdo já vira versão pelo trigger. Cravar
+        # todos os meses a cada pedido enchia agosto de cópias da v8 (v9, v10) quando
+        # quem estava sendo atualizado era setembro.
         ok, log = roda(passos, raiz, "\n".join(linhas), env)
     except Exception as exc:
         # nada pode deixar o pedido preso em "rodando": o hub travaria o botão

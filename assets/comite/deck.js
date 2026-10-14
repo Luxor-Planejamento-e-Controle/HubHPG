@@ -1120,18 +1120,26 @@ document.getElementById('next').onclick = () => anda(1);
 document.getElementById('ir').onchange = e => go(+e.target.value);
 document.getElementById('play').onclick = play;
 /* ---- versões do conteúdo ----
-   O histórico é gravado por trigger no banco a cada salvar (ver a migration
-   20260923120000): aqui é só a janela pra ver, cravar e restaurar. "Cravar"
-   congela o estado atual com um rótulo — é o que se faz antes de levar o deck
-   ao comitê; o rastro automático guarda o de antes de cada edição. */
+   Desde 14/10/2026 (migration 20261014120000): cada mudança no conteúdo vira
+   versão pelo trigger do banco, guardando o estado NOVO; conteúdo repetido não
+   gera versão; só a última criada fica cravada. A janela mostra qual versão o
+   deck está usando, crava (dá nome) e remove. */
 async function listaVersoes(mes){
   const sb = hubSb();
   if (!sb) return [];
-  const { data } = await sb.from('comite_conteudo_versao')
+  const { data, error } = await sb.rpc('comite_versoes', {p_mes: mes});
+  if (!error) return data || [];
+  // banco ainda sem a migration: a lista sai, sem a marca de "em uso"
+  const r = await sb.from('comite_conteudo_versao')
     .select('versao,cravada,rotulo,criado_por,criado_em')
     .eq('mes', mes).order('versao', {ascending: false});
-  return data || [];
+  return (r.data || []).map(v => ({...v, atual: null}));
 }
+
+/* quem gravou, curto: a conta do haras sai como o haras, o resto sem o domínio */
+const autorVersao = a => !a ? '—'
+  : /^haraspaogrande@/i.test(a) ? 'Haras Pao Grande'
+  : a.includes('@') ? a.split('@')[0] : a;
 
 async function abreVersoes(){
   const sb = hubSb();
@@ -1140,18 +1148,23 @@ async function abreVersoes(){
   if (!ov) {
     ov = document.createElement('div');
     ov.id = 'versoesOverlay';
-    ov.innerHTML = `<div id="versoesPanel">
-      <div class="ed-head"><h3 id="vsTitulo"></h3>
-        <button type="button" id="vsFechar" aria-label="Fechar">✕</button></div>
-      <div class="vs-cravar">
-        <input id="vsRotulo" placeholder="Rótulo (ex.: levado ao comitê de setembro)">
-        <button type="button" id="vsCravar" class="primary">Cravar versão de agora</button>
+    ov.innerHTML = `<div id="versoesPanel" role="dialog" aria-modal="true" aria-labelledby="vsTitulo">
+      <div class="vs-head">
+        <div><div class="vs-sup">Versões do conteúdo</div><h3 id="vsTitulo"></h3></div>
+        <button type="button" id="vsFechar" class="vs-x" aria-label="Fechar">✕</button>
       </div>
-      <div id="vsLista"></div>
+      <div id="vsAtual" class="vs-atual"></div>
+      <div class="vs-cravar">
+        <input id="vsRotulo" placeholder="Nome para a versão atual (ex.: levada ao comitê de setembro)">
+        <button type="button" id="vsCravar" class="vs-btn primary">Cravar</button>
+      </div>
+      <ol id="vsLista" class="vs-lista"></ol>
     </div>`;
     document.body.appendChild(ov);
-    ov.addEventListener('click', e => { if (e.target === ov) ov.style.display = 'none'; });
-    document.getElementById('vsFechar').onclick = () => { ov.style.display = 'none'; };
+    const fecha = () => { ov.style.display = 'none'; };
+    ov.addEventListener('click', e => { if (e.target === ov) fecha(); });
+    ov.addEventListener('keydown', e => { if (e.key === 'Escape') fecha(); });
+    document.getElementById('vsFechar').onclick = fecha;
     document.getElementById('vsCravar').onclick = async () => {
       const rot = document.getElementById('vsRotulo').value;
       const { error } = await sb.rpc('comite_cravar_versao', {p_mes: mesAtual, p_rotulo: rot});
@@ -1161,40 +1174,58 @@ async function abreVersoes(){
     };
   }
   ov.style.display = 'flex';
-  document.getElementById('vsTitulo').textContent = `Versões — ${SPEC.labels[mesAtual]}`;
+  document.getElementById('vsTitulo').textContent = SPEC.labels[mesAtual];
   pintaVersoes();
+  document.getElementById('vsFechar').focus();
 }
 
 async function pintaVersoes(){
   const lista = document.getElementById('vsLista');
-  lista.innerHTML = '<p class="vs-vazio">carregando…</p>';
+  const topo = document.getElementById('vsAtual');
+  lista.innerHTML = '<li class="vs-vazio">carregando…</li>';
+  topo.textContent = '';
   const vs = await listaVersoes(mesAtual);
   if (!vs.length) {
-    lista.innerHTML = '<p class="vs-vazio">Nenhuma versão ainda. A primeira aparece no próximo salvar, '
-      + 'ou agora, se você cravar uma.</p>';
+    lista.innerHTML = '<li class="vs-vazio">Nenhuma versão ainda. A primeira aparece no próximo salvar.</li>';
     return;
   }
   const dt = t => { try { return new Date(t).toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'}); }
                     catch(e){ return t; } };
-  lista.innerHTML = vs.map(v => `<div class="vs-item${v.cravada ? ' vs-cravada' : ''}">
-    <div class="vs-meta">
-      <b>v${v.versao}</b>${v.cravada ? ' <span class="tag ok">cravada</span>' : ''}
-      <span class="vs-quando">${dt(v.criado_em)}</span>
-      <span class="vs-quem">${esc(v.criado_por || '')}</span>
-    </div>
-    ${v.rotulo ? `<div class="vs-rotulo">${esc(v.rotulo)}</div>` : ''}
-    <button type="button" class="vs-voltar" data-restaura="${v.versao}">restaurar</button>
-  </div>`).join('');
+  const atual = vs.find(v => v.atual);
+  topo.innerHTML = atual
+    ? `<span class="vs-atual-l">Atual</span><b>v${atual.versao}</b>`
+      + `<span>${dt(atual.criado_em)} · ${esc(autorVersao(atual.criado_por))}</span>`
+      + (atual.rotulo ? `<span class="vs-atual-rot">${esc(atual.rotulo)}</span>` : '')
+    : '';
+  lista.innerHTML = vs.map(v => `<li class="vs-row${v.atual ? ' atual' : ''}">
+      <span class="vs-n">v${v.versao}</span>
+      <span class="vs-info">
+        <span class="vs-rot">${v.rotulo ? esc(v.rotulo) : '<i>sem nome</i>'}</span>
+        <span class="vs-quando">${dt(v.criado_em)} · ${esc(autorVersao(v.criado_por))}</span>
+      </span>
+      <span class="vs-tags">${v.atual ? '<span class="vs-tag atual">atual</span>'
+        : v.cravada ? '<span class="vs-tag">cravada</span>' : ''}</span>
+      <span class="vs-acoes">
+        ${v.atual ? '' : `<button type="button" class="vs-btn" data-restaura="${v.versao}">Restaurar</button>`}
+        <button type="button" class="vs-btn vs-rm" data-remove="${v.versao}" title="Remover v${v.versao}"
+          aria-label="Remover v${v.versao}">✕</button>
+      </span>
+    </li>`).join('');
   lista.querySelectorAll('[data-restaura]').forEach(b => b.onclick = async () => {
     const v = +b.dataset.restaura;
-    if (!confirm(`Restaurar a v${v} de ${SPEC.labels[mesAtual]}?
-
-`
-      + 'O conteúdo de agora não se perde: ele vira uma versão nova antes de ser substituído.')) return;
+    if (!confirm(`Restaurar a v${v} de ${SPEC.labels[mesAtual]}?\n\n`
+      + 'Ela vira a versão atual. A de agora continua na lista.')) return;
     const { error } = await hubSb().rpc('comite_restaurar_versao', {p_mes: mesAtual, p_versao: v});
     if (error) return alert('Não deu pra restaurar: ' + error.message);
     delete conteudoCache[mesAtual];
     await aplicaConteudoAoVivo(mesAtual);
+    pintaVersoes();
+  });
+  lista.querySelectorAll('[data-remove]').forEach(b => b.onclick = async () => {
+    const v = +b.dataset.remove;
+    if (!confirm(`Remover a v${v} de ${SPEC.labels[mesAtual]}? Não dá pra desfazer.`)) return;
+    const { error } = await hubSb().rpc('comite_remover_versao', {p_mes: mesAtual, p_versao: v});
+    if (error) return alert('Não deu pra remover: ' + error.message);
     pintaVersoes();
   });
 }
