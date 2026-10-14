@@ -3608,7 +3608,8 @@ def monta_deck(m, ano, ctx):
                                parte, linhas, "analise"))
     # Ordem pedida pelo Arthur em 14/10/2026: os comentários do MÊS logo depois da
     # análise de despesas do mês; a movimentação do plantel depois da análise de
-    # despesas do acumulado e antes dos comentários de investimentos (YTD).
+    # despesas do acumulado e antes dos comentários de investimentos (YTD), com o
+    # estoque em equinos logo antes dela.
     s += slides_comentarios(cont, m, ano)
     face_ytd = _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
                                  gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
@@ -3635,6 +3636,8 @@ def monta_deck(m, ano, ctx):
                     x["cab"] = ["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"]
                 s.append(x)
     s.append(slide_grafico_dre(ano, m))
+    # estoque e movimentação do plantel andam juntos (Arthur, 14/10/2026)
+    s.append(slide_estoque(m, ano))
     s.append(slide_movimentacao(m, ano))
     # a aba Investimentos é do mesmo DRE anual e se preenche no mesmo fechamento
     s += (slides_investimentos(m, ano) if fechado else
@@ -3652,7 +3655,6 @@ def monta_deck(m, ano, ctx):
     if cx_ytd["t"] == "dre":
         cx_ytd["cab"] = ["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"]
     s.append(cx_ytd)
-    s.append(slide_estoque(m, ano))
     face_casa = _na_ordem_oficial(dre_mes("FPG", "Caixa", ano, m),
                                   gabarito(_registra("DRE anual (Casa)", DRE_CASA), "Real x Orçado"))
     s += so_mensal(dre(13, f"RESUMO FINANCEIRO — CASA/FPG — ORÇADO X REALIZADO {mesano_ext}",
