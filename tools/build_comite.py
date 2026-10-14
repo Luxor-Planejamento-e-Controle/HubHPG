@@ -3491,16 +3491,17 @@ def divide_contratos(slide):
                  titulo=f"{slide['titulo']} ({k + 1}/{n})") for k in range(n)]
 
 
-# ------------------------------------- gráfico do DRE do hub do P&C (trimestral)
+# ------------------------------------- gráfico do DRE do hub do P&C
 # O card "Orçado × Realizado por ano" do painel DRE do P&C, no deck, um slide por
-# natureza (modelo Competência, acumulado jan–mês de cada ano). Só na apresentação
-# trimestral, depois da análise de despesas do acumulado (pedido do Arthur,
-# 14/10/2026). Fiel ao P&C também nos números: os anos são todos os da base e a
-# natureza é casada pelo nome — ano em que o DRE a chamava de outro jeito (até 2023)
-# sai zerado, como lá.
-GRAFICO_DRE = [("Receita Bruta", "RECEITA OPERACIONAL BRUTA"),
-               ("Custos e Despesas", "CUSTOS E DESPESAS OPERACIONAIS"),
-               ("Investimentos", "INVESTIMENTOS")]
+# natureza (modelo Competência, acumulado jan–mês de cada ano), no mensal e no
+# trimestral, depois da análise de despesas do acumulado (pedidos do Arthur,
+# 14/10/2026). Os anos são todos os da base. Até 2023 o DRE chamava as linhas de
+# outro jeito ("RECEITA BRUTA", "CUSTOS INDIRETOS E DESPESAS"); o primeiro nome da
+# lista que existir no ano é o que vale. Atenção: a receita bruta até 2023 inclui
+# ativo biológico e reavaliação, que de 2024 em diante ficam fora dela.
+GRAFICO_DRE = [("Receita Bruta", ["RECEITA OPERACIONAL BRUTA", "RECEITA BRUTA"]),
+               ("Custos e Despesas", ["CUSTOS E DESPESAS OPERACIONAIS", "CUSTOS INDIRETOS E DESPESAS"]),
+               ("Investimentos", ["INVESTIMENTOS"])]
 
 
 def slides_grafico_dre(ano: int, m: int) -> list:
@@ -3508,7 +3509,7 @@ def slides_grafico_dre(ano: int, m: int) -> list:
     sub = f"Acumulado Jan–{ABR[m-1]} de cada ano"
     h = le_historico()
     if not h:
-        return [so_trimestral(pend(7, titulo(r), sub, "DRE_Historico.xlsx", "base do DRE não encontrada"))
+        return [pend(7, titulo(r), sub, "DRE_Historico.xlsx", "base do DRE não encontrada")
                 for r, _ in GRAFICO_DRE]
     y = h["ytd"]
     faixa = y[(y["Centro de Custo"] == "HPG") & (y["Modelo"] == "Competência")
@@ -3517,11 +3518,11 @@ def slides_grafico_dre(ano: int, m: int) -> list:
     df = faixa[faixa["É Subtotal"].astype(bool)]
     chave = df["Natureza de Lançamento"].map(lambda x: _chave_dre(x) if isinstance(x, str) else "")
     out = []
-    for rot, nat in GRAFICO_DRE:
-        sel = df[chave == _chave_dre(nat)]
+    for rot, nomes in GRAFICO_DRE:
         vals = []
         for a in anos:
-            g = sel[sel["ano"] == a]
+            g = next((x for x in (df[(chave == _chave_dre(nm)) & (df["ano"] == a)] for nm in nomes)
+                      if not x.empty), df.iloc[0:0])
             if g.empty:
                 vals.append({"ano": a, "orc": 0.0, "real": 0.0})
                 continue
@@ -3529,10 +3530,10 @@ def slides_grafico_dre(ano: int, m: int) -> list:
             i = (o.abs() + r.abs()).idxmax()
             vals.append({"ano": a, "orc": float(o[i]), "real": float(r[i])})
         if not any(v["orc"] or v["real"] for v in vals):
-            out.append(so_trimestral(pend(7, titulo(rot), sub, "DRE_Historico.xlsx",
-                                          "sem acumulado dessa natureza na base")))
+            out.append(pend(7, titulo(rot), sub, "DRE_Historico.xlsx",
+                            "sem acumulado dessa natureza na base"))
             continue
-        out.append(so_trimestral({"t": "dre_anos", "n": 7, "titulo": titulo(rot), "sub": sub, "anos": vals}))
+        out.append({"t": "dre_anos", "n": 7, "titulo": titulo(rot), "sub": sub, "anos": vals})
     return out
 
 
@@ -3616,10 +3617,9 @@ def monta_deck(m, ano, ctx):
             s += so_mensal(dre(n, f"{titulo} — {MES} {ano}",
                                parte, linhas, "analise"))
     # Ordem pedida pelo Arthur em 14/10/2026: os comentários do MÊS logo depois da
-    # análise de despesas do mês; a movimentação do plantel depois da análise de
-    # despesas do acumulado e antes dos comentários de investimentos (YTD), com o
-    # estoque em equinos logo antes dela.
-    s += slides_comentarios(cont, m, ano)
+    # análise de despesas do mês, e só no mensal; estoque e movimentação do plantel
+    # depois dos comentários de investimentos (YTD).
+    s += so_mensal(slides_comentarios(cont, m, ano))
     face_ytd = _na_ordem_oficial(dre_ytd("HPG", "Competência", ano, m),
                                  gabarito(DRE_HARAS, "Real x Orçado (Comp)"))
     # O acumulado entra na apresentação, com os cartões do relatório em cima; os
@@ -3645,13 +3645,14 @@ def monta_deck(m, ano, ctx):
                     x["cab"] = ["NATUREZA", "ORÇADO YTD", "REALIZADO YTD", "∆ R$ k", "∆ %"]
                 s.append(x)
     s += slides_grafico_dre(ano, m)
-    # estoque e movimentação do plantel andam juntos (Arthur, 14/10/2026)
-    s.append(slide_estoque(m, ano))
-    s.append(slide_movimentacao(m, ano))
     # a aba Investimentos é do mesmo DRE anual e se preenche no mesmo fechamento
     s += (slides_investimentos(m, ano) if fechado else
           [pend(9, f"INVESTIMENTOS — COMENTÁRIOS {ano}", "", DRE_HARAS.name,
                 "o DRE do mês ainda não fechou")])
+    # estoque e movimentação do plantel, juntos, depois dos comentários de
+    # investimentos (Arthur, 14/10/2026)
+    s.append(slide_estoque(m, ano))
+    s.append(slide_movimentacao(m, ano))
     face_cx = _na_ordem_oficial(dre_mes("HPG", "Caixa", ano, m), gabarito(DRE_HARAS, "Real x Orçado (Caixa)"))
     s += so_mensal(dre(10, f"HARAS CAIXA — ORÇADO X REALIZADO {mesano_ext}",
                        "",
