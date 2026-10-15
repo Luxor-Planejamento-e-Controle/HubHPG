@@ -17,8 +17,6 @@ const ICON = {
   plantel:'M4 20V8l8-5 8 5v12M9 20v-6h6v6',
   gastos:'M3 3v18h18M7 15l4-5 4 3 5-7',
   sgpg:'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4',
-  // lista com marcadores: o cadastro das naturezas que montam o painel de Gastos
-  naturezas:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
 };
 const ROUTES = [
   {id:'', title:'Início', sub:'Hub do Haras Pao Grande', icon:'home', render:renderHome},
@@ -32,17 +30,12 @@ const ROUTES = [
    render:renderPlantel},
   {id:'gastos', title:'Gastos', sub:'Orçado × realizado por natureza — Haras Pao Grande',
    icon:'gastos', render:renderGastos},
-  /* Não é um painel com permissão própria: segue a de 'gastos' (`perm`). Quem vê o
-     painel vê de que natureza e de quem ele é feito; gravar é decisão do banco
-     (gastos_editores), e a tela vira só consulta para os demais. */
-  {id:'naturezas', perm:'gastos', nav:'Naturezas', title:'Naturezas — cadastro do painel de Gastos',
-   sub:'O que entra no Controle, em qual grupo e de quem é', icon:'naturezas', render:renderNaturezas},
   {id:'sgpg', nav:'SGPG', title:'SGPG — Sistema de Gestão Pao Grande',
    sub:'Exposições e premiações', icon:'sgpg', render:renderSgpg},
 ];
 function allowed(){
   const ok=(window.HUB&&window.HUB.dashboards)||[];
-  return ROUTES.filter(r=>!r.id||ok.includes(r.perm||r.id));
+  return ROUTES.filter(r=>!r.id||ok.includes(r.id));
 }
 const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 
@@ -194,14 +187,46 @@ function renderSemanal(el){
    escondidos pelo empacotador — a topbar daqui é quem identifica a aba.
 
    Sem o HTML do bucket não há fallback local: diferente do semanal, este painel
-   não tem cópia em assets/, porque quem o gera é a rotina do Function App. */
-function renderGastos(el){
+   não tem cópia em assets/, porque quem o gera é a rotina do Function App.
+
+   O CADASTRO DE NATUREZAS mora dentro desta aba, e não numa aba própria: é o mesmo
+   desenho do Controle de Pagamentos do Hub P&C — "Editar cadastro" troca o painel pelo
+   formulário, "Voltar ao painel" desfaz. Quem cuida do painel é quem cuida do cadastro,
+   e uma aba separada no menu escondia que os dois são a mesma coisa (pedido da
+   Controladoria em 15/10/2026). O botão aparece para todos que veem Gastos; quem não é
+   editor (gastos_editores) abre o formulário em modo consulta — a policy do banco é que
+   decide quem grava. */
+function renderGastos(el, _r, modo){
   el.classList.add('flush');
+  el.innerHTML='';
+  const topo=document.createElement('div');
+  topo.className='hj-topo gc-topo';
+  el.appendChild(topo);
+
+  if(modo==='cadastro'){
+    topo.innerHTML='<button type="button" class="gc-btn" id="gcVoltar">← Voltar ao painel</button>'
+      + '<span class="gc-dica">Cadastro de naturezas — o que for gravado aqui vale a partir '
+      + 'da próxima publicação do painel.</span>';
+    const f=document.createElement('iframe');
+    f.className='embed'; f.title='Cadastro de naturezas';
+    f.src='naturezas.html';
+    el.appendChild(f);
+    document.getElementById('gcVoltar').onclick=()=>{
+      if(_cadastroComAlteracoes(f)
+         && !confirm('Há alterações no cadastro que não foram gravadas. Voltar ao painel mesmo assim?')) return;
+      renderGastos(el, _r);
+    };
+    return;
+  }
+
+  topo.innerHTML='<button type="button" class="gc-btn" id="gcCadastro">Editar cadastro de naturezas</button>';
+  document.getElementById('gcCadastro').onclick=()=>renderGastos(el, _r, 'cadastro');
+
   const html=window.HUB&&window.HUB.gastosHtml;
   if(!html){
-    el.innerHTML='<div class="empty"><div class="big">◔</div><div>Painel ainda não '
+    el.insertAdjacentHTML('beforeend','<div class="empty"><div class="big">◔</div><div>Painel ainda não '
       + 'publicado.<br>A rotina <code>publicar_gastos_haras</code> sobe o arquivo toda '
-      + 'segunda.</div></div>';
+      + 'segunda.</div></div>');
     return;
   }
   const f=document.createElement('iframe');
@@ -211,16 +236,14 @@ function renderGastos(el){
   el.appendChild(f);
 }
 
-/* ---- Naturezas ----
-   O cadastro que a rotina publicar_gastos_haras lê para montar o painel de Gastos
-   (naturezas.html). Iframe de mesma origem, pelo mesmo motivo do SGPG: a página grava, e a
-   sessão do Supabase vem de window.parent.HUB. */
-function renderNaturezas(el){
-  el.classList.add('flush');
-  const f=document.createElement('iframe');
-  f.className='embed'; f.title='Naturezas';
-  f.src='naturezas.html';
-  el.appendChild(f);
+/* O formulário tem alterações não gravadas? Pergunta à própria página (mesma origem).
+   Se não der para perguntar — página ainda carregando, ou erro ao abrir —, responde que
+   não: nesse caso não há o que perder, e travar o "Voltar" prenderia a pessoa na tela. */
+function _cadastroComAlteracoes(f){
+  try{
+    const c=f.contentWindow&&f.contentWindow.NAT_CADASTRO;
+    return !!(c&&c.mudou());
+  }catch(e){ return false; }
 }
 
 /* ---- Comitê Mensal ----

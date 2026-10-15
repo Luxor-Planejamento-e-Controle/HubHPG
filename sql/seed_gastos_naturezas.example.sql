@@ -8,7 +8,8 @@
 -- sql/seed_gastos_naturezas.local.sql (ignorado: *.local.sql).
 --
 -- Rodar UMA vez, depois da migration 20261014150000_gastos_naturezas. Depois disso o
--- documento é mantido pela aba "Naturezas" — rodar de novo APAGA o que foi editado nela.
+-- documento é mantido pelo "Editar cadastro de naturezas" da aba Gastos — rodar de novo
+-- APAGA o que foi editado lá.
 -- =====================================================================
 
 -- naturezas  o que entra no Controle. `bimer` = códigos numéricos do Bimer que contam para

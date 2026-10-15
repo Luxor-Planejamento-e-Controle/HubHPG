@@ -673,9 +673,10 @@ class TestSomenteLeitura(Base):
         self.assertNotIn("Somente consulta", pg.inner_text("body"))
 
 
-class TestAbaNoHub(unittest.TestCase):
-    """A rota segue a permissão de 'gastos': não tem permissão própria, e por isso não
-    precisa de linha nova em user_dashboard_access nem de valor novo no CHECK."""
+class TestCadastroDentroDaAbaGastos(unittest.TestCase):
+    """O cadastro abre DE DENTRO da aba Gastos, como o Controle de Pagamentos do P&C:
+    "Editar cadastro" troca o painel pelo formulário e "Voltar ao painel" desfaz. Não há
+    mais aba "Naturezas" no menu (pedido da Controladoria, 15/10/2026)."""
 
     @classmethod
     def setUpClass(cls):
@@ -686,33 +687,89 @@ class TestAbaNoHub(unittest.TestCase):
         from playwright.sync_api import sync_playwright
         cls._pw = sync_playwright().start()
         cls._b = cls._pw.chromium.launch()
-        cls.pg = cls._b.new_page()
-        cls.pg.goto((RAIZ / "index.html").as_uri())   # file://: o hub sobe offline, sem login
-        cls.pg.wait_for_function("typeof allowed === 'function'")
 
     @classmethod
     def tearDownClass(cls):
         cls._b.close()
         cls._pw.stop()
 
-    def rotas(self, dashboards):
-        return self.pg.evaluate(
-            "d => { window.HUB.dashboards = d; return allowed().map(r => r.id); }", dashboards)
+    def setUp(self):
+        self.erros = []
+        self.pg = self._b.new_page(viewport={"width": 1400, "height": 900})
+        self.addCleanup(self.pg.close)
+        self.pg.on("pageerror", lambda e: self.erros.append(str(e)))
+        self.confirmou = []
+        self.resposta_confirm = True
+        self.pg.on("dialog", lambda d: (self.confirmou.append(d.message),
+                                        d.accept() if self.resposta_confirm else d.dismiss()))
+        self.pg.goto((RAIZ / "index.html").as_uri())   # file://: o hub sobe offline, sem login
+        self.pg.wait_for_function("typeof allowed === 'function'")
+        # o painel publicado, como o porteiro o deixaria em window.HUB
+        self.pg.evaluate("window.HUB.gastosHtml = '<p id=painel>painel de gastos</p>';"
+                         "window.HUB.dashboards = ['gastos']; buildNav();"
+                         "location.hash = '#/gastos'")
+        self.pg.wait_for_selector("#gcCadastro")
 
-    def test_quem_ve_gastos_ve_naturezas(self):
-        self.assertIn("naturezas", self.rotas(["gastos"]))
+    def tearDown(self):
+        self.assertEqual(self.erros, [], "erro de JavaScript na casca")
 
-    def test_quem_nao_ve_gastos_nao_ve_naturezas(self):
-        self.assertNotIn("naturezas", self.rotas(["semanal", "comite", "plantel"]))
+    def iframes(self):
+        return self.pg.eval_on_selector_all(
+            "#content iframe", "els => els.map(e => e.getAttribute('src') || 'srcdoc')")
 
-    def test_demais_abas_continuam_pela_propria_permissao(self):
-        self.assertEqual(self.rotas(["semanal"]), ["", "semanal"])
-        self.assertEqual(self.rotas(["gastos"]), ["", "gastos", "naturezas"])
+    def test_nao_ha_mais_aba_naturezas_no_menu(self):
+        rotas = self.pg.evaluate("allowed().map(r => r.id)")
+        self.assertEqual(rotas, ["", "gastos"])
+        self.assertNotIn("Naturezas", self.pg.inner_text("#nav"))
 
-    def test_a_aba_embute_a_pagina_do_cadastro(self):
-        self.pg.evaluate("window.HUB.dashboards = ['gastos']; buildNav(); location.hash = '#/naturezas'")
-        self.pg.wait_for_selector("iframe.embed")
-        self.assertEqual(self.pg.get_attribute("iframe.embed", "src"), "naturezas.html")
+    def test_aba_gastos_abre_no_painel_com_o_botao_de_editar(self):
+        self.assertEqual(self.iframes(), ["srcdoc"])
+        self.assertEqual(self.pg.inner_text("#gcCadastro"), "Editar cadastro de naturezas")
+
+    def test_editar_troca_o_painel_pelo_formulario_na_mesma_aba(self):
+        self.pg.click("#gcCadastro")
+        self.assertEqual(self.iframes(), ["naturezas.html"])
+        self.assertTrue(self.pg.is_visible("#gcVoltar"))
+        self.assertEqual(self.pg.evaluate("location.hash"), "#/gastos", "continua na aba Gastos")
+
+    def test_voltar_devolve_o_painel(self):
+        self.pg.click("#gcCadastro")
+        self.pg.click("#gcVoltar")
+        self.assertEqual(self.iframes(), ["srcdoc"])
+        self.assertEqual(self.confirmou, [], "sem alteração, não pergunta nada")
+
+    def test_voltar_com_alteracao_nao_gravada_pergunta_antes(self):
+        self.pg.click("#gcCadastro")
+        self.pg.evaluate("window._cadastroComAlteracoes = () => true")
+        self.resposta_confirm = False
+        self.pg.click("#gcVoltar")
+        self.assertEqual(len(self.confirmou), 1)
+        self.assertEqual(self.iframes(), ["naturezas.html"], "cancelou: fica no formulário")
+        self.resposta_confirm = True
+        self.pg.click("#gcVoltar")
+        self.assertEqual(self.iframes(), ["srcdoc"])
+
+    def test_pergunta_ao_proprio_formulario_se_ha_alteracao(self):
+        r = self.pg.evaluate("""() => [
+            _cadastroComAlteracoes({contentWindow: {NAT_CADASTRO: {mudou: () => true}}}),
+            _cadastroComAlteracoes({contentWindow: {NAT_CADASTRO: {mudou: () => false}}}),
+            _cadastroComAlteracoes({contentWindow: {}}),
+            _cadastroComAlteracoes({get contentWindow() { throw new Error('origem') }}),
+        ]""")
+        self.assertEqual(r, [True, False, False, False])
+
+    def test_sem_painel_publicado_o_cadastro_continua_acessivel(self):
+        """O cadastro é o que monta o painel: não pode depender de o painel já existir."""
+        self.pg.evaluate("window.HUB.gastosHtml = null; location.hash = '#/'; "
+                         "setTimeout(() => location.hash = '#/gastos', 0)")
+        self.pg.wait_for_selector("text=Painel ainda não")
+        self.pg.click("#gcCadastro")
+        self.assertEqual(self.iframes(), ["naturezas.html"])
+
+    def test_formulario_nao_cria_rolagem_na_pagina(self):
+        self.pg.click("#gcCadastro")
+        alto = self.pg.evaluate("document.documentElement.scrollHeight - window.innerHeight")
+        self.assertLessEqual(alto, 1, "a altura do iframe desconta a faixa do botão")
 
 
 class TestRegrasPuras(Base):
