@@ -881,6 +881,17 @@ class TestPainelCasa(Base):
         cab = self.pg.eval_on_selector_all("table.cadastro th", "els => els.map(e => e.textContent)")
         self.assertIn("Resp.", cab)
 
+    def test_path_em_texto_vira_problema_e_nao_erro_de_js(self):
+        self.abrir_casa()
+        r = self.pg.evaluate("""() => {
+            const d = {naturezas: [{ordem: 10, cod: '1', nome: 'x', resp: '', bimer: [1],
+                                    path: 'Despesas - FPG > Manutenção'}], ignoradas: []};
+            return [false, true].map(c => NAT_DADOS.problemas(d, {comResponsavel: c})
+                                          .map(p => p.erro));
+        }""")
+        self.assertEqual(r[0], ["sem grupo"])
+        self.assertIn("sem grupo", r[1])
+
     def test_regra_pura_responsavel_opcional_so_quando_pedido(self):
         self.abrir_casa()
         r = self.pg.evaluate("""() => {

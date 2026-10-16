@@ -134,7 +134,10 @@ var NAT_DADOS = (function () {
       obrigatorios.forEach(function (c) {
         if (!texto(n[c])) erros.push({ onde: rot, erro: '`' + c + '` vazio' });
       });
-      if (!n.path || !n.path.length || !n.path.every(texto)) {
+      /* `Array.isArray` e não só `!n.path`: um `path` em texto ("X > Y", documento vindo
+       * de fora) estourava com TypeError no `.every` e deixava a aba em branco — achado do
+       * Arthur no #7. O Python recusa com mensagem, e agora aqui também. */
+      if (!Array.isArray(n.path) || !n.path.length || !n.path.every(texto)) {
         erros.push({ onde: rot, erro: 'sem grupo' });
       }
       if (!ehInteiro(n.ordem)) erros.push({ onde: rot, erro: '`ordem` não numérica' });
