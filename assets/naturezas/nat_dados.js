@@ -113,8 +113,12 @@ var NAT_DADOS = (function () {
   }
 
   /* Devolve [{onde, erro}]; vazio = pode gravar. Os `_bimer_invalido` são do TEXTO ainda
-   * não interpretado, e só a tela os conhece. */
-  function problemas(doc) {
+   * não interpretado, e só a tela os conhece. `opcoes.comResponsavel === false` é o painel
+   * da Casa, que não tem responsável por natureza (o validar() de lá também não o exige);
+   * sem opção, o responsável é obrigatório, como no Haras. */
+  function problemas(doc, opcoes) {
+    var obrigatorios = (opcoes && opcoes.comResponsavel === false)
+      ? ['cod', 'nome'] : ['cod', 'nome', 'resp'];
     var erros = [];
     /* Forma do documento, antes de qualquer laço — a mesma primeira linha do validar() do
      * Python. Sem isto, um documento que não veio da tela (seed, SQL na mão, service_role)
@@ -127,10 +131,13 @@ var NAT_DADOS = (function () {
 
     nats.forEach(function (n, i) {
       var rot = 'natureza #' + (i + 1) + ' (' + (texto(n.cod) || '?') + ')';
-      ['cod', 'nome', 'resp'].forEach(function (c) {
+      obrigatorios.forEach(function (c) {
         if (!texto(n[c])) erros.push({ onde: rot, erro: '`' + c + '` vazio' });
       });
-      if (!n.path || !n.path.length || !n.path.every(texto)) {
+      /* `Array.isArray` e não só `!n.path`: um `path` em texto ("X > Y", documento vindo
+       * de fora) estourava com TypeError no `.every` e deixava a aba em branco — achado do
+       * Arthur no #7. O Python recusa com mensagem, e agora aqui também. */
+      if (!Array.isArray(n.path) || !n.path.length || !n.path.every(texto)) {
         erros.push({ onde: rot, erro: 'sem grupo' });
       }
       if (!ehInteiro(n.ordem)) erros.push({ onde: rot, erro: '`ordem` não numérica' });
