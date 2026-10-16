@@ -285,3 +285,17 @@ body:not(.hub-ready) .app{visibility:hidden}
 .hj-log{background:none;border:1px solid var(--line,#1B486B);color:var(--mut,#93AABC);
   border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer}
 .hj-log:hover{color:var(--ink,#EAF0F4);border-color:var(--amber,#CA9703)}
+
+/* ---- aba Gastos: "Editar cadastro de naturezas" / "Voltar ao painel" ----
+   Mesma faixa da barra do semanal (.hj-topo), botão secundário: no Controle de Pagamentos
+   do P&C o "Editar cadastro" também não é o botão de destaque — o destaque é de ação que
+   muda dado, e este só troca de tela. */
+.gc-topo{align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px 12px}
+.gc-btn{background:transparent;border:1px solid var(--line-strong,#2A5F87);color:var(--ink-2,#B6C8D6);
+  border-radius:8px;padding:7px 14px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+.gc-btn:hover{border-color:var(--amber,#CA9703);color:var(--ink,#EAF0F4)}
+.gc-dica{font-size:12.5px;color:var(--ink-3,#93AABC)}
+/* o formulário rola por dentro: a altura desconta a faixa acima dele, senão a página
+   inteira ganharia uma segunda barra de rolagem de ~58px */
+.gc-topo + .embed:not(.auto-h){height:calc(100vh - var(--topbar-h) - 58px);
+  height:calc(100dvh - var(--topbar-h) - 58px)}

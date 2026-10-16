@@ -1,4 +1,5 @@
-/* De onde a aba Naturezas lê e onde ela grava. Roda em iframe do hub (mesma origem): o
+/* De onde o cadastro de naturezas lê e onde ele grava. Abre de dentro da aba Gastos
+ * ("Editar cadastro de naturezas"), em iframe do hub (mesma origem): o
  * cliente e a sessão do Supabase vêm de window.parent.HUB, como no SGPG.
  *
  *   cadastro    tabela `gastos_cadastro`, linha id 'naturezas' — o que a tela edita. É
@@ -38,7 +39,7 @@ window.NAT_FONTE = (function () {
 
   function cliente() {
     var h = hub();
-    if (!h || !h.sb) throw new Error('sessão do hub indisponível — abra esta aba pelo hub');
+    if (!h || !h.sb) throw new Error('sessão do hub indisponível — abra o cadastro pela aba Gastos do hub');
     return h.sb;
   }
 
