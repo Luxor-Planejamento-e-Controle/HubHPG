@@ -173,6 +173,20 @@ def _safra_da_data(d: date) -> str:
     return f"{d.year}/{d.year + 1}" if d.month >= 8 else f"{d.year - 1}/{d.year}"
 
 
+def _safra_valida(txt) -> bool:
+    """'2026/2027': dois anos consecutivos. Em 16/10/2026 o haras preencheu a coluna
+    ESTAÇÃO arrastando a célula e o Excel incrementou a série — '2026/2028',
+    '2026/2029'... —, e as 4 confirmações da semana saíram da conta de novo."""
+    m = re.fullmatch(r"(\d{4})/(\d{4})", str(txt or "").strip())
+    return bool(m) and int(m.group(2)) == int(m.group(1)) + 1
+
+
+def _mes_da_semana(sexta: str) -> str:
+    """'AAAA-MM' do mês a que a semana pertence: o da ABERTURA da janela (sexta − 6),
+    regra do Arthur de 04/09/2026. A semana 26/09–02/10 é de setembro."""
+    return (date.fromisoformat(sexta) - timedelta(days=6)).isoformat()[:7]
+
+
 def _safra_pela_gestacao(semana: str) -> str:
     """Safra do embrião de um potro que nasceu na semana `semana` e que a ESTAÇÃO não
     tem: a da data de nascimento menos ~11 meses de gestação. Em 16/10/2026 o COLINA
@@ -761,7 +775,8 @@ def build_producao(rep: Report, ini: date, fim: date):
         # confirmações da semana (Nº 662 a 665) vieram sem ela, e a linha caía na
         # "próxima safra" — None == SAFRA_PROXIMA, que é None fora da transição —:
         # contava como confirmada na semana e ficava fora do acumulado (8 contra 11).
-        if not safra_linha and _dt(r[7]):
+        # Mal formada ('2026/2028', célula arrastada) vale o mesmo que em branco.
+        if not _safra_valida(safra_linha) and _dt(r[7]):
             safra_linha = _safra_da_data(_dt(r[7]))
         # Receptora -> safra do embrião CONFIRMADO cuja parição ainda não foi
         # lançada, de QUALQUER safra. Preenchido antes do filtro de safra porque é
@@ -3779,10 +3794,14 @@ def _compute_confirmados_diff(rep: Report):
     mes_ref = rep.semana_inicio[:7]                    # YYYY-MM da abertura da janela
     rep.producao["mes_referencia"] = mes_ref
     rep.producao["mes_referencia_rotulo"] = MESES_PT[int(mes_ref[5:7]) - 1]
-    month_start = mes_ref + "-01"                      # YYYY-MM-01
+    # Base de comparação = a última semana de um mês ANTERIOR pela mesma regra (mês
+    # da abertura). Era a última sexta antes do dia 1º: para outubro, a de 25/09 — e a
+    # semana 26/09–02/10, que é de setembro, entrava de novo em outubro (a LIBRA x
+    # LATINO, recep 519, contada em setembro e em outubro, 16/10/2026).
     prev_month_keys = None
     for wid in sorted(hist):
-        if wid < month_start and hist[wid].get("confirmed_keys") is not None:
+        if (wid < rep.semana_atual and _mes_da_semana(wid) < mes_ref
+                and hist[wid].get("confirmed_keys") is not None):
             prev_month_keys = hist[wid]["confirmed_keys"]
     if prev_month_keys is not None:
         # Mesmo filtro de IA-no-futuro do "Confirmados semana" logo acima — esquecido
@@ -3798,12 +3817,12 @@ def _compute_confirmados_diff(rep: Report):
         # As confirmações vistas pela planilha de receptoras entram no mês pela SEMANA
         # em que foram registradas — elas não têm chave na ESTAÇÃO para o diff pegar.
         do_mes = [c for c in (rep.detalhe.get("confirmados_por_receptora") or [])
-                  if c.get("semana", "") >= month_start]
+                  if c.get("semana") and _mes_da_semana(c["semana"]) == mes_ref]
         # Mesma trava contra recontagem do diff semanal, na escala do mês: embrião
         # contado pela planilha de receptoras num mês ANTERIOR e com o 15D lançado só
         # agora aparece no diff contra o snapshot de antes do mês — e entraria de novo.
         do_mes_anterior = {k for k, v in _registro_confirmados_extra().items()
-                           if v.get("semana", "") < month_start}
+                           if v.get("semana") and _mes_da_semana(v["semana"]) < mes_ref}
         rep.producao["acumulado_mes"] = sum(
             1 for e in _novos_confirmados(cur, prev_month_keys)
             if not _ia_no_futuro(e)
