@@ -164,6 +164,22 @@ def safra_vigente(quando: date | None = None) -> str:
 
 
 SAFRA_ATUAL = safra_vigente()
+
+
+def _safra_da_data(d: date) -> str:
+    """Safra (estação de monta) de uma data: agosto a julho, como a coluna ESTAÇÃO da
+    planilha do haras (IA de 12/08/2026 já é 2026/2027). Não confundir com
+    VIRADAS_DE_SAFRA, que marca quando o RELATÓRIO trocou de safra."""
+    return f"{d.year}/{d.year + 1}" if d.month >= 8 else f"{d.year - 1}/{d.year}"
+
+
+def _safra_pela_gestacao(semana: str) -> str:
+    """Safra do embrião de um potro que nasceu na semana `semana` e que a ESTAÇÃO não
+    tem: a da data de nascimento menos ~11 meses de gestação. Em 16/10/2026 o COLINA
+    PAREDAO x FAVORITO (recep 13, cobrição de nov/2025, sem linha na ESTAÇÃO) caía
+    na safra do calendário e somou +1 no acumulado da 26/27 — potro que nasce no
+    primeiro ano de uma safra é sempre da anterior."""
+    return _safra_da_data(date.fromisoformat(semana) - timedelta(days=330))
 # SAFRA_PROXIMA=None ate a proxima virada comecar a ser anunciada — com None, o
 # card 'acumulado_estacao_proxima' some sozinho (ver skip em
 # PGSemanalDashboard.py) em vez de nascer zerado.
@@ -741,6 +757,12 @@ def build_producao(rep: Report, ini: date, fim: date):
         if i < 3 or r[0] is None:
             continue
         safra_linha = _s(r[35])
+        # Coluna ESTAÇÃO em branco: a safra sai da data da cobrição. Em 16/10/2026 as 4
+        # confirmações da semana (Nº 662 a 665) vieram sem ela, e a linha caía na
+        # "próxima safra" — None == SAFRA_PROXIMA, que é None fora da transição —:
+        # contava como confirmada na semana e ficava fora do acumulado (8 contra 11).
+        if not safra_linha and _dt(r[7]):
+            safra_linha = _safra_da_data(_dt(r[7]))
         # Receptora -> safra do embrião CONFIRMADO cuja parição ainda não foi
         # lançada, de QUALQUER safra. Preenchido antes do filtro de safra porque é
         # justamente a linha de fora da safra vigente que interessa: sem isto,
@@ -756,7 +778,7 @@ def build_producao(rep: Report, ini: date, fim: date):
             # mesma receptora serve várias estações: vale a cobrição mais recente
             if not antes or (ia_linha and (not antes[1] or ia_linha > antes[1])):
                 _SAFRA_PARICAO_PENDENTE[rec] = (safra_linha, ia_linha)
-        if safra_linha not in (SAFRA_ATUAL, SAFRA_PROXIMA):
+        if not safra_linha or safra_linha not in (SAFRA_ATUAL, SAFRA_PROXIMA):
             continue
         ia = _dt(r[7])
         te = _dt(r[9])
@@ -804,7 +826,7 @@ def build_producao(rep: Report, ini: date, fim: date):
         })
 
     # o resto de build_producao e da safra corrente; a proxima entra so no acumulado
-    embrioes_proxima = [e for e in embrioes if e["safra"] == SAFRA_PROXIMA]
+    embrioes_proxima = [e for e in embrioes if SAFRA_PROXIMA and e["safra"] == SAFRA_PROXIMA]
     embrioes = [e for e in embrioes if e["safra"] == SAFRA_ATUAL]
 
     _EMBRIAO_POR_RECEP.clear()
@@ -3185,13 +3207,15 @@ def _paricoes_do_roster(rep: Report):
             if not m or m.group(1) in na_estacao or nome in reg:
                 continue
             reg[nome] = {"receptora": m.group(1), "semana": rep.semana_atual,
-                         "safra": _safra_da_paricao(m.group(1)) or SAFRA_ATUAL}
+                         "safra": _safra_da_paricao(m.group(1))
+                                  or _safra_pela_gestacao(rep.semana_atual)}
         # A safra de quem JÁ estava no registro também é reavaliada: o carimbo
         # antigo era sempre a safra do calendário, e o registro é cumulativo — sem
         # isto o erro de uma semana fica em disco para sempre, inflando o acumulado
         # de toda semana seguinte.
         for k, v in reg.items():
-            certa = _safra_da_paricao(v.get("receptora"))
+            certa = (_safra_da_paricao(v.get("receptora"))
+                     or _safra_pela_gestacao(v.get("semana") or rep.semana_atual))
             if certa and v.get("safra") != certa:
                 print(f"  [nascimentos] parição de {k} estava na safra "
                       f"{v.get('safra')} e o embrião é da {certa} — corrigido")
