@@ -31,6 +31,9 @@ const HUB_DATASETS = {
      `publicar_gastos_haras` do Function App, que lê a planilha do Drive — não
      sai deste repo (ver o comentário no tools/publish_hub.py). */
   gastos:  { file:'gastos.html',  html:'gastosHtml'   },
+  /* Gastos da Casa (Fazenda Pao Grande): o mesmo desenho, publicado pela rotina
+     `publicar_gastos_casa` do Function App. */
+  gastos_casa: { file:'gastos_casa.html', html:'gastosCasaHtml' },
   /* Sem snapshot: o SGPG lê e grava as tabelas sgpg_* direto, sob RLS. A entrada
      existe porque esta lista também é a das abas que o admin enxerga. */
   sgpg:    {},
