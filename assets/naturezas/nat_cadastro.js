@@ -30,6 +30,16 @@ window.NAT_CADASTRO = (function () {
   var avisoSalvo = '';
   var ignAberto = false;      // a lista de ignoradas abre sozinha depois de uma ação sobre ela
 
+  /* O que muda entre o painel do Haras e o da Casa (ver PAINEIS no nat_fonte.js). O padrão
+   * é o Haras: quem abre a tela sem dizer o painel vê exatamente o que via antes. */
+  var PADRAO = {
+    painel: 'painel de Gastos', quando: 'segunda, 08:30', comResponsavel: true,
+    exemploGrupo: 'Custos e Despesas > Custos > Sanidade', exemploCod: '10.4.2.03.21'
+  };
+  var painel = PADRAO;
+
+  function nCols() { return painel.comResponsavel ? 8 : 7; }
+
   function esc(s) {
     return String(s === null || s === undefined ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -64,6 +74,7 @@ window.NAT_CADASTRO = (function () {
 
   function abrir(alvo, est, cb) {
     aoSalvar = cb && cb.salvar;
+    painel = Object.assign({}, PADRAO, est.painel || {});
     pendentes = est.pendentes || null;
     somenteLeitura = !est.editor;
     carregarDoc(est.doc);
@@ -133,7 +144,7 @@ window.NAT_CADASTRO = (function () {
           ? '<div class="sub2">alterado por ' + esc(n.atualizado_por) +
             (n.atualizado_em ? ' em ' + esc(n.atualizado_em.slice(0, 10).split('-')
               .reverse().join('/')) : '') + '</div>' : '') + '</td>' +
-      '<td>' + campo(n.uid, 'resp', n.resp, 110, 'resp.') + '</td>' +
+      (painel.comResponsavel ? '<td>' + campo(n.uid, 'resp', n.resp, 110, 'resp.') + '</td>' : '') +
       '<td>' + seletorGrupo(n) + '</td>' +
       '<td><input class="cpc' + (invalido ? ' ruim' : '') + '" data-uid="' + n.uid +
         '" data-campo="bimer" value="' + esc(bimerTxt) + '" style="width:110px" ' +
@@ -145,14 +156,14 @@ window.NAT_CADASTRO = (function () {
 
   function tabelaNaturezas(lista, filtrando) {
     if (!lista.length) {
-      return '<tr><td colspan="8"><div class="empty">Nenhuma natureza com esses filtros.</div></td></tr>';
+      return '<tr><td colspan="' + nCols() + '"><div class="empty">Nenhuma natureza com esses filtros.</div></td></tr>';
     }
     var html = '', ultimo = null;
     lista.forEach(function (n) {
       var k = D.caminho(n.path);
       if (k !== ultimo) {
         var qtd = nats.filter(function (x) { return D.caminho(x.path) === k; }).length;
-        html += '<tr class="grupo"><td colspan="8">' + (k ? esc(k) : 'Sem grupo') +
+        html += '<tr class="grupo"><td colspan="' + nCols() + '">' + (k ? esc(k) : 'Sem grupo') +
           ' <span class="muted">· ' + qtd + '</span></td></tr>';
         ultimo = k;
       }
@@ -164,8 +175,8 @@ window.NAT_CADASTRO = (function () {
   function cardPendentes() {
     if (!pendentes) {
       return '<div class="card"><div class="card-title"><h2>Pendentes</h2></div>' +
-        '<div class="muted">A lista de pendentes ainda não foi publicada. O job do painel de ' +
-        'Gastos a gera a cada execução: códigos do Bimer que apareceram nos relatórios e que ' +
+        '<div class="muted">A lista de pendentes ainda não foi publicada. O job do ' +
+        esc(painel.painel) + ' a gera a cada execução: códigos do Bimer que apareceram nos relatórios e que ' +
         'não estão no cadastro nem entre as ignoradas.</div></div>';
     }
     var vivos = D.pendentesVivos(pendentes.pendentes, doc());
@@ -182,7 +193,7 @@ window.NAT_CADASTRO = (function () {
       '</span></div>' +
       '<div class="muted" style="margin-bottom:10px"><b>Enquanto estiver pendente, o dinheiro ' +
       'desta natureza NÃO entra no painel por grupo.</b> Decida: entra no Controle (escolha ' +
-      'grupo e responsável) ou fica fora do escopo.</div>' +
+      (painel.comResponsavel ? 'grupo e responsável' : 'o grupo') + ') ou fica fora do escopo.</div>' +
       '<div class="tbl-wrap"><table class="data"><thead><tr><th>Bimer</th><th>Natureza</th>' +
       '<th class="num">Lanç.</th><th class="num">Valor</th><th>Meses</th><th></th></tr></thead>' +
       '<tbody>' + vivos.map(function (p) {
@@ -219,7 +230,7 @@ window.NAT_CADASTRO = (function () {
 
   function render(alvo) {
     var el = alvo || document.getElementById('content');
-    var probs = D.problemas(doc());
+    var probs = D.problemas(doc(), painel);
     var alterados = mudou();
     var lista = visiveis();
     var filtrando = !!(filtro.busca || filtro.grupo);
@@ -229,8 +240,8 @@ window.NAT_CADASTRO = (function () {
         ? '<div class="banner"><div><b>Somente consulta.</b> Você vê o cadastro, mas quem pode ' +
           'alterá-lo são os editores do cadastro (peça ao administrador do hub).</div></div>'
         : '') +
-      '<div class="banner"><div><b>Este é o cadastro, não o painel.</b> O painel de Gastos é ' +
-        'montado pelo job no Azure (segunda, 08:30) a partir dos relatórios do Bimer e <b>deste ' +
+      '<div class="banner"><div><b>Este é o cadastro, não o painel.</b> O ' + esc(painel.painel) +
+        ' é montado pelo job no Azure (' + esc(painel.quando) + ') a partir dos relatórios do Bimer e <b>deste ' +
         'cadastro</b>: o que você gravar aqui passa a valer na <b>próxima publicação</b>, não ' +
         'na hora. A ordem das linhas é a ordem do painel.</div></div>' +
 
@@ -246,7 +257,8 @@ window.NAT_CADASTRO = (function () {
               esc(k) + '</option>';
           }).join('') + '</select></div>' +
         '<div class="field cresce"><label>Buscar</label><input type="search" id="natBusca" ' +
-          'placeholder="código, nome, responsável ou Bimer" value="' + esc(filtro.busca) + '"></div>' +
+          'placeholder="código, nome' + (painel.comResponsavel ? ', responsável' : '') +
+          ' ou Bimer" value="' + esc(filtro.busca) + '"></div>' +
         '<div style="flex:1"></div>' +
         '<button class="btn-ghost" id="natAdd" type="button">+ Natureza</button>' +
       '</div>' +
@@ -259,7 +271,8 @@ window.NAT_CADASTRO = (function () {
           'linha que você não está vendo.</div>' : '') +
         '<div class="tbl-wrap"><table class="data cadastro"><thead><tr><th></th><th>Cód</th>' +
           '<th title="segunda classificação do mesmo lançamento (par .04/.05 do DRE)">Alt</th>' +
-          '<th>Natureza</th><th>Resp.</th><th>Grupo</th><th>Bimer</th><th></th></tr></thead>' +
+          '<th>Natureza</th>' + (painel.comResponsavel ? '<th>Resp.</th>' : '') +
+          '<th>Grupo</th><th>Bimer</th><th></th></tr></thead>' +
           '<tbody>' + tabelaNaturezas(lista, filtrando) + '</tbody></table></div>' +
         '<datalist id="natResp">' + responsaveis().map(function (r) {
           return '<option value="' + esc(r) + '">';
@@ -309,7 +322,7 @@ window.NAT_CADASTRO = (function () {
   /* A cada tecla só se tocam o botão, o status e a caixa de problemas: todos ficam FORA da
    * tabela, então atualizá-los não tira o foco do campo que está sendo digitado. */
   function marcarEstado() {
-    var probs = D.problemas(doc());
+    var probs = D.problemas(doc(), painel);
     var alterados = mudou();
     avisoSalvo = '';
     var b = document.getElementById('natSalvar');
@@ -330,7 +343,8 @@ window.NAT_CADASTRO = (function () {
    *
    * Além dos três, pede Responsável e código do Bimer: o responsável é obrigatório no
    * cadastro (o painel agrupa por ele) e o código do Bimer é o que liga os lançamentos à
-   * natureza — sem ele a natureza existe e fica vazia, por isso a dica.
+   * natureza — sem ele a natureza existe e fica vazia, por isso a dica. No painel da Casa
+   * não há responsável (`painel.comResponsavel` falso): o campo nem aparece.
    *
    * `pre`: { nome, bimer: [int], ignorada } — vem de uma pendente ou de uma "fora do
    * escopo". A ignorada só SAI da lista quando a natureza é confirmada: abrir e cancelar
@@ -354,7 +368,7 @@ window.NAT_CADASTRO = (function () {
           '<input type="text" id="natFNome" value="' + esc(pre.nome || '') + '" ' +
           'placeholder="como aparece no painel"><div class="form-erro" data-erro="nome"></div></div>' +
         '<div class="form-campo"><label for="natFCod">Código</label>' +
-          '<input type="text" id="natFCod" placeholder="ex.: 10.4.2.03.21">' +
+          '<input type="text" id="natFCod" placeholder="ex.: ' + esc(painel.exemploCod) + '">' +
           '<div class="form-dica">A classificação da natureza no plano de contas — a mesma do DRE.</div>' +
           '<div class="form-erro" data-erro="cod"></div></div>' +
         '<div class="form-campo"><label for="natFGrupo">Grupo</label>' +
@@ -364,15 +378,17 @@ window.NAT_CADASTRO = (function () {
             return '<option value="' + esc(k) + '">' + esc(k) + '</option>';
           }).join('') + '<option value="' + NOVO_GRUPO + '">＋ criar novo grupo…</option></select>' +
           '<input type="text" id="natFNovoGrupo" hidden style="margin-top:8px" ' +
-            'placeholder="Custos e Despesas > Custos > Sanidade">' +
+            'placeholder="' + esc(painel.exemploGrupo) + '">' +
           '<div class="form-dica" id="natFDicaGrupo" hidden>Do grupo raiz até o grupo, separado por ' +
             '&gt;. A natureza vai para o fim dele.</div>' +
           '<div class="form-erro" data-erro="grupo"></div></div>' +
-        '<div class="form-campo"><label for="natFResp">Responsável</label>' +
-          '<input type="text" id="natFResp" list="natFRespLista" placeholder="quem acompanha o gasto">' +
-          '<datalist id="natFRespLista">' + responsaveis().map(function (r) {
-            return '<option value="' + esc(r) + '">';
-          }).join('') + '</datalist><div class="form-erro" data-erro="resp"></div></div>' +
+        (painel.comResponsavel
+          ? '<div class="form-campo"><label for="natFResp">Responsável</label>' +
+            '<input type="text" id="natFResp" list="natFRespLista" placeholder="quem acompanha o gasto">' +
+            '<datalist id="natFRespLista">' + responsaveis().map(function (r) {
+              return '<option value="' + esc(r) + '">';
+            }).join('') + '</datalist><div class="form-erro" data-erro="resp"></div></div>'
+          : '') +
         '<div class="form-campo"><label for="natFBimer">Código do Bimer <span class="muted">' +
           '(opcional)</span></label>' +
           '<input type="text" id="natFBimer" value="' + esc(bimerPre) + '" placeholder="ex.: 1880">' +
@@ -401,7 +417,7 @@ window.NAT_CADASTRO = (function () {
     function avaliar() {
       var e = {}, falta = [];
       var nome = v('natFNome').value.trim(), cod = v('natFCod').value.trim();
-      var resp = v('natFResp').value.trim(), path = caminhoEscolhido();
+      var resp = v('natFResp') ? v('natFResp').value.trim() : '', path = caminhoEscolhido();
       var b = D.lerBimer(v('natFBimer').value);
 
       if (!nome) falta.push('nome');
@@ -411,7 +427,7 @@ window.NAT_CADASTRO = (function () {
         if (dono) e.cod = 'Este código já é de «' + dono.nome + '».';
       }
       if (!path.length) falta.push('grupo');
-      if (!resp) falta.push('responsável');
+      if (painel.comResponsavel && !resp) falta.push('responsável');
 
       if (b.invalidos.length) e.bimer = 'Não é número: ' + b.invalidos.join(', ') + '.';
       else {
@@ -438,7 +454,8 @@ window.NAT_CADASTRO = (function () {
 
     function sujo() {
       return !!(v('natFNome').value !== (pre.nome || '') || v('natFCod').value ||
-        v('natFGrupo').value || v('natFResp').value || v('natFBimer').value !== bimerPre);
+        v('natFGrupo').value || (v('natFResp') && v('natFResp').value) ||
+        v('natFBimer').value !== bimerPre);
     }
 
     function fechar(forcado) {
@@ -523,7 +540,7 @@ window.NAT_CADASTRO = (function () {
         var v = alvo.value, path;
         if (v === '__novo__') {
           var t = window.prompt('Caminho do novo grupo, da raiz ao grupo, separado por ">".\n' +
-            'Ex.: Custos e Despesas > Custos > Sanidade');
+            'Ex.: ' + painel.exemploGrupo);
           path = D.lerCaminho(t);
           if (!path.length) { render(el); return; }
         } else {
@@ -608,7 +625,7 @@ window.NAT_CADASTRO = (function () {
     var salvar = document.getElementById('natSalvar');
     if (salvar) {
       salvar.onclick = async function () {
-        var probs = D.problemas(doc());
+        var probs = D.problemas(doc(), painel);
         if (probs.length) { render(el); return; }
         salvar.disabled = true;
         document.getElementById('natStatus').textContent = 'gravando...';
@@ -618,7 +635,7 @@ window.NAT_CADASTRO = (function () {
             ignoradas: ignoradas.map(limpo)
           });
           carregarDoc(gravado);
-          avisoSalvo = 'Cadastro gravado. O painel de Gastos reflete na próxima publicação.';
+          avisoSalvo = 'Cadastro gravado. O ' + painel.painel + ' reflete na próxima publicação.';
           render(el);
         } catch (e) {
           salvar.disabled = false;

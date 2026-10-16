@@ -2,6 +2,11 @@
  * ("Editar cadastro de naturezas"), em iframe do hub (mesma origem): o
  * cliente e a sessão do Supabase vêm de window.parent.HUB, como no SGPG.
  *
+ * DOIS PAINÉIS usam esta tela, e a URL diz qual: `naturezas.html` é o de Gastos do Haras
+ * (o que está descrito abaixo) e `naturezas.html?painel=casa` é o de Gastos da Casa —
+ * documento `naturezas_casa`, pendentes em `gastos_casa.pendentes.json`, sem responsável,
+ * e os MESMOS editores (gastos_editores). Ver PAINEIS.
+ *
  *   cadastro    tabela `gastos_cadastro`, linha id 'naturezas' — o que a tela edita. É
  *               também o que a rotina `publicar_gastos_haras` do Function App lê
  *               (service_role) para montar o painel de Gastos.
@@ -22,9 +27,29 @@
 window.NAT_FONTE = (function () {
   'use strict';
 
-  var ID = 'naturezas';
+  /* O que muda de um painel para o outro. Sem `?painel=` (ou com um desconhecido) é o
+   * Haras, exatamente como era antes de a Casa existir. */
+  var PAINEIS = {
+    haras: {
+      id: 'naturezas', arquivo: 'gastos.pendentes.json', migration: 'gastos_naturezas',
+      painel: 'painel de Gastos', quando: 'segunda, 08:30', comResponsavel: true,
+      exemploGrupo: 'Custos e Despesas > Custos > Sanidade', exemploCod: '10.4.2.03.21'
+    },
+    casa: {
+      id: 'naturezas_casa', arquivo: 'gastos_casa.pendentes.json', migration: 'gastos_casa_cadastro',
+      painel: 'painel de Gastos da Casa', quando: 'segunda, 08:45', comResponsavel: false,
+      exemploGrupo: 'Despesas - FPG > Manutenção', exemploCod: '10.2.2.04.04'
+    }
+  };
+  var PAINEL = (function () {
+    var p = null;
+    try { p = new URLSearchParams(location.search).get('painel'); } catch (e) { /* sem URL */ }
+    return PAINEIS[p] || PAINEIS.haras;
+  })();
+
+  var ID = PAINEL.id;
   var TABELA = 'gastos_cadastro';
-  var ARQUIVO = 'gastos.pendentes.json';
+  var ARQUIVO = PAINEL.arquivo;
   var BUCKET = 'hpg-data';
 
   /* `updated_at` da linha quando ESTA tela carregou. É o que impede a gravação de apagar
@@ -55,7 +80,7 @@ window.NAT_FONTE = (function () {
     var r = await sb.from(TABELA).select('data, updated_at').eq('id', ID).maybeSingle();
     if (r.error) throw new Error(TABELA + ': ' + r.error.message);
     if (!r.data) throw new Error('o cadastro ainda não foi criado no banco (rode a migration ' +
-                                 'gastos_naturezas)');
+                                 PAINEL.migration + ')');
     return { doc: r.data.data || {}, versao: r.data.updated_at };
   }
 
@@ -77,7 +102,8 @@ window.NAT_FONTE = (function () {
     return {
       doc: NAT_DADOS.normalizar(lido.doc),
       pendentes: pendentes,
-      editor: await ehEditor(sb)
+      editor: await ehEditor(sb),
+      painel: PAINEL
     };
   }
 
@@ -145,5 +171,5 @@ window.NAT_FONTE = (function () {
     return { naturezas: naturezas, ignoradas: ignoradas };
   }
 
-  return { carregar: carregar, salvar: salvar };
+  return { carregar: carregar, salvar: salvar, painel: PAINEL };
 })();

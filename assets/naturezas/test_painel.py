@@ -28,10 +28,12 @@ HARNESS = """<!doctype html><meta charset="utf-8">
 const q = new URLSearchParams(location.search);
 window.HUB = {
   sb: supabase.createClient('https://teste.supabase.co', 'chave-anon-de-teste'),
-  email: 'fulano@luxor.com.br', role: q.get('role') || 'user', dashboards: ['gastos']
+  email: 'fulano@luxor.com.br', role: q.get('role') || 'user',
+  dashboards: (q.get('dash') || 'gastos').split(',')
 };
+document.write('<iframe id="aba" src="' + (q.get('aba') || '/naturezas.html') +
+               '" style="width:100%;height:900px;border:0"></iframe>');
 </script>
-<iframe id="aba" src="/naturezas.html" style="width:100%;height:900px;border:0"></iframe>
 """
 
 
@@ -99,7 +101,9 @@ class Base(unittest.TestCase):
         cls._pw.stop()
         cls._srv.shutdown()
 
-    def abrir(self, doc=DOC, pendentes=PENDENTES, largura=1500, editor=True, role="user"):
+    def abrir(self, doc=DOC, pendentes=PENDENTES, largura=1500, editor=True, role="user",
+              aba="/naturezas.html", dash="gastos"):
+        self.pedidos = []      # (método, url) de cada chamada ao Supabase
         self.estado = copy.deepcopy(doc)
         self.versao = V0
         self.n_versao = 0
@@ -115,6 +119,7 @@ class Base(unittest.TestCase):
 
         def rota(route, request):
             url, metodo = request.url, request.method
+            self.pedidos.append((metodo, urllib.parse.unquote(url)))
             if "/storage/v1/object/" in url:
                 if pendentes is None:
                     return route.fulfill(status=404, body="")
@@ -148,7 +153,8 @@ class Base(unittest.TestCase):
             return route.continue_()
 
         self.page.route("**/*.supabase.co/**", rota)
-        self.page.goto(f"http://127.0.0.1:{self._srv.server_port}/__harness.html?role={role}")
+        q = urllib.parse.urlencode({"role": role, "aba": aba, "dash": dash})
+        self.page.goto(f"http://127.0.0.1:{self._srv.server_port}/__harness.html?{q}")
         self.page.wait_for_selector("iframe")
         # a partir daqui `self.pg` é o QUADRO da aba: tem a mesma API de uma página
         self.pg = self.page.query_selector("iframe").content_frame()
@@ -803,6 +809,142 @@ class TestRegrasPuras(Base):
         self.assertEqual(r["ints"], [1339, 1363])
         self.assertEqual(r["invalidos"], ["13a9", "x"])
 
+
+
+# ------------------------------------------------------------------ Casa
+CASA_FPG = ["Despesas - FPG", "Manutenção"]
+DOC_CASA = {
+    "versao": 1,
+    "naturezas": [
+        {"ordem": 10, "cod": "10.2.2.04.04", "alt": "", "nome": "Manutenção de Instalações",
+         "resp": "", "bimer": [1265], "path": CASA_FPG, **STAMP},
+        {"ordem": 20, "cod": "10.2.2.04.02", "alt": "", "nome": "Manutenção e Limpeza",
+         "resp": "", "bimer": [1263], "path": CASA_FPG, **STAMP},
+    ],
+    "ignoradas": [{"bimer": 1477, "nome": "APORTE DE SOCIOS RECEBIDOS", **STAMP}],
+}
+PEND_CASA = {"gerado_em": "2026-10-19T08:45:00",
+             "pendentes": [{"bimer": 1999, "nome": "NATUREZA NOVA DA CASA", "qtd": 2,
+                            "valor": 350.0, "meses": [10]}]}
+
+
+class TestPainelCasa(Base):
+    """O mesmo formulário aberto pela aba Gastos Casa (`naturezas.html?painel=casa`): outro
+    documento, outro arquivo de pendentes, sem responsável — e o Haras intacto."""
+
+    def abrir_casa(self, **kw):
+        kw.setdefault("doc", DOC_CASA)
+        kw.setdefault("pendentes", PEND_CASA)
+        return self.abrir(aba="/naturezas.html?painel=casa", dash="gastos_casa", **kw)
+
+    def test_le_o_documento_e_as_pendentes_da_casa(self):
+        self.abrir_casa()
+        urls = [u for _, u in self.pedidos]
+        self.assertTrue(any("gastos_cadastro" in u and "id=eq.naturezas_casa" in u for u in urls), urls)
+        self.assertFalse(any("id=eq.naturezas&" in u or u.endswith("id=eq.naturezas") for u in urls))
+        self.assertTrue(any("gastos_casa.pendentes.json" in u for u in urls), urls)
+        self.assertIn("NATUREZA NOVA DA CASA", self.pg.inner_text("#content"))
+
+    def test_sem_coluna_nem_campo_de_responsavel(self):
+        self.abrir_casa()
+        cab = self.pg.eval_on_selector_all("table.cadastro th", "els => els.map(e => e.textContent)")
+        self.assertNotIn("Resp.", cab)
+        self.assertEqual(self.pg.query_selector_all('input[data-campo="resp"]'), [])
+        texto = self.pg.inner_text("#content")
+        self.assertIn("painel de Gastos da Casa", texto)
+        self.assertIn("08:45", texto)
+        self.pg.click("#natAdd")
+        self.assertIsNone(self.pg.query_selector("#natFResp"))
+
+    def test_natureza_sem_responsavel_grava_no_documento_da_casa(self):
+        self.abrir_casa()
+        self.pg.click("#natAdd")
+        self.preencher_form(nome="Manutenção de Jardins", cod="10.2.2.04.05",
+                            grupo="Despesas - FPG › Manutenção", bimer="1266")
+        self.assertFalse(self.pg.is_disabled("#natFAdd"), self.pg.inner_text("#natFFalta"))
+        self.adicionar()
+        self.assertIn("gravado", self.salvar())
+        patch = [u for m, u in self.pedidos if m == "PATCH"]
+        self.assertTrue(patch and "id=eq.naturezas_casa" in patch[-1], patch)
+        nova = [n for n in self.gravado()["naturezas"] if n["cod"] == "10.2.2.04.05"]
+        self.assertEqual(len(nova), 1)
+        self.assertEqual(nova[0]["resp"], "")
+        self.assertEqual(nova[0]["path"], CASA_FPG)
+        self.assertIn("painel de Gastos da Casa", self.pg.inner_text("#natStatus"))
+
+    def test_haras_continua_exigindo_responsavel(self):
+        doc = copy.deepcopy(DOC)
+        doc["naturezas"][0]["resp"] = ""
+        self.abrir(doc=doc)
+        self.assertIn("`resp` vazio", self.pg.inner_text("#natProbs"))
+        self.assertTrue(self.pg.is_disabled("#natSalvar"))
+        cab = self.pg.eval_on_selector_all("table.cadastro th", "els => els.map(e => e.textContent)")
+        self.assertIn("Resp.", cab)
+
+    def test_regra_pura_responsavel_opcional_so_quando_pedido(self):
+        self.abrir_casa()
+        r = self.pg.evaluate("""() => {
+            const d = {naturezas: [{ordem: 10, cod: '1', nome: 'x', resp: '', bimer: [1], path: ['A']}],
+                       ignoradas: []};
+            return [NAT_DADOS.problemas(d).length, NAT_DADOS.problemas(d, {comResponsavel: false}).length];
+        }""")
+        self.assertEqual(r, [1, 0])
+
+
+class TestCadastroDentroDaAbaGastosCasa(unittest.TestCase):
+    """A aba Gastos Casa tem o mesmo "Editar cadastro de naturezas" da aba Gastos, abrindo o
+    cadastro DA CASA."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+        from playwright.sync_api import sync_playwright
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    def setUp(self):
+        self.erros = []
+        self.pg = self._b.new_page(viewport={"width": 1400, "height": 900})
+        self.addCleanup(self.pg.close)
+        self.pg.on("pageerror", lambda e: self.erros.append(str(e)))
+        self.pg.on("dialog", lambda d: d.accept())
+        self.pg.goto((RAIZ / "index.html").as_uri())
+        self.pg.wait_for_function("typeof allowed === 'function'")
+
+    def tearDown(self):
+        self.assertEqual(self.erros, [], "erro de JavaScript na casca")
+
+    def ir(self, html=True):
+        self.pg.evaluate("h => { window.HUB.gastosCasaHtml = h ? '<p id=painel>casa</p>' : undefined;"
+                         " window.HUB.dashboards = ['gastos_casa']; buildNav();"
+                         " location.hash = '#/gastos_casa'; }", html)
+        self.pg.wait_for_selector("#gcCadastro")
+
+    def src(self):
+        return self.pg.eval_on_selector_all(
+            "#content iframe", "els => els.map(e => e.getAttribute('src') || 'srcdoc')")
+
+    def test_abre_no_painel_e_editar_abre_o_cadastro_da_casa(self):
+        self.ir()
+        self.assertEqual(self.src(), ["srcdoc"])
+        self.pg.click("#gcCadastro")
+        self.pg.wait_for_selector("#gcVoltar")
+        self.assertEqual(self.src(), ["naturezas.html?painel=casa"])
+        self.pg.click("#gcVoltar")
+        self.pg.wait_for_selector("#gcCadastro")
+        self.assertEqual(self.src(), ["srcdoc"])
+
+    def test_sem_painel_publicado_aponta_a_rotina_da_casa(self):
+        self.ir(html=False)
+        self.assertIn("publicar_gastos_casa", self.pg.inner_text("#content"))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

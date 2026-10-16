@@ -200,6 +200,16 @@ function renderSemanal(el){
    editor (gastos_editores) abre o formulário em modo consulta — a policy do banco é que
    decide quem grava. */
 function renderGastos(el, _r, modo){
+  _painelComCadastro(el, modo, {
+    html: window.HUB&&window.HUB.gastosHtml, titulo:'Gastos', rotina:'publicar_gastos_haras',
+    cadastro:'naturezas.html', render: m=>renderGastos(el, _r, m)
+  });
+}
+
+/* O painel publicado (srcdoc) com a faixa "Editar cadastro de naturezas" acima; em modo
+   'cadastro', o formulário no lugar dele com "← Voltar ao painel". É o que as abas Gastos
+   e Gastos Casa têm em comum: muda só de onde vem o HTML e qual cadastro abre. */
+function _painelComCadastro(el, modo, p){
   el.classList.add('flush');
   el.innerHTML='';
   const topo=document.createElement('div');
@@ -212,30 +222,29 @@ function renderGastos(el, _r, modo){
       + 'da próxima publicação do painel.</span>';
     const f=document.createElement('iframe');
     f.className='embed'; f.title='Cadastro de naturezas';
-    f.src='naturezas.html';
+    f.src=p.cadastro;
     el.appendChild(f);
     document.getElementById('gcVoltar').onclick=()=>{
       if(_cadastroComAlteracoes(f)
          && !confirm('Há alterações no cadastro que não foram gravadas. Voltar ao painel mesmo assim?')) return;
-      renderGastos(el, _r);
+      p.render();
     };
     return;
   }
 
   topo.innerHTML='<button type="button" class="gc-btn" id="gcCadastro">Editar cadastro de naturezas</button>';
-  document.getElementById('gcCadastro').onclick=()=>renderGastos(el, _r, 'cadastro');
+  document.getElementById('gcCadastro').onclick=()=>p.render('cadastro');
 
-  const html=window.HUB&&window.HUB.gastosHtml;
-  if(!html){
+  if(!p.html){
     el.insertAdjacentHTML('beforeend','<div class="empty"><div class="big">◔</div><div>Painel ainda não '
-      + 'publicado.<br>A rotina <code>publicar_gastos_haras</code> sobe o arquivo toda '
+      + 'publicado.<br>A rotina <code>' + p.rotina + '</code> sobe o arquivo toda '
       + 'segunda.</div></div>');
     return;
   }
   const f=document.createElement('iframe');
-  f.className='embed auto-h'; f.title='Gastos';
+  f.className='embed auto-h'; f.title=p.titulo;
   f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
-  f.srcdoc=html;
+  f.srcdoc=p.html;
   el.appendChild(f);
 }
 
@@ -286,24 +295,16 @@ function renderSgpg(el){
 }
 
 /* ---- Gastos Casa ----
-   O mesmo embed do painel de Gastos do Haras (HTML autocontido do bucket, por
-   `srcdoc`, altura acompanhando o conteúdo), para o painel da Casa da Fazenda Pao
-   Grande. Quem gera é a rotina `publicar_gastos_casa` do Function App, toda segunda;
-   sem o arquivo no bucket não há fallback local. */
-function renderGastosCasa(el){
-  el.classList.add('flush');
-  const html=window.HUB&&window.HUB.gastosCasaHtml;
-  if(!html){
-    el.innerHTML='<div class="empty"><div class="big">◔</div><div>Painel ainda não '
-      + 'publicado.<br>A rotina <code>publicar_gastos_casa</code> sobe o arquivo toda '
-      + 'segunda.</div></div>';
-    return;
-  }
-  const f=document.createElement('iframe');
-  f.className='embed auto-h'; f.title='Gastos — Casa';
-  f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
-  f.srcdoc=html;
-  el.appendChild(f);
+   O mesmo desenho da aba Gastos (Haras): o painel publicado pela rotina
+   `publicar_gastos_casa` e, de dentro dele, o cadastro de naturezas DA CASA
+   (`naturezas.html?painel=casa` — documento `naturezas_casa`, os mesmos editores do
+   Haras). */
+function renderGastosCasa(el, _r, modo){
+  _painelComCadastro(el, modo, {
+    html: window.HUB&&window.HUB.gastosCasaHtml, titulo:'Gastos — Casa',
+    rotina:'publicar_gastos_casa', cadastro:'naturezas.html?painel=casa',
+    render: m=>renderGastosCasa(el, _r, m)
+  });
 }
 
 /* ---- sidebar: desktop colapsa pra ícone, mobile vira drawer ----
