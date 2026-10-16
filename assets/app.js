@@ -39,6 +39,9 @@ const ROUTES = [
    sub:'O que entra no Controle, em qual grupo e de quem é', icon:'naturezas', render:renderNaturezas},
   {id:'sgpg', nav:'SGPG', title:'SGPG — Sistema de Gestão Pao Grande',
    sub:'Exposições e premiações', icon:'sgpg', render:renderSgpg},
+  {id:'gastos_casa', nav:'Gastos Casa', title:'Gastos — Casa',
+   sub:'Orçado × realizado por natureza — Casa da Fazenda Pao Grande', icon:'gastos',
+   render:renderGastosCasa},
 ];
 function allowed(){
   const ok=(window.HUB&&window.HUB.dashboards)||[];
@@ -256,6 +259,27 @@ function renderSgpg(el){
   const f=document.createElement('iframe');
   f.className='embed'; f.title='SGPG';
   f.src='sgpg.html';
+  el.appendChild(f);
+}
+
+/* ---- Gastos Casa ----
+   O mesmo embed do painel de Gastos do Haras (HTML autocontido do bucket, por
+   `srcdoc`, altura acompanhando o conteúdo), para o painel da Casa da Fazenda Pao
+   Grande. Quem gera é a rotina `publicar_gastos_casa` do Function App, toda segunda;
+   sem o arquivo no bucket não há fallback local. */
+function renderGastosCasa(el){
+  el.classList.add('flush');
+  const html=window.HUB&&window.HUB.gastosCasaHtml;
+  if(!html){
+    el.innerHTML='<div class="empty"><div class="big">◔</div><div>Painel ainda não '
+      + 'publicado.<br>A rotina <code>publicar_gastos_casa</code> sobe o arquivo toda '
+      + 'segunda.</div></div>';
+    return;
+  }
+  const f=document.createElement('iframe');
+  f.className='embed auto-h'; f.title='Gastos — Casa';
+  f.addEventListener('load',()=>_ajustaAlturaEmbed(f));
+  f.srcdoc=html;
   el.appendChild(f);
 }
 
