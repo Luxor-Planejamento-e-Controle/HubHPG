@@ -21,8 +21,8 @@
  *               policy do banco (hub_gastos_editor).
  *
  * A CONSEQUÊNCIA, que a tela precisa dizer: gravar aqui NÃO atualiza o painel na hora. O
- * painel é publicado pela rotina (segunda 08:30, ou publicação manual), e é nele que a
- * edição passa a valer.
+ * painel é publicado pela rotina (dias úteis de manhã, ou "Atualizar dados" na aba), e é
+ * nele que a edição passa a valer.
  */
 window.NAT_FONTE = (function () {
   'use strict';
@@ -32,12 +32,12 @@ window.NAT_FONTE = (function () {
   var PAINEIS = {
     haras: {
       id: 'naturezas', arquivo: 'gastos.pendentes.json', migration: 'gastos_naturezas',
-      painel: 'painel de Gastos', quando: 'segunda, 08:30', comResponsavel: true,
+      painel: 'painel de Gastos', quando: 'dias úteis, 08:30', comResponsavel: true,
       exemploGrupo: 'Custos e Despesas > Custos > Sanidade', exemploCod: '10.4.2.03.21'
     },
     casa: {
       id: 'naturezas_casa', arquivo: 'gastos_casa.pendentes.json', migration: 'gastos_casa_cadastro',
-      painel: 'painel de Gastos da Casa', quando: 'segunda, 08:45', comResponsavel: false,
+      painel: 'painel de Gastos da Casa', quando: 'dias úteis, 08:45', comResponsavel: false,
       exemploGrupo: 'Despesas - FPG > Manutenção', exemploCod: '10.2.2.04.04'
     }
   };

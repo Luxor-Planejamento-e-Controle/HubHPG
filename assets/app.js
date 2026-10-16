@@ -202,13 +202,19 @@ function renderSemanal(el){
 function renderGastos(el, _r, modo){
   _painelComCadastro(el, modo, {
     html: window.HUB&&window.HUB.gastosHtml, titulo:'Gastos', rotina:'publicar_gastos_haras',
-    cadastro:'naturezas.html', render: m=>renderGastos(el, _r, m)
+    tipo:'gastos', cadastro:'naturezas.html', render: m=>renderGastos(el, _r, m)
   });
 }
 
-/* O painel publicado (srcdoc) com a faixa "Editar cadastro de naturezas" acima; em modo
-   'cadastro', o formulário no lugar dele com "← Voltar ao painel". É o que as abas Gastos
-   e Gastos Casa têm em comum: muda só de onde vem o HTML e qual cadastro abre. */
+/* O painel publicado (srcdoc) com a faixa "Editar cadastro de naturezas" + "Atualizar
+   dados" acima; em modo 'cadastro', o formulário no lugar dele com "← Voltar ao painel".
+   É o que as abas Gastos e Gastos Casa têm em comum: muda só de onde vem o HTML, qual
+   cadastro abre e o tipo do pedido.
+
+   "Atualizar dados" é a MESMA barra do semanal (hubjob.js): grava um pedido em hub_job
+   com `tipo` = id do painel, e a rotina do Automacoes publica o painel de novo (repo de
+   deploy, hpg_hub_job, roteia). Terminado, recarrega a página — é o que traz o HTML novo
+   do bucket. A barra aparece também sem painel publicado: é como se publica o primeiro. */
 function _painelComCadastro(el, modo, p){
   el.classList.add('flush');
   el.innerHTML='';
@@ -219,7 +225,8 @@ function _painelComCadastro(el, modo, p){
   if(modo==='cadastro'){
     topo.innerHTML='<button type="button" class="gc-btn" id="gcVoltar">← Voltar ao painel</button>'
       + '<span class="gc-dica">Cadastro de naturezas — o que for gravado aqui vale a partir '
-      + 'da próxima publicação do painel.</span>';
+      + 'da próxima publicação do painel (para publicar já, volte ao painel e use '
+      + '<b>Atualizar dados</b>).</span>';
     const f=document.createElement('iframe');
     f.className='embed'; f.title='Cadastro de naturezas';
     f.src=p.cadastro;
@@ -234,11 +241,12 @@ function _painelComCadastro(el, modo, p){
 
   topo.innerHTML='<button type="button" class="gc-btn" id="gcCadastro">Editar cadastro de naturezas</button>';
   document.getElementById('gcCadastro').onclick=()=>p.render('cadastro');
+  if(window.HubJob) window.HubJob.barra(topo, p.tipo, {aoTerminar:()=>location.reload()});
 
   if(!p.html){
     el.insertAdjacentHTML('beforeend','<div class="empty"><div class="big">◔</div><div>Painel ainda não '
-      + 'publicado.<br>A rotina <code>' + p.rotina + '</code> sobe o arquivo toda '
-      + 'segunda.</div></div>');
+      + 'publicado.<br>A rotina <code>' + p.rotina + '</code> sobe o arquivo todo dia útil '
+      + 'de manhã — ou peça agora em <b>Atualizar dados</b>, acima.</div></div>');
     return;
   }
   const f=document.createElement('iframe');
@@ -302,7 +310,7 @@ function renderSgpg(el){
 function renderGastosCasa(el, _r, modo){
   _painelComCadastro(el, modo, {
     html: window.HUB&&window.HUB.gastosCasaHtml, titulo:'Gastos — Casa',
-    rotina:'publicar_gastos_casa', cadastro:'naturezas.html?painel=casa',
+    rotina:'publicar_gastos_casa', tipo:'gastos_casa', cadastro:'naturezas.html?painel=casa',
     render: m=>renderGastosCasa(el, _r, m)
   });
 }

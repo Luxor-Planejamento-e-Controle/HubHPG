@@ -957,5 +957,76 @@ class TestCadastroDentroDaAbaGastosCasa(unittest.TestCase):
         self.ir(html=False)
         self.assertIn("publicar_gastos_casa", self.pg.inner_text("#content"))
 
+
+class TestBotaoAtualizarDados(unittest.TestCase):
+    """As abas Gastos e Gastos Casa têm a barra "Atualizar dados" do semanal (hubjob.js),
+    que grava um pedido em hub_job com o tipo = id do painel. A sessão do Supabase é
+    simulada: o que se confere é o pedido que a barra grava."""
+
+    FALSO_SB = """() => {
+      window.__ins = [];
+      const q = {select(){return q}, eq(){return q}, order(){return q},
+                 limit(){return Promise.resolve({data: []})}};
+      window.HUB.sb = {from: () => ({select: q.select, eq: q.eq, order: q.order, limit: q.limit,
+        insert: async row => { window.__ins.push(row); return {error: null}; }})};
+    }"""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("playwright não instalado")
+        from playwright.sync_api import sync_playwright
+        cls._pw = sync_playwright().start()
+        cls._b = cls._pw.chromium.launch()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._b.close()
+        cls._pw.stop()
+
+    def setUp(self):
+        self.erros = []
+        self.pg = self._b.new_page(viewport={"width": 1400, "height": 900})
+        self.addCleanup(self.pg.close)
+        self.pg.on("pageerror", lambda e: self.erros.append(str(e)))
+        self.pg.on("dialog", lambda d: d.accept())
+        self.pg.goto((RAIZ / "index.html").as_uri())
+        self.pg.wait_for_function("typeof allowed === 'function' && !!window.HubJob")
+        self.pg.evaluate(self.FALSO_SB)
+
+    def tearDown(self):
+        self.assertEqual(self.erros, [], "erro de JavaScript na casca")
+
+    def ir(self, aba, html=True):
+        campo = {"gastos": "gastosHtml", "gastos_casa": "gastosCasaHtml"}[aba]
+        self.pg.evaluate("([aba, campo, html]) => { window.HUB[campo] = html ? '<p>painel</p>' : undefined;"
+                         " window.HUB.dashboards = [aba]; buildNav(); location.hash = '#/' + aba; }",
+                         [aba, campo, html])
+        self.pg.wait_for_selector("#gcCadastro")
+
+    def test_barra_nas_duas_abas_e_o_pedido_leva_o_tipo_do_painel(self):
+        for aba in ("gastos", "gastos_casa"):
+            with self.subTest(aba=aba):
+                self.pg.evaluate("() => { window.__ins = []; }")
+                self.ir(aba)
+                btn = self.pg.wait_for_selector(".gc-topo .hj-barra .hj-btn")
+                self.assertEqual(btn.inner_text(), "Atualizar dados")
+                btn.click()
+                self.pg.wait_for_function("window.__ins.length === 1")
+                self.assertEqual(self.pg.evaluate("window.__ins"), [{"tipo": aba}])
+
+    def test_barra_aparece_mesmo_sem_painel_publicado(self):
+        self.ir("gastos_casa", html=False)
+        self.assertIsNotNone(self.pg.query_selector(".gc-topo .hj-barra .hj-btn"))
+        self.assertIn("Atualizar dados", self.pg.inner_text("#content"))
+
+    def test_no_cadastro_nao_ha_barra(self):
+        self.ir("gastos")
+        self.pg.click("#gcCadastro")
+        self.pg.wait_for_selector("#gcVoltar")
+        self.assertIsNone(self.pg.query_selector(".hj-barra"))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

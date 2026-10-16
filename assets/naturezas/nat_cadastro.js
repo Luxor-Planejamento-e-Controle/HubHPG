@@ -33,7 +33,7 @@ window.NAT_CADASTRO = (function () {
   /* O que muda entre o painel do Haras e o da Casa (ver PAINEIS no nat_fonte.js). O padrão
    * é o Haras: quem abre a tela sem dizer o painel vê exatamente o que via antes. */
   var PADRAO = {
-    painel: 'painel de Gastos', quando: 'segunda, 08:30', comResponsavel: true,
+    painel: 'painel de Gastos', quando: 'dias úteis, 08:30', comResponsavel: true,
     exemploGrupo: 'Custos e Despesas > Custos > Sanidade', exemploCod: '10.4.2.03.21'
   };
   var painel = PADRAO;
@@ -243,7 +243,8 @@ window.NAT_CADASTRO = (function () {
       '<div class="banner"><div><b>Este é o cadastro, não o painel.</b> O ' + esc(painel.painel) +
         ' é montado pelo job no Azure (' + esc(painel.quando) + ') a partir dos relatórios do Bimer e <b>deste ' +
         'cadastro</b>: o que você gravar aqui passa a valer na <b>próxima publicação</b>, não ' +
-        'na hora. A ordem das linhas é a ordem do painel.</div></div>' +
+        'na hora — para publicar já, volte ao painel e use <b>Atualizar dados</b>. A ordem das ' +
+        'linhas é a ordem do painel.</div></div>' +
 
       '<div id="natProbs">' + probsHtml(probs) + '</div>' +
 
@@ -635,7 +636,8 @@ window.NAT_CADASTRO = (function () {
             ignoradas: ignoradas.map(limpo)
           });
           carregarDoc(gravado);
-          avisoSalvo = 'Cadastro gravado. O ' + painel.painel + ' reflete na próxima publicação.';
+          avisoSalvo = 'Cadastro gravado. O ' + painel.painel + ' reflete na próxima publicação ' +
+            '(ou agora: volte ao painel e use Atualizar dados).';
           render(el);
         } catch (e) {
           salvar.disabled = false;
