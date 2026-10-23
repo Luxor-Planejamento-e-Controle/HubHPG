@@ -2734,7 +2734,8 @@ def _refina_afeta_headcount(rep: Report):
             return rec_ant.get(n.replace("RECEPTORA ", ""), "") in RECEPTORAS_LOCAIS_ATIVOS
         return n in roster_ant
 
-    for e in rep.detalhe.get("saidas_diff") or []:
+    saidas = (rep.detalhe.get("saidas_diff") or []) + (rep.detalhe.get("saidas_plantel") or [])
+    for e in saidas:
         nome = str(e.get("animal") or "")
         e["afeta_headcount"] = _era_contado(nome) and _fora_da_contagem(nome)
     for e in rep.detalhe.get("entradas_diff") or []:
@@ -2742,8 +2743,7 @@ def _refina_afeta_headcount(rep: Report):
         e["afeta_headcount"] = (not _era_contado(nome)) and not _fora_da_contagem(nome)
         if not e["afeta_headcount"] and not _fora_da_contagem(nome):
             e["trocou_de_bucket"] = True
-    rep.saidas["saidas_no_headcount"] = sum(
-        1 for x in (rep.detalhe.get("saidas_diff") or []) if x.get("afeta_headcount"))
+    rep.saidas["saidas_no_headcount"] = sum(1 for x in saidas if x.get("afeta_headcount"))
     rep.saidas["entradas_no_headcount"] = sum(
         1 for x in (rep.detalhe.get("entradas_diff") or []) if x.get("afeta_headcount"))
 
@@ -2764,7 +2764,10 @@ def _saidas_anteriores(semana: str) -> dict:
     for wid, snap in sorted(_load_hist().items()):
         if not _is_iso(wid) or wid >= semana:
             continue
-        for x in ((snap.get("detalhe") or {}).get("saidas") or []):
+        det = snap.get("detalhe") or {}
+        # saídas_plantel também: quem deixou o plantel estando no sócio não pode
+        # voltar como saída física quando o haras lançar a venda na aba depois
+        for x in (det.get("saidas") or []) + (det.get("saidas_plantel") or []):
             nome = _norm(x.get("animal"))
             if nome:
                 out.setdefault(nome, wid)
@@ -2833,8 +2836,15 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
     # aparecia em lugar nenhum. Esta, ao contrário da que vai pro sócio, SAI da
     # contagem (afeta_headcount=True).
     agora = {_norm(l.get("nome")) for l in (_LINHAS_BRUTAS.get("roster") or [])}
-    descartadas = {_norm(l.get("nome")): l
-                   for l in (_LINHAS_BRUTAS.get("roster_descartadas") or [])}
+    # Pelo nome SEM cotista, que é como o roster (e `antes`) guarda. A descartada
+    # vem com o nome cru: MESTRE DA PAO GRANDE (23/10/2026) tem duas linhas,
+    # '(CARLA)' e '(EDUARDO)', nenhuma casava com 'MESTRE DA PAO GRANDE' e a saída
+    # dele do plantel sumia do Δ — a abertura saiu -1 numa semana de -3.
+    descartadas = {}
+    for l in _LINHAS_BRUTAS.get("roster_descartadas") or []:
+        k = _norm(_sem_cotista(l.get("nome")))
+        if k not in descartadas or l.get("motivo") == "status fora do plantel":
+            descartadas[k] = l
     for nome in sorted(set(antes) - agora - lancados):
         linha = descartadas.get(nome)
         if not linha or linha.get("motivo") != "status fora do plantel":
@@ -2844,8 +2854,14 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         # saídas serem registradas assim —, então o movimento que interessa é este: ela
         # deixou a contagem agora. Cheguei a tirá-la da lista por estar fora da
         # propriedade e isso é o contrário do que a regra diz.
+        # Quem JÁ ESTAVA NO SÓCIO não sai fisicamente agora — saiu quando foi pro
+        # sócio. Zerar a cota tira o animal do plantel (Δ do headcount), mas não é
+        # 'Saída na semana' (decisão de 23/10/2026: MESTRE e PILAR DA PAO GRANDE,
+        # vendidos ao sócio que já estava com eles; a saída física foi só o
+        # PATRIARCA). Isso substitui, para a lista física, a leitura da MELISSA acima.
+        so_plantel = antes.get(nome) == "SOCIO"
         novas.append({
-            "animal": _s(linha.get("nome")),
+            "animal": _sem_cotista(linha.get("nome")),
             "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
             # DATA: só o lançamento da aba, ou a condição do roster quando ela cai
             # DENTRO da janela. A coluna de condição da MELISSA diz 'SAIU DO HARAS
@@ -2862,13 +2878,17 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
             "local_entrada": _s(linha.get("local_final")) or _s(linha.get("local")),
             "fonte": "roster",
             "afeta_headcount": True,
+            "so_plantel": so_plantel,
             "obs": OBS_SEM_LANCAMENTO,
         })
     if novas:
         print(f"  [saídas] {len(novas)} saída(s) vistas só pelo roster — a aba "
               f"SAIDAS-ENTRADAS não foi preenchida para elas:")
         for n in novas:
-            if n["afeta_headcount"]:
+            if n.get("so_plantel"):
+                print(f"    - {n['animal']}: {n['classificacao']} (já estava no sócio: "
+                      f"sai do plantel, não é saída física)")
+            elif n["afeta_headcount"]:
                 print(f"    - {n['animal']}: {n['classificacao']} (sai da contagem)")
             else:
                 print(f"    - {n['animal']}: {n['local_saida']} -> "
@@ -2928,6 +2948,14 @@ def _compute_movimento(rep: Report):
         # mostra. Elas entram marcadas com a origem, e a falta do lançamento vira
         # aviso em vez de sumir.
         sai = sai + _saidas_por_mudanca_de_local(rep, sai)
+        # Saída DO PLANTEL de quem já estava no sócio: conta no Δ do headcount e fica
+        # fora de 'Saídas na semana', que é a saída física. Também fica fora do filtro
+        # de repetidas abaixo: estar no roster da semana anterior já prova que o animal
+        # ainda era contado. A PILAR DA PAO GRANDE foi publicada como saída em agosto
+        # (ida pro sócio, trocou de bucket e seguiu contada) e o filtro a barrava em
+        # 23/10/2026, quando ela de fato deixou o plantel.
+        do_plantel = [x for x in sai if x.get("so_plantel")]
+        sai = [x for x in sai if not x.get("so_plantel")]
         # Saída não se repete. A MELISSA DA PAO GRANDE deixou o plantel no fechamento
         # de 18/09/2026 (virou 'VENDIDO E ENTREGUE' e saiu pela regra do roster) e o
         # lançamento oficial dela na aba veio com data de 25/09 — ela entrava de novo
@@ -2945,9 +2973,11 @@ def _compute_movimento(rep: Report):
         rep.saidas["fonte"] = "SAIDAS-ENTRADAS"
         # O Δ do headcount só pode ser conferido contra quem entra/sai da CONTAGEM:
         # saída pro sócio deixa a fazenda e continua contada (ver CLASSIF_FORA_DO_DELTA).
-        rep.saidas["saidas_no_headcount"] = sum(1 for x in sai if x.get("afeta_headcount"))
+        rep.saidas["saidas_no_headcount"] = sum(
+            1 for x in sai + do_plantel if x.get("afeta_headcount"))
         rep.saidas["entradas_no_headcount"] = sum(1 for x in ent if x.get("afeta_headcount"))
         rep.detalhe["saidas_diff"] = sai
+        rep.detalhe["saidas_plantel"] = do_plantel
         rep.detalhe["entradas_diff"] = ent
         _refina_afeta_headcount(rep)
         return
@@ -3445,7 +3475,8 @@ def _conferir_delta(rep: Report):
         # CAUSA CONHECIDA — nascimento entra, saida lancada sai — e o que sobra do
         # diff vira aviso, em vez de virar numero.
         nasc = rep.producao.get("nascimentos") or 0
-        lancadas = {_norm(e.get("animal")) for e in (rep.detalhe.get("saidas_diff") or [])}
+        lancadas = {_norm(e.get("animal")) for e in (rep.detalhe.get("saidas_diff") or [])
+                    + (rep.detalhe.get("saidas_plantel") or [])}
         saiu_com_lancamento = {n for n in sairam if _norm(n) in lancadas}
         if rep.saidas.get("fonte") == "SAIDAS-ENTRADAS":
             # A aba oficial é a fonte da abertura quando existe: o diff do roster é
@@ -3905,6 +3936,9 @@ def _snap_from_rep(rep: Report) -> dict:
             "nascimentos": rep.detalhe.get("nascimentos_semana"),
             "abortos_obitos": rep.detalhe.get("abortos_obitos_semana"),
             "saidas": rep.detalhe.get("saidas_diff"),
+            # saíram do plantel sem sair fisicamente (já estavam no sócio): entram no
+            # Δ do headcount e não em 'Saídas na semana' — ver _compute_movimento
+            "saidas_plantel": rep.detalhe.get("saidas_plantel"),
             "entradas": rep.detalhe.get("entradas_diff"),
             # cancelamento que o cadastro do haras não acompanhou: fica de fora do
             # headcount e não aparecia em relatório nenhum (ver _cancelamentos_pendentes)
