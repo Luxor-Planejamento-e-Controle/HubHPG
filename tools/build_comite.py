@@ -1682,20 +1682,13 @@ def slides_estacao(safra: str, corte: date | None = None):
 
 
 # Aba ESTAÇÃO (0-based): 7 IA, 8 ovulação, 9 TE, 10 LAVADO, 12-15 diagnóstico de
-# 15/30/45/60 dias, 16 ABORTO, 21 data do aborto, 22 óbito da receptora, 35 safra.
+# 15/30/45/60 dias, 16 ABORTO, 22 óbito da receptora, 35 safra.
 COLS_PRENHEZ = (12, 13, 14, 15)
-DIAS_PRENHEZ = (15, 30, 45, 60)
-# Coleta (TE) sem data lançada: dia 7 depois da ovulação, como nas linhas que têm
-# as duas datas.
-DIAS_COLETA = 7
 
-# O deck do mês mostra a estação como estava no ÚLTIMO DIA DO MÊS (`corte`), não
-# como a planilha está no dia do build. A planilha não guarda a data de cada
-# diagnóstico, só o resultado, mas ele é feito com N dias de gestação, contados da
-# ovulação, como a PREVISÃO PARIÇÃO da própria planilha. Então um resultado só
-# vale no corte se a data dele já tinha passado. Sem isso o deck de setembro,
-# montado em novembro, trazia IA de outubro e diagnósticos de 45 e 60 dias feitos
-# em outubro (Arthur, 03/11/2026). `corte=None` é a planilha inteira, sem corte.
+# O deck do mês só conta a tentativa com IA até o ÚLTIMO DIA DO MÊS (`corte`): o
+# de setembro, montado em novembro, trazia as IAs de 01 e 02/10 (Arthur,
+# 03/11/2026). O resultado de cada tentativa é o que está na planilha.
+# `corte=None` é a planilha inteira.
 
 
 def _data(v):
@@ -1704,38 +1697,29 @@ def _data(v):
     return v if isinstance(v, date) else None
 
 
-def _ate(v, corte) -> bool:
-    """A data `v` já tinha chegado no corte? Sem corte, ou sem data, sim."""
-    d = _data(v)
-    return corte is None or d is None or d <= corte
-
-
-def _coleta(r):
-    """Data da coleta (TE); sem ela, a ovulação (ou a IA) mais DIAS_COLETA."""
-    base = _data(r[8]) or _data(r[7])
-    return _data(r[9]) or (base + timedelta(days=DIAS_COLETA) if base else None)
-
-
 def _linha_estacao(r, safra: str, corte=None) -> bool:
-    """Linha da safra que é tentativa: lavado feito, com resultado, até o corte —
-    o TOTAL DE LAVADOS da aba GARANHOES.
+    """Linha da safra que é tentativa: lavado com resultado (o TOTAL DE LAVADOS
+    da aba GARANHOES) e IA até o corte.
 
     O haras deixa a próxima linha numerada com a safra e, na 26/27, lança também
     a cruza PLANEJADA (doadora e garanhão, sem data nem lavado). Em nov/2026 eram
     quatro (Nasdaq, Natureza, Loucura e Nina), que entravam como tentativa: 15 em
-    vez de 11, e a recuperação caía de 100% para 73%. Do mesmo jeito, a IA
-    feita no fim do mês com a coleta no mês seguinte (Loteria × Legítimo, IA
-    29/09/2026) ainda não é tentativa no corte: contada, derrubava a recuperação
-    de setembro para 89% sem nenhum lavado negativo."""
+    vez de 11, e a recuperação caía de 100% para 73%."""
     if not (r[0] is not None and len(r) >= 36 and _s(r[35]) == safra and _norm(r[10])):
         return False
-    return _ate(_coleta(r), corte)
+    return _ia_ate(r, corte)
 
 
-def _prenhez(r, corte=None) -> dict:
-    """Situação do embrião de uma linha da ESTAÇÃO no corte.
+def _ia_ate(r, corte) -> bool:
+    """IA (ou, sem ela, ovulação ou TE) até o corte. Sem corte ou sem data, sim."""
+    d = _data(r[7]) or _data(r[8]) or _data(r[9])
+    return corte is None or d is None or d <= corte
 
-    `lavado`: lavado positivo, com a coleta já feita no corte.
+
+def _prenhez(r) -> dict:
+    """Situação do embrião de uma linha da ESTAÇÃO.
+
+    `lavado`: lavado positivo.
     `etapas`: quantos diagnósticos (15/30/45/60 dias) ele já passou. Célula vazia
     é diagnóstico que ainda não aconteceu, não aprovação. Até nov/2026 o vazio
     contava como '+', e na safra em curso todo embrião de 15 dias aparecia em 30,
@@ -1747,13 +1731,9 @@ def _prenhez(r, corte=None) -> dict:
     ainda não é confirmado (Arthur, 03/11/2026). Nas safras encerradas todos
     chegaram aos 60 dias, e o número é o TOTAL EMBRIÕES do PLANEJAMENTO (na 25/26
     bateu doadora a doadora, 56 a 56) e o da aba COMPARATIVO."""
-    nada = {"lavado": False, "etapas": 0, "aborto": False, "confirmado": False}
-    base = _data(r[8]) or _data(r[7])
-    dia = lambda n: base + timedelta(days=n) if base else None
-    if _norm(r[10]) != "+" or not _ate(_coleta(r), corte):
-        return nada
-    st = [_norm(r[j]) if _ate(dia(n), corte) else ""
-          for j, n in zip(COLS_PRENHEZ, DIAS_PRENHEZ)]
+    if _norm(r[10]) != "+":
+        return {"lavado": False, "etapas": 0, "aborto": False, "confirmado": False}
+    st = [_norm(r[j]) for j in COLS_PRENHEZ]
     perda = [s not in ("+", "") for s in st]
     etapas = 0
     for k in range(len(st)):
@@ -1763,8 +1743,8 @@ def _prenhez(r, corte=None) -> dict:
     # aborto conta depois de confirmado aos 60 dias (perda antes disso é o '-'
     # numa das etapas); é o "(−) Abortos  >60 dias confirmados" do funil
     sessenta = etapas == len(st) and not any(perda)
-    aborto = sessenta and _norm(r[16]) == "SIM" and _ate(r[21], corte)
-    obito = r[22] is not None and _ate(r[22], corte)
+    aborto = sessenta and _norm(r[16]) == "SIM"
+    obito = r[22] is not None
     return {"lavado": True, "etapas": etapas, "aborto": aborto,
             "confirmado": sessenta and not aborto and not obito}
 
@@ -1779,7 +1759,7 @@ def funil(wb, safra, corte=None):
         if i < 3 or not _linha_estacao(r, safra, corte):
             continue
         tent += 1
-        p = _prenhez(r, corte)
+        p = _prenhez(r)
         if not p["lavado"]:
             continue
         lav += 1
@@ -1928,7 +1908,7 @@ def _garanhoes_da_estacao(wb, safra: str, corte=None) -> dict:
         k = _chave_garanhao(_norm(r[3]))
         d = out.setdefault(k, {"nome": _s(r[3]), "lav": 0, "pos": 0, "conf": 0})
         d["lav"] += 1
-        p = _prenhez(r, corte)
+        p = _prenhez(r)
         d["pos"] += p["lavado"]
         d["conf"] += p["confirmado"]
     return out
@@ -1957,7 +1937,7 @@ def _stats_safra_estacao(ws, safra_alvo=None, corte=None) -> dict:
         d = por.setdefault(sf, {"meses": {}, "conf": 0, "doad": set()})
         # receptora que morreu depois (col 22) leva o embrião junto — a aba
         # COMPARATIVO da planilha desconta, e só assim a 22/23 fecha em 89
-        if not _prenhez(r, corte)["confirmado"]:
+        if not _prenhez(r)["confirmado"] or not _ia_ate(r, corte):
             continue
         d["conf"] += 1
         # a mesma doadora vem grafada de dois jeitos na safra ('JUSTIÇA' e
@@ -2128,7 +2108,7 @@ def doadoras(wb, safra, corte=None):
             continue
         x = da_estacao.setdefault(chave(r[2]), [0, 0, 0, 0])
         x[0] += 1
-        p = _prenhez(r, corte)
+        p = _prenhez(r)
         if p["lavado"]:
             x[1] += 1
             x[2] += p["etapas"] > 0
