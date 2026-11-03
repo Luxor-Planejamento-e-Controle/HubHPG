@@ -2043,10 +2043,14 @@ def comparativo(wb, safra: str):
 
 
 def doadoras(wb, safra):
-    """S19/S20 — meta × realizado por doadora, do PLANEJAMENTO (NOME, TIME, META
-    TOTAL, TOTAL EMBRIÕES). Colunas pelo CABEÇALHO (linha 3): na safra 2026/2027 o
-    haras reorganizou a aba — saíram CATEGORIA, LOCAL e TIME, e META/TOTAL
-    EMBRIÕES andaram duas colunas. Com índice fixo o slide de agosto saía vazio.
+    """S19/S20 — meta × realizado por doadora. Lista, time e meta vêm do
+    PLANEJAMENTO (NOME, TIME, META TOTAL); o realizado é o embrião confirmado da
+    aba ESTAÇÃO (`_prenhez`). O TOTAL EMBRIÕES do PLANEJAMENTO é o mesmo número
+    (na 25/26 bateu doadora a doadora, 56 a 56), mas é mantido à mão e na 26/27
+    parou: em nov/2026 dava 1 embrião contra 11 da ESTAÇÃO. Colunas pelo
+    CABEÇALHO (linha 3): na safra 2026/2027 o haras reorganizou a aba — saíram
+    CATEGORIA, LOCAL e TIME, e META andou duas colunas. Com índice fixo o slide de
+    agosto saía vazio.
 
     Time: o do PLANEJAMENTO; doadora sem time lá (Música, em 25/26) usa o da aba
     REC. EMBR., que é como o relatório a classificou. A META do time soma só quem
@@ -2066,17 +2070,31 @@ def doadoras(wb, safra):
         return None
     c_nome, c_time = _col("NOME"), _col("TIME")
     c_meta = _col("META TOTAL", "META  TOTAL")
-    c_real = _col("TOTAL EMBRIOES", "TOTAL EMBRIÕES")
-    if c_nome is None or c_meta is None or c_real is None:
-        aviso(f"PLANEJAMENTO sem NOME/META/TOTAL EMBRIÕES no cabeçalho ({safra}) — S19/S20 pendentes")
+    if c_nome is None or c_meta is None:
+        aviso(f"PLANEJAMENTO sem NOME/META TOTAL no cabeçalho ({safra}) — S19/S20 pendentes")
         return [pend(19, f"ESTAÇÃO DE MONTA {safra} — DOADORAS", "", "ESTACAO DE MONTA.xlsx",
                      "a aba PLANEJAMENTO mudou de layout e não achei as colunas")]
+    # Por doadora, da ESTAÇÃO: [tentativas, lavados +, prenhez 15d, confirmados].
+    # A chave ignora acento e partícula: a mesma égua vem 'JUSTIÇA' e 'JUSTICA',
+    # 'NINA DO ATLANTICO SUL' e 'NINA ATLANTICO SUL' entre as abas.
+    chave = lambda n: _chave_garanhao(_norm(n))
+    da_estacao = {}
+    for i, r in enumerate(wb["ESTAÇÃO"].iter_rows(values_only=True), 1):
+        if i < 3 or not _linha_estacao(r, safra) or not r[2]:
+            continue
+        x = da_estacao.setdefault(chave(r[2]), [0, 0, 0, 0])
+        x[0] += 1
+        if _norm(r[10]) == "+":
+            p = _prenhez(r)
+            x[1] += 1
+            x[2] += p["etapas"] > 0
+            x[3] += p["confirmado"]
     time_rec = {}
     for i, r in enumerate(wb["REC. EMBR."].iter_rows(values_only=True), 1):
         if i >= 3 and len(r) > 3 and r[2] and c_time is not None:
             t = _norm(r[3])
             if t in ("A", "B"):
-                time_rec[_norm(r[2])] = t
+                time_rec[chave(r[2])] = t
     vistos, linhas = set(), []
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
         if i < 4 or c_nome >= len(r) or r[c_nome] is None:
@@ -2084,33 +2102,28 @@ def doadoras(wb, safra):
         nome = _s(r[c_nome])
         if not nome or _norm(nome).startswith("TOTAL"):
             continue
+        k = chave(nome)
         meta = int(_to_num(r[c_meta]) or 0) if c_meta < len(r) else 0
-        real = int(_to_num(r[c_real]) or 0) if c_real < len(r) else 0
+        real = da_estacao.get(k, [0, 0, 0, 0])[3]
         # a planilha repete doadora (Charmosa aparece como PG e como sócio) e traz
         # linha sem meta nem embrião — nenhuma das duas é doadora a acompanhar
-        if _norm(nome) in vistos or (not meta and not real):
+        if k in vistos or (not meta and not real):
             continue
-        vistos.add(_norm(nome))
+        vistos.add(k)
         t_plan = _norm(r[c_time]) if c_time is not None and c_time < len(r) and r[c_time] else ""
-        t = t_plan or time_rec.get(_norm(nome), "")
-        linhas.append({"nome": nome_animal(nome), "chave": _norm(nome), "meta": meta, "real": real,
+        t = t_plan or time_rec.get(k, "")
+        linhas.append({"nome": nome_animal(nome), "chave": k, "meta": meta, "real": real,
                        "time": t if c_time is not None else "",
                        "conta_meta": bool(t_plan) or c_time is None, "ordem": i})
+    fora = sorted(k for k, x in da_estacao.items() if x[3] and k not in vistos)
+    if fora:
+        aviso(f"doadoras {safra}: embrião confirmado de doadora fora do PLANEJAMENTO — {', '.join(fora)}")
     # taxa de recuperação e prenhez do time, pela aba ESTAÇÃO (mesmo funil do S16)
     taxas = {}
-    grupo_de = {l["chave"]: l["time"] for l in linhas}
-    for i, r in enumerate(wb["ESTAÇÃO"].iter_rows(values_only=True), 1):
-        if i < 3 or r[0] is None or len(r) < 36 or _s(r[35]) != safra:
-            continue
-        t = grupo_de.get(_norm(r[2]))
-        if t is None:
-            continue
-        x = taxas.setdefault(t, [0, 0, 0])
-        x[0] += 1
-        if _norm(r[10]) == "+":
-            x[1] += 1
-            if _norm(r[12]) == "+":
-                x[2] += 1
+    for l in linhas:
+        x = taxas.setdefault(l["time"], [0, 0, 0])
+        for j, v in enumerate(da_estacao.get(l["chave"], [0, 0, 0, 0])[:3]):
+            x[j] += v
     times = ["A", "B"] if c_time is not None else [""]
     out = []
     for t in times:
