@@ -1710,18 +1710,26 @@ def _ate(v, corte) -> bool:
     return corte is None or d is None or d <= corte
 
 
-def _linha_estacao(r, safra: str, corte=None) -> bool:
-    """Linha da safra que é tentativa de verdade, com a IA feita até o corte.
+def _coleta(r):
+    """Data da coleta (TE); sem ela, a ovulação (ou a IA) mais DIAS_COLETA."""
+    base = _data(r[8]) or _data(r[7])
+    return _data(r[9]) or (base + timedelta(days=DIAS_COLETA) if base else None)
 
-    Tentativa é a linha que tem IA, TE ou resultado de lavado. O haras deixa a
-    próxima linha numerada com a safra e, na 26/27, lança também a cruza
-    PLANEJADA (doadora e garanhão, sem data nem lavado). Em nov/2026 eram quatro
-    (Nasdaq, Natureza, Loucura e Nina), que entravam como tentativa: 15 em vez de
-    11, e a recuperação caía de 100% para 73%."""
-    if not (r[0] is not None and len(r) >= 36 and _s(r[35]) == safra
-            and (r[7] or r[9] or _norm(r[10]))):
+
+def _linha_estacao(r, safra: str, corte=None) -> bool:
+    """Linha da safra que é tentativa: lavado feito, com resultado, até o corte —
+    o TOTAL DE LAVADOS da aba GARANHOES.
+
+    O haras deixa a próxima linha numerada com a safra e, na 26/27, lança também
+    a cruza PLANEJADA (doadora e garanhão, sem data nem lavado). Em nov/2026 eram
+    quatro (Nasdaq, Natureza, Loucura e Nina), que entravam como tentativa: 15 em
+    vez de 11, e a recuperação caía de 100% para 73%. Do mesmo jeito, a IA
+    feita no fim do mês com a coleta no mês seguinte (Loteria × Legítimo, IA
+    29/09/2026) ainda não é tentativa no corte: contada, derrubava a recuperação
+    de setembro para 89% sem nenhum lavado negativo."""
+    if not (r[0] is not None and len(r) >= 36 and _s(r[35]) == safra and _norm(r[10])):
         return False
-    return _ate(_data(r[7]) or _data(r[8]) or _data(r[9]), corte)
+    return _ate(_coleta(r), corte)
 
 
 def _prenhez(r, corte=None) -> dict:
@@ -1740,7 +1748,7 @@ def _prenhez(r, corte=None) -> dict:
     nada = {"lavado": False, "etapas": 0, "aborto": False, "confirmado": False}
     base = _data(r[8]) or _data(r[7])
     dia = lambda n: base + timedelta(days=n) if base else None
-    if _norm(r[10]) != "+" or not _ate(_data(r[9]) or dia(DIAS_COLETA), corte):
+    if _norm(r[10]) != "+" or not _ate(_coleta(r), corte):
         return nada
     st = [_norm(r[j]) if _ate(dia(n), corte) else ""
           for j, n in zip(COLS_PRENHEZ, DIAS_PRENHEZ)]
