@@ -3534,9 +3534,12 @@ def slides_fotos(c, m, ano):
             print(f"  [fotos] {MESES[m-1]}: pasta do Drive sem foto, usando as "
                   f"{len(caminhos)} do comite_conteudo.json (formato antigo, sem tema)")
     if not caminhos:
+        # `edita`: sem ele o Editar fica apagado justo no slide vazio, e a foto
+        # subida pelo hub ia para o fim do deck em vez de tomar o lugar deste
+        # (setembro/2026: as fotos acabaram numa pasta do Drive)
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
                      caminho_curto(fonte),
-                     f"nenhuma foto de {MESES[m-1].lower()}/{str(ano)[2:]} na pasta")]
+                     f"nenhuma foto de {MESES[m-1].lower()}/{str(ano)[2:]} na pasta", edita="fotos")]
     # troca o caminho pela imagem embutida; some quem nao carregou
     embutidas, kb = [], 0
     for f in caminhos:
@@ -3546,7 +3549,7 @@ def slides_fotos(c, m, ano):
             kb += len(uri) // 1024
     if not embutidas:
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
-                     caminho_curto(fonte), "nenhuma das fotos do mês pôde ser lida")]
+                     caminho_curto(fonte), "nenhuma das fotos do mês pôde ser lida", edita="fotos")]
     dias = sorted({_foto_quando(f).day for f in caminhos})
     print(f"  [fotos] {MESES[m-1]}: {len(embutidas)} de {len(caminhos)} "
           f"({kb // 1024 or 1} MB) — dias {', '.join(f'{d:02d}' for d in dias)}")
