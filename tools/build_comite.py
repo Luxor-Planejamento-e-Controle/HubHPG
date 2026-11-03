@@ -1798,12 +1798,12 @@ def garanhoes(wb, safra):
             if d:
                 # o nome vem da ESTAÇÃO: a aba escreve só 'LEGITIMO' e 'MAJESTOSO'
                 x["nome"] = nome_animal(d["nome"], curto=False)
-    # Até a 25/26, a aba esquecia garanhão: faltavam Latino, Esteio e Invencível,
-    # que o relatório trouxe da aba ESTAÇÃO. Quem teve tentativa na safra e não
-    # está na aba entra com a conta da ESTAÇÃO.
-    for k, d in est.items() if safra < GARANHOES_TODOS_DESDE else ():
-        if k not in aba or not aba[k]["lav"]:
-            if not d["lav"]:
+    else:
+        # Até a 25/26, a aba esquecia garanhão: faltavam Latino, Esteio e
+        # Invencível, que o relatório trouxe da aba ESTAÇÃO. Quem teve tentativa na
+        # safra e não está na aba entra com a conta da ESTAÇÃO.
+        for k, d in est.items():
+            if k in aba and aba[k]["lav"] or not d["lav"]:
                 continue
             base = aba.get(k, {"t": ""})
             # o nome vem da ESTAÇÃO junto com os números (a aba grafa 'MARADA')
@@ -1911,14 +1911,14 @@ def _stats_safra_estacao(ws, safra_alvo=None) -> dict:
         if not sf or "/" not in sf or (safra_alvo and sf != safra_alvo):
             continue
         d = por.setdefault(sf, {"meses": {}, "conf": 0, "doad": set()})
-        if _norm(r[10]) != "+" or _norm(r[12]) != "+":
-            continue
         # receptora que morreu depois (col 22) leva o embrião junto — a aba
         # COMPARATIVO da planilha desconta, e só assim a 22/23 fecha em 89
-        if any(_norm(r[j]) not in ("+", "") for j in (13, 14, 15)) or _norm(r[16]) == "SIM" or r[22] is not None:
+        if not _prenhez(r)["confirmado"]:
             continue
         d["conf"] += 1
-        d["doad"].add(_norm(r[2]))
+        # a mesma doadora vem grafada de dois jeitos na safra ('JUSTIÇA' e
+        # 'JUSTICA'): pela grafia, a 26/27 contava 8 doadoras em vez de 7
+        d["doad"].add(_chave_garanhao(_norm(r[2])))
         ia = r[7]
         if hasattr(ia, "month"):
             d["meses"][ia.month] = d["meses"].get(ia.month, 0) + 1
