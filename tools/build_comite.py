@@ -1013,7 +1013,6 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
         topo = _linha("CUSTOS TOTAIS", "total", *subtotal(_CUS, "CUSTOS INDIRETOS DE PRODUÇÃO"))
         for rot, sub in FIXAS_CUSTOS:
             blocos.append([_linha(rot, "sub", *subtotal(_CUS, sub))] + aberturas(_CUS, [sub]))
-        fim = []
     else:
         d, lu, va = subtotal(_DES, "DESPESAS"), subtotal(_DES, _LUDIA), subtotal(_DES, _VASSOURAS)
         topo = _linha("DESPESAS TOTAIS", "total", d[0] + lu[0] + va[0], d[1] + lu[1] + va[1])
@@ -1031,7 +1030,8 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
                 for s in vass]
         blocos.append([_linha("Arrendamento Vassouras", "sub", *va)]
                       + [l for l in abre if abs(l["v"][1] - l["v"][0]) >= VARIACAO_MINIMA])
-        fim = [_linha("Resultado Operacional", "banda", *subtotal("RESULTADO OPERACIONAL", "RESULTADO OPERACIONAL"))]
+    # O Resultado Operacional fechava a análise de despesas; desde set/2026 ele
+    # aparece só no resumo financeiro (pedido do Arthur, 03/11/2026).
 
     # página: o total no topo e blocos inteiros; bloco maior que a página quebra
     # e repete o subgrupo
@@ -1050,9 +1050,7 @@ def paginas_analise(ano: int, m: int, tema: str, ytd: bool = False) -> list[list
                 paginas.append(atual)
                 atual = [topo]
                 b = [dict(b[0], nome=b[0]["nome"] + " (cont.)")] + b[cabe:]
-    # o Resultado Operacional fecha a última página mesmo que passe uma linha do
-    # limite: sozinho numa página, com o total, ele era um slide vazio
-    paginas.append(atual + fim)
+    paginas.append(atual)
     return paginas
 
 
