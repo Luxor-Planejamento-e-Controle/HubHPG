@@ -1653,27 +1653,31 @@ def _master_da_safra(safra: str, mes: date | None = None):
     safra antiga dentro do arquivo da safra nova. Sem a pasta da safra, cai no
     comportamento antigo em vez de quebrar o deck inteiro."""
     a, b = safra.split("/")
-    for nome in (f"Estação {a}-{b}", f"Estacao {a}-{b}"):
-        d = ESTACAO_MONTA_BASE / nome
-        if not d.is_dir():
-            continue
-        cands = [f for f in d.glob("*ESTACAO DE MONTA*.xlsx")
-                 if not f.name.startswith("~$") and "PBI" not in f.name.upper()]
-        if not cands:
-            continue
-        if mes:
-            alvo = mes.strftime("%y%m")
-            ate = [(p.group(1)[:4], f) for f in cands
-                   if (p := RE_PREFIXO_DATA.match(f.name)) and p.group(1)[:4] <= alvo]
-            if ate:
-                ult = max(p for p, _ in ate)
-                if ult != alvo:
-                    aviso(f"estação {safra}: sem planilha de {MESES[mes.month - 1].lower()}/{mes.year} "
-                          f"na pasta — usando a de prefixo {ult}")
-                do_mes = [f for p, f in ate if p == ult]
-                fixas = [f for f in do_mes if "EDITAR" not in f.name.upper()]
-                return max(fixas or do_mes, key=lambda f: f.stat().st_mtime)
-        return max(cands, key=lambda f: f.stat().st_mtime)
+
+    def planilhas(x, y):
+        for nome in (f"Estação {x}-{y}", f"Estacao {x}-{y}"):
+            d = ESTACAO_MONTA_BASE / nome
+            if d.is_dir():
+                return [f for f in d.glob("*ESTACAO DE MONTA*.xlsx")
+                        if not f.name.startswith("~$") and "PBI" not in f.name.upper()]
+        return []
+    proprias = planilhas(a, b)
+    if mes:
+        # a planilha do primeiro mês da safra fica na pasta da ANTERIOR (a de
+        # agosto/2026 é '260801 ESTACAO DE MONTA.xlsx', em 'Estação 2025-2026')
+        alvo = mes.strftime("%y%m")
+        ate = [(p.group(1)[:4], f) for f in proprias + planilhas(int(a) - 1, a)
+               if (p := RE_PREFIXO_DATA.match(f.name)) and p.group(1)[:4] <= alvo]
+        if ate:
+            ult = max(p for p, _ in ate)
+            if ult != alvo:
+                aviso(f"estação {safra}: sem planilha de {MESES[mes.month - 1].lower()}/{mes.year} "
+                      f"na pasta — usando a de prefixo {ult}")
+            do_mes = [f for p, f in ate if p == ult]
+            fixas = [f for f in do_mes if "EDITAR" not in f.name.upper()]
+            return max(fixas or do_mes, key=lambda f: f.stat().st_mtime)
+    if proprias:
+        return max(proprias, key=lambda f: f.stat().st_mtime)
     return _latest_estacao_master()
 
 
