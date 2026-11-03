@@ -1682,43 +1682,67 @@ def slides_estacao(safra: str):
     return out
 
 
+# Aba ESTAÇÃO (0-based): 7 IA, 9 TE, 10 LAVADO, 12-15 diagnóstico de 15/30/45/60
+# dias, 16 ABORTO, 22 óbito da receptora, 35 safra.
+COLS_PRENHEZ = (12, 13, 14, 15)
+
+
+def _linha_estacao(r, safra: str) -> bool:
+    """Linha da safra que é tentativa de verdade: tem IA, TE ou resultado de
+    lavado. O haras deixa a próxima linha numerada com a safra e, na 26/27, lança
+    também a cruza PLANEJADA (doadora e garanhão, sem data nem lavado). Em
+    nov/2026 eram quatro (Nasdaq, Natureza, Loucura e Nina), que entravam como
+    tentativa: 15 em vez de 11, e a recuperação caía de 100% para 73%."""
+    return (r[0] is not None and len(r) >= 36 and _s(r[35]) == safra
+            and bool(r[7] or r[9] or _norm(r[10])))
+
+
+def _prenhez(r) -> dict:
+    """Situação do embrião de uma linha da ESTAÇÃO.
+
+    `etapas`: quantos diagnósticos (15/30/45/60 dias) ele já passou. Célula vazia
+    é diagnóstico que ainda não aconteceu, não aprovação. Até nov/2026 o vazio
+    contava como '+', e na safra em curso todo embrião de 15 dias aparecia em 30,
+    45 e 60 (a 26/27 saía 11/11/11/11 em vez de 11/9/8/7). Etapa pulada com '+'
+    depois conta. Nas safras encerradas dá o mesmo número de antes, porque lá todo
+    diagnóstico foi lançado.
+    `confirmado`: positivo e sem perda depois, ou seja, nenhum resultado diferente
+    de '+', sem aborto e sem óbito da receptora. É o TOTAL EMBRIÕES do PLANEJAMENTO
+    (na 25/26 bateu doadora a doadora, 56 a 56) e o número da aba COMPARATIVO."""
+    st = [_norm(r[j]) for j in COLS_PRENHEZ]
+    if _norm(r[10]) != "+":
+        return {"etapas": 0, "aborto": False, "confirmado": False}
+    perda = [s not in ("+", "") for s in st]
+    etapas = 0
+    for k in range(len(st)):
+        if any(perda[:k + 1]) or "+" not in st[k:]:
+            break
+        etapas += 1
+    vivo = etapas > 0 and not any(perda)
+    aborto = vivo and _norm(r[16]) == "SIM"
+    return {"etapas": etapas, "aborto": aborto,
+            "confirmado": vivo and not aborto and r[22] is None}
+
+
 def funil(wb, safra):
-    """S16 — aba ESTAÇÃO. Colunas (1-based): 11 LAVADO, 13 15D, 14 30D, 15 45D,
-    16 60D, 17 ABORTO, 36 ESTAÇÃO. Confirmado = lavado+ e 15d+ e (30/45/60 '+' ou
-    vazio), menos aborto=SIM."""
+    """S16 — funil da aba ESTAÇÃO, com as regras de `_linha_estacao` e `_prenhez`.
+    O funil é encadeado: só chega em 30d quem passou em 15d, e assim por diante."""
     ws = wb["ESTAÇÃO"]
-    tent = lav = p15 = p30 = p45 = p60 = ab = 0
+    tent = lav = ab = conf = 0
+    etapa = [0] * len(COLS_PRENHEZ)
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
-        if i < 3 or r[0] is None or _s(r[35]) != safra:
-            continue
-        # o haras deixa a próxima linha numerada e com a safra, mas sem doadora,
-        # garanhão nem lavado: não é tentativa. Na 26/27 ela entrava no funil e
-        # derrubava a taxa de recuperação de um mês com todos os lavados positivos
-        if not (_s(r[2]) or _s(r[3]) or _s(r[10])):
+        if i < 3 or not _linha_estacao(r, safra):
             continue
         tent += 1
         if _norm(r[10]) != "+":
             continue
         lav += 1
-        # o funil é ENCADEADO: só chega em 30d quem passou em 15d, e assim por
-        # diante. Contar cada coluna solta dava 85 confirmados contra 56 do
-        # relatório oficial, porque a linha que nunca chegou aos 60 dias tem a
-        # célula vazia e entrava como se tivesse passado.
-        if _norm(r[12]) != "+":
-            continue
-        p15 += 1
-        if _norm(r[13]) not in ("+", ""):
-            continue
-        p30 += 1
-        if _norm(r[14]) not in ("+", ""):
-            continue
-        p45 += 1
-        if _norm(r[15]) not in ("+", ""):
-            continue
-        p60 += 1
-        if _norm(r[16]) == "SIM":     # aborto só conta depois de confirmado >60d
-            ab += 1
-    conf = p60 - ab
+        p = _prenhez(r)
+        for k in range(p["etapas"]):
+            etapa[k] += 1
+        ab += p["aborto"]
+        conf += p["confirmado"]
+    p15, p30, p45, p60 = etapa
     ref = lambda v: f"{v/lav*100:.0f}% dos lavados" if lav else "—"
     curta = f"{safra[2:4]}/{safra[-2:]}"
     taxa = f"{lav/tent*100:.0f}%" if tent else "—"
@@ -1761,15 +1785,23 @@ def garanhoes(wb, safra):
         aba[_chave_garanhao(n)] = {"nome": nome_animal(nome, curto=False), "t": (_s(r[3]) or "")[:1].upper(),
                                    "lav": int(_to_num(r[4]) or 0), "pos": int(_to_num(r[5]) or 0),
                                    "conf": int(_to_num(r[10]) or 0)}
-    # A aba é mantida à mão e esquece garanhão: em 25/26 faltavam Latino, Esteio
-    # e Invencível, que o relatório trouxe da aba ESTAÇÃO. Mesma regra aqui —
-    # quem teve tentativa na safra e não está na aba entra com a conta da ESTAÇÃO.
-    # Só até a 25/26: da 26/27 em diante a lista é a da aba, e a ESTAÇÃO só
-    # completa a conta de quem está nela. O Damasco teve uma tentativa na 26/27,
-    # não está no planejamento e não entra (Arthur, 13/10/2026).
-    for k, d in _garanhoes_da_estacao(wb, safra).items():
-        if k not in aba and safra >= GARANHOES_TODOS_DESDE:
-            continue
+    est = _garanhoes_da_estacao(wb, safra)
+    if safra >= GARANHOES_TODOS_DESDE:
+        # Da 26/27 em diante a aba dá a LISTA e o tipo de sêmen, e a conta vem da
+        # ESTAÇÃO. A aba é mantida à mão: em nov/2026 contava a cruza planejada como
+        # lavado negativo (Xodó com 4 lavados e 2 positivos, Favorito e Figo com
+        # 1 e 0) e deixava zerado o Legítimo, que tem um lavado positivo. O Damasco
+        # teve uma tentativa, não está no planejamento e não entra (Arthur, 13/10/2026).
+        for k, x in aba.items():
+            d = est.get(_par_garanhao(k, est)) or {}
+            x.update(lav=d.get("lav", 0), pos=d.get("pos", 0), conf=d.get("conf", 0))
+            if d:
+                # o nome vem da ESTAÇÃO: a aba escreve só 'LEGITIMO' e 'MAJESTOSO'
+                x["nome"] = nome_animal(d["nome"], curto=False)
+    # Até a 25/26, a aba esquecia garanhão: faltavam Latino, Esteio e Invencível,
+    # que o relatório trouxe da aba ESTAÇÃO. Quem teve tentativa na safra e não
+    # está na aba entra com a conta da ESTAÇÃO.
+    for k, d in est.items() if safra < GARANHOES_TODOS_DESDE else ():
         if k not in aba or not aba[k]["lav"]:
             if not d["lav"]:
                 continue
@@ -1829,13 +1861,24 @@ def _chave_garanhao(n: str) -> str:
     return " ".join(p for p in re.findall(r"[A-Z0-9]+", s) if p not in PARTICULAS)
 
 
+def _par_garanhao(k: str, est: dict):
+    """Chave da ESTAÇÃO para o garanhão `k` da aba GARANHOES. A aba encurta o
+    nome ('LEGITIMO', 'MAJESTOSO') e a ESTAÇÃO escreve inteiro ('LEGITIMO ELFAR'):
+    vale a chave igual ou, sem ela, a única em que um nome é começo do outro."""
+    if k in est:
+        return k
+    a = k.split()
+    cands = [e for e in est if (b := e.split())[:len(a)] == a or a[:len(b)] == b]
+    return cands[0] if len(cands) == 1 else None
+
+
 def _garanhoes_da_estacao(wb, safra: str) -> dict:
-    """Tentativas, lavados + e confirmados por garanhão, pela aba ESTAÇÃO — com o
-    mesmo funil encadeado do slide de prenhezes."""
+    """Tentativas, lavados + e confirmados por garanhão, pela aba ESTAÇÃO — com as
+    mesmas regras do funil (`_linha_estacao`, `_prenhez`)."""
     out = {}
     ws = wb["ESTAÇÃO"]
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
-        if i < 3 or r[0] is None or len(r) < 36 or _s(r[35]) != safra or not r[3]:
+        if i < 3 or not _linha_estacao(r, safra) or not r[3]:
             continue
         k = _chave_garanhao(_norm(r[3]))
         d = out.setdefault(k, {"nome": _s(r[3]), "lav": 0, "pos": 0, "conf": 0})
@@ -1843,11 +1886,7 @@ def _garanhoes_da_estacao(wb, safra: str) -> dict:
         if _norm(r[10]) != "+":
             continue
         d["pos"] += 1
-        if _norm(r[12]) != "+" or any(_norm(r[j]) not in ("+", "") for j in (13, 14, 15)):
-            continue
-        if _norm(r[16]) == "SIM":
-            continue
-        d["conf"] += 1
+        d["conf"] += _prenhez(r)["confirmado"]
     return out
 
 
