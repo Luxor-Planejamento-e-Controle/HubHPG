@@ -1742,9 +1742,11 @@ def _prenhez(r, corte=None) -> dict:
     45 e 60 (a 26/27 saía 11/11/11/11 em vez de 11/9/8/7). Etapa pulada com '+'
     depois conta. Nas safras encerradas dá o mesmo número de antes, porque lá todo
     diagnóstico foi lançado.
-    `confirmado`: positivo e sem perda depois, ou seja, nenhum resultado diferente
-    de '+', sem aborto e sem óbito da receptora. É o TOTAL EMBRIÕES do PLANEJAMENTO
-    (na 25/26 bateu doadora a doadora, 56 a 56) e o número da aba COMPARATIVO."""
+    `confirmado`: passou do diagnóstico de 60 dias sem nenhum resultado diferente
+    de '+', sem aborto e sem óbito da receptora. Embrião de 15, 30 ou 45 dias
+    ainda não é confirmado (Arthur, 03/11/2026). Nas safras encerradas todos
+    chegaram aos 60 dias, e o número é o TOTAL EMBRIÕES do PLANEJAMENTO (na 25/26
+    bateu doadora a doadora, 56 a 56) e o da aba COMPARATIVO."""
     nada = {"lavado": False, "etapas": 0, "aborto": False, "confirmado": False}
     base = _data(r[8]) or _data(r[7])
     dia = lambda n: base + timedelta(days=n) if base else None
@@ -1758,11 +1760,13 @@ def _prenhez(r, corte=None) -> dict:
         if any(perda[:k + 1]) or "+" not in st[k:]:
             break
         etapas += 1
-    vivo = etapas > 0 and not any(perda)
-    aborto = vivo and _norm(r[16]) == "SIM" and _ate(r[21], corte)
+    # aborto conta depois de confirmado aos 60 dias (perda antes disso é o '-'
+    # numa das etapas); é o "(−) Abortos  >60 dias confirmados" do funil
+    sessenta = etapas == len(st) and not any(perda)
+    aborto = sessenta and _norm(r[16]) == "SIM" and _ate(r[21], corte)
     obito = r[22] is not None and _ate(r[22], corte)
     return {"lavado": True, "etapas": etapas, "aborto": aborto,
-            "confirmado": vivo and not aborto and not obito}
+            "confirmado": sessenta and not aborto and not obito}
 
 
 def funil(wb, safra, corte=None):
