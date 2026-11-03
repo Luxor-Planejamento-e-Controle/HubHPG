@@ -1269,7 +1269,7 @@ ESTACAO_NO_ESTOQUE_DESDE = (2026, 8)
 def estacao_no_estoque(ano: int, m: int, plantel_mes):
     """(garanhões, doadoras) da estação da safra do deck; None se não abrir."""
     try:
-        wb = _load(_master_da_safra(safra_do_deck(ano, m)))
+        wb = _load(_registra("estação de monta", _master_da_safra(safra_do_deck(ano, m), date(ano, m, 1))))
     except Exception as e:
         aviso(f"estoque: estação de monta não abriu ({e!r}) — cartões da estação fora do slide")
         return None
@@ -1637,8 +1637,16 @@ def safra_do_deck(ano: int, m: int) -> str:
     return f"{ano}/{ano + 1}" if m >= 8 else f"{ano - 1}/{ano}"
 
 
-def _master_da_safra(safra: str):
-    """Master 'ESTACAO DE MONTA.xlsx' da pasta daquela safra.
+def _master_da_safra(safra: str, mes: date | None = None):
+    """Planilha da estação da pasta daquela safra, do MÊS do deck.
+
+    Cada mês tem a sua cópia na pasta da safra, com o mês no prefixo do nome:
+    '260901_PAO GRANDE_ESTACAO DE MONTA_2026_2027.xlsx' é a de setembro e
+    '261001_ EDITAR ESTACAO DE MONTA.xlsx' a de outubro. O deck do mês lê a dele
+    (Arthur, 03/11/2026); sem cópia do mês, a do mês mais recente antes dele, com
+    aviso. Até então lia a mais nova da pasta e a busca só casava nome terminado em
+    'ESTACAO DE MONTA.xlsx': a de setembro nem era vista, e setembro saía com o
+    que o haras lançou em outubro. Entre duas do mesmo mês, a que não é 'EDITAR'.
 
     `_latest_estacao_master()` devolve a pasta mais nova por mtime — é o certo pro
     semanal, que quer HOJE, e o errado pro deck de um mês passado, que pediria a
@@ -1647,10 +1655,25 @@ def _master_da_safra(safra: str):
     a, b = safra.split("/")
     for nome in (f"Estação {a}-{b}", f"Estacao {a}-{b}"):
         d = ESTACAO_MONTA_BASE / nome
-        if d.is_dir():
-            cands = [f for f in d.glob("*ESTACAO DE MONTA.xlsx") if not f.name.startswith("~$")]
-            if cands:
-                return max(cands, key=lambda f: f.stat().st_mtime)
+        if not d.is_dir():
+            continue
+        cands = [f for f in d.glob("*ESTACAO DE MONTA*.xlsx")
+                 if not f.name.startswith("~$") and "PBI" not in f.name.upper()]
+        if not cands:
+            continue
+        if mes:
+            alvo = mes.strftime("%y%m")
+            ate = [(p.group(1)[:4], f) for f in cands
+                   if (p := RE_PREFIXO_DATA.match(f.name)) and p.group(1)[:4] <= alvo]
+            if ate:
+                ult = max(p for p, _ in ate)
+                if ult != alvo:
+                    aviso(f"estação {safra}: sem planilha de {MESES[mes.month - 1].lower()}/{mes.year} "
+                          f"na pasta — usando a de prefixo {ult}")
+                do_mes = [f for p, f in ate if p == ult]
+                fixas = [f for f in do_mes if "EDITAR" not in f.name.upper()]
+                return max(fixas or do_mes, key=lambda f: f.stat().st_mtime)
+        return max(cands, key=lambda f: f.stat().st_mtime)
     return _latest_estacao_master()
 
 
@@ -1666,8 +1689,8 @@ def slides_estacao(safra: str, corte: date | None = None):
     confirmado que não nasceu; óbito = nasceu e morreu.
     """
     try:
-        src = _master_da_safra(safra)
-        wb = _load(src)
+        src = _master_da_safra(safra, corte)
+        wb = _load(_registra("estação de monta", src))
     except Exception as e:
         p = pend(16, "ESTAÇÃO DE MONTA — EMBRIÕES E PRENHEZES", "", "ESTACAO DE MONTA.xlsx",
                  f"não consegui abrir: {e}")
@@ -1987,11 +2010,11 @@ def _stats_safra_antiga(safra: str):
     return d
 
 
-def _meta_safra(safra: str):
+def _meta_safra(safra: str, mes: date | None = None):
     """Meta total de embriões do PLANEJAMENTO do master da safra (a célula B1 diz
     de que safra é a aba). None quando não há."""
     try:
-        wb = _load(_master_da_safra(safra))
+        wb = _load(_master_da_safra(safra, mes))
     except Exception:
         return None
     try:
@@ -2052,7 +2075,7 @@ def comparativo(wb, safra: str, corte=None):
         d = novas.get(sf) or _stats_safra_antiga(sf)
         if not d:
             continue
-        meta = _meta_safra(sf)
+        meta = _meta_safra(sf, corte if sf == safra else None)
         pct_meta = (d["conf"] / meta) if meta else META_PCT_OFICIAL.get(sf)
         blocos.append({"rotulo": f"{curta}  ({d['conf']} emb / {len(d['doad'])} doad)",
                        "curta": curta, "atual": sf == safra, "total": d["conf"],
