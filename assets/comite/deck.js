@@ -1257,7 +1257,14 @@ function montaBarraJob(){
        bloqueio: new Date() < libera
          ? `${nome(...prox)} só pode ser gerado a partir de ${libera.toLocaleDateString('pt-BR')}` : ''},
     ],
-    aoTerminar: () => location.reload(),
+    /* Recarrega a PÁGINA DO HUB, não só este iframe: o spec mora em
+       window.parent.HUB.comiteSpec, baixado uma vez no login. Recarregar só o
+       iframe relia o spec velho da memória da mãe — em 03/11/2026 o pedido #56
+       publicou setembro corrigido e a tela seguiu com o de 21/10, com o rodapé
+       já dizendo "atualizado às 18:08". */
+    aoTerminar: () => {
+      try { window.parent.location.reload(); } catch (e) { location.reload(); }
+    },
   });
 }
 
