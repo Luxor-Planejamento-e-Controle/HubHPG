@@ -1658,10 +1658,10 @@ def _estacao_wb():
     return _load(_latest_estacao_master())
 
 
-def slides_estacao(safra: str):
+def slides_estacao(safra: str, corte: date | None = None):
     """S16 funil, S17 garanhões, S18 comparativo, S19/S20 doadoras A e B.
 
-    A estação é da SAFRA — o mesmo conteúdo vale para qualquer mês DA MESMA safra.
+    A estação é da SAFRA do mês do deck, na posição do último dia do mês (`corte`).
     Definições (do guia): absorção = perda antes dos 60d; aborto = embrião
     confirmado que não nasceu; óbito = nasceu e morreu.
     """
@@ -1675,29 +1675,59 @@ def slides_estacao(safra: str):
                 dict(p, n=18, titulo="ESTAÇÃO DE MONTA — COMPARATIVO COM ANOS ANTERIORES"),
                 dict(p, n=19, titulo="ESTAÇÃO DE MONTA — DOADORAS TIME A"),
                 dict(p, n=20, titulo="ESTAÇÃO DE MONTA — DOADORAS TIME B")]
-    out = [funil(wb, safra), garanhoes(wb, safra), comparativo(wb, safra)] + doadoras(wb, safra)
+    out = ([funil(wb, safra, corte), garanhoes(wb, safra, corte), comparativo(wb, safra, corte)]
+           + doadoras(wb, safra, corte))
     wb.close()
     return out
 
 
-# Aba ESTAÇÃO (0-based): 7 IA, 9 TE, 10 LAVADO, 12-15 diagnóstico de 15/30/45/60
-# dias, 16 ABORTO, 22 óbito da receptora, 35 safra.
+# Aba ESTAÇÃO (0-based): 7 IA, 8 ovulação, 9 TE, 10 LAVADO, 12-15 diagnóstico de
+# 15/30/45/60 dias, 16 ABORTO, 21 data do aborto, 22 óbito da receptora, 35 safra.
 COLS_PRENHEZ = (12, 13, 14, 15)
+DIAS_PRENHEZ = (15, 30, 45, 60)
+# Coleta (TE) sem data lançada: dia 7 depois da ovulação, como nas linhas que têm
+# as duas datas.
+DIAS_COLETA = 7
+
+# O deck do mês mostra a estação como estava no ÚLTIMO DIA DO MÊS (`corte`), não
+# como a planilha está no dia do build. A planilha não guarda a data de cada
+# diagnóstico, só o resultado, mas ele é feito com N dias de gestação, contados da
+# ovulação, como a PREVISÃO PARIÇÃO da própria planilha. Então um resultado só
+# vale no corte se a data dele já tinha passado. Sem isso o deck de setembro,
+# montado em novembro, trazia IA de outubro e diagnósticos de 45 e 60 dias feitos
+# em outubro (Arthur, 03/11/2026). `corte=None` é a planilha inteira, sem corte.
 
 
-def _linha_estacao(r, safra: str) -> bool:
-    """Linha da safra que é tentativa de verdade: tem IA, TE ou resultado de
-    lavado. O haras deixa a próxima linha numerada com a safra e, na 26/27, lança
-    também a cruza PLANEJADA (doadora e garanhão, sem data nem lavado). Em
-    nov/2026 eram quatro (Nasdaq, Natureza, Loucura e Nina), que entravam como
-    tentativa: 15 em vez de 11, e a recuperação caía de 100% para 73%."""
-    return (r[0] is not None and len(r) >= 36 and _s(r[35]) == safra
-            and bool(r[7] or r[9] or _norm(r[10])))
+def _data(v):
+    if isinstance(v, datetime):
+        return v.date()
+    return v if isinstance(v, date) else None
 
 
-def _prenhez(r) -> dict:
-    """Situação do embrião de uma linha da ESTAÇÃO.
+def _ate(v, corte) -> bool:
+    """A data `v` já tinha chegado no corte? Sem corte, ou sem data, sim."""
+    d = _data(v)
+    return corte is None or d is None or d <= corte
 
+
+def _linha_estacao(r, safra: str, corte=None) -> bool:
+    """Linha da safra que é tentativa de verdade, com a IA feita até o corte.
+
+    Tentativa é a linha que tem IA, TE ou resultado de lavado. O haras deixa a
+    próxima linha numerada com a safra e, na 26/27, lança também a cruza
+    PLANEJADA (doadora e garanhão, sem data nem lavado). Em nov/2026 eram quatro
+    (Nasdaq, Natureza, Loucura e Nina), que entravam como tentativa: 15 em vez de
+    11, e a recuperação caía de 100% para 73%."""
+    if not (r[0] is not None and len(r) >= 36 and _s(r[35]) == safra
+            and (r[7] or r[9] or _norm(r[10]))):
+        return False
+    return _ate(_data(r[7]) or _data(r[8]) or _data(r[9]), corte)
+
+
+def _prenhez(r, corte=None) -> dict:
+    """Situação do embrião de uma linha da ESTAÇÃO no corte.
+
+    `lavado`: lavado positivo, com a coleta já feita no corte.
     `etapas`: quantos diagnósticos (15/30/45/60 dias) ele já passou. Célula vazia
     é diagnóstico que ainda não aconteceu, não aprovação. Até nov/2026 o vazio
     contava como '+', e na safra em curso todo embrião de 15 dias aparecia em 30,
@@ -1707,9 +1737,13 @@ def _prenhez(r) -> dict:
     `confirmado`: positivo e sem perda depois, ou seja, nenhum resultado diferente
     de '+', sem aborto e sem óbito da receptora. É o TOTAL EMBRIÕES do PLANEJAMENTO
     (na 25/26 bateu doadora a doadora, 56 a 56) e o número da aba COMPARATIVO."""
-    st = [_norm(r[j]) for j in COLS_PRENHEZ]
-    if _norm(r[10]) != "+":
-        return {"etapas": 0, "aborto": False, "confirmado": False}
+    nada = {"lavado": False, "etapas": 0, "aborto": False, "confirmado": False}
+    base = _data(r[8]) or _data(r[7])
+    dia = lambda n: base + timedelta(days=n) if base else None
+    if _norm(r[10]) != "+" or not _ate(_data(r[9]) or dia(DIAS_COLETA), corte):
+        return nada
+    st = [_norm(r[j]) if _ate(dia(n), corte) else ""
+          for j, n in zip(COLS_PRENHEZ, DIAS_PRENHEZ)]
     perda = [s not in ("+", "") for s in st]
     etapas = 0
     for k in range(len(st)):
@@ -1717,25 +1751,26 @@ def _prenhez(r) -> dict:
             break
         etapas += 1
     vivo = etapas > 0 and not any(perda)
-    aborto = vivo and _norm(r[16]) == "SIM"
-    return {"etapas": etapas, "aborto": aborto,
-            "confirmado": vivo and not aborto and r[22] is None}
+    aborto = vivo and _norm(r[16]) == "SIM" and _ate(r[21], corte)
+    obito = r[22] is not None and _ate(r[22], corte)
+    return {"lavado": True, "etapas": etapas, "aborto": aborto,
+            "confirmado": vivo and not aborto and not obito}
 
 
-def funil(wb, safra):
+def funil(wb, safra, corte=None):
     """S16 — funil da aba ESTAÇÃO, com as regras de `_linha_estacao` e `_prenhez`.
     O funil é encadeado: só chega em 30d quem passou em 15d, e assim por diante."""
     ws = wb["ESTAÇÃO"]
     tent = lav = ab = conf = 0
     etapa = [0] * len(COLS_PRENHEZ)
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
-        if i < 3 or not _linha_estacao(r, safra):
+        if i < 3 or not _linha_estacao(r, safra, corte):
             continue
         tent += 1
-        if _norm(r[10]) != "+":
+        p = _prenhez(r, corte)
+        if not p["lavado"]:
             continue
         lav += 1
-        p = _prenhez(r)
         for k in range(p["etapas"]):
             etapa[k] += 1
         ab += p["aborto"]
@@ -1762,7 +1797,7 @@ def funil(wb, safra):
 GARANHOES_TODOS_DESDE = "2026/2027"
 
 
-def garanhoes(wb, safra):
+def garanhoes(wb, safra, corte=None):
     """S17 — aba GARANHOES: 3 garanhão, 4 tipo de sêmen, 5 total lavados,
     6 lavados positivos, 7 %, 8 embriões confirmados, 9 prenhez, 10 aborto,
     11 total confirmados."""
@@ -1783,7 +1818,7 @@ def garanhoes(wb, safra):
         aba[_chave_garanhao(n)] = {"nome": nome_animal(nome, curto=False), "t": (_s(r[3]) or "")[:1].upper(),
                                    "lav": int(_to_num(r[4]) or 0), "pos": int(_to_num(r[5]) or 0),
                                    "conf": int(_to_num(r[10]) or 0)}
-    est = _garanhoes_da_estacao(wb, safra)
+    est = _garanhoes_da_estacao(wb, safra, corte)
     if safra >= GARANHOES_TODOS_DESDE:
         # Da 26/27 em diante a aba dá a LISTA e o tipo de sêmen, e a conta vem da
         # ESTAÇÃO. A aba é mantida à mão: em nov/2026 contava a cruza planejada como
@@ -1829,7 +1864,7 @@ def garanhoes(wb, safra):
     # sai com traço, não com um percentual que não existe
     kpis = [{"v": f"{por_tipo[k][0]/por_tipo[k][1]*100:.0f}%" if por_tipo.get(k, (0, 0))[1] else "—",
              "l": nome_tipo[k], "cor": cores[k], "s": REF_SEMEN[k]} for k in ("R", "C", "F")]
-    fun = funil(wb, safra)
+    fun = funil(wb, safra, corte)
     tent_s, lav_s = fun["rows"][0][1], fun["rows"][1][1]
     return {"t": "garanhoes", "n": 17, "titulo": f"ESTAÇÃO DE MONTA {safra} — GARANHÕES",
             "sub": (f"{tent_s} tentativas  ·  {lav_s} lavados positivos "
@@ -1870,21 +1905,20 @@ def _par_garanhao(k: str, est: dict):
     return cands[0] if len(cands) == 1 else None
 
 
-def _garanhoes_da_estacao(wb, safra: str) -> dict:
+def _garanhoes_da_estacao(wb, safra: str, corte=None) -> dict:
     """Tentativas, lavados + e confirmados por garanhão, pela aba ESTAÇÃO — com as
     mesmas regras do funil (`_linha_estacao`, `_prenhez`)."""
     out = {}
     ws = wb["ESTAÇÃO"]
     for i, r in enumerate(ws.iter_rows(values_only=True), 1):
-        if i < 3 or not _linha_estacao(r, safra) or not r[3]:
+        if i < 3 or not _linha_estacao(r, safra, corte) or not r[3]:
             continue
         k = _chave_garanhao(_norm(r[3]))
         d = out.setdefault(k, {"nome": _s(r[3]), "lav": 0, "pos": 0, "conf": 0})
         d["lav"] += 1
-        if _norm(r[10]) != "+":
-            continue
-        d["pos"] += 1
-        d["conf"] += _prenhez(r)["confirmado"]
+        p = _prenhez(r, corte)
+        d["pos"] += p["lavado"]
+        d["conf"] += p["confirmado"]
     return out
 
 
@@ -1897,7 +1931,7 @@ MESES_ESTACAO = [8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7]
 META_PCT_OFICIAL = {"2022/2023": 0.71, "2023/2024": 0.75, "2024/2025": 0.89}
 
 
-def _stats_safra_estacao(ws, safra_alvo=None) -> dict:
+def _stats_safra_estacao(ws, safra_alvo=None, corte=None) -> dict:
     """Por safra, da aba ESTAÇÃO (formato novo): confirmados por MÊS DA IA —
     que é como o relatório data o embrião (24/25 bate mês a mês) —, total e
     doadoras distintas com embrião confirmado."""
@@ -1911,7 +1945,7 @@ def _stats_safra_estacao(ws, safra_alvo=None) -> dict:
         d = por.setdefault(sf, {"meses": {}, "conf": 0, "doad": set()})
         # receptora que morreu depois (col 22) leva o embrião junto — a aba
         # COMPARATIVO da planilha desconta, e só assim a 22/23 fecha em 89
-        if not _prenhez(r)["confirmado"]:
+        if not _prenhez(r, corte)["confirmado"]:
             continue
         d["conf"] += 1
         # a mesma doadora vem grafada de dois jeitos na safra ('JUSTIÇA' e
@@ -2004,7 +2038,7 @@ def _comparativo_fechado() -> dict:
     return json.loads(COMPARATIVO_FECHADO.read_text(encoding="utf-8")).get("safras") or {}
 
 
-def comparativo(wb, safra: str):
+def comparativo(wb, safra: str, corte=None):
     """S18 — as quatro últimas safras (cinco, da 26/27 em diante). Safra encerrada
     vem de bases/comparativo_fechado.json; a do deck é calculada: confirmados por
     mês da IA, com a meta atingida embaixo. A aba COMPARATIVO da planilha está
@@ -2013,7 +2047,7 @@ def comparativo(wb, safra: str):
     # da safra 26/27 em diante são cinco (pedido do Arthur, 30/09: a 22/23 também)
     n = 5 if safra >= COMPARATIVO_5_DESDE else 4
     safras = [f"{a}/{a + 1}" for a in range(ini - n + 1, ini + 1)]
-    novas = _stats_safra_estacao(wb["ESTAÇÃO"])
+    novas = _stats_safra_estacao(wb["ESTAÇÃO"], corte=corte)
     fechadas = _comparativo_fechado()
     blocos = []
     for sf in safras:
@@ -2040,7 +2074,7 @@ def comparativo(wb, safra: str):
             "meses": [ABR[mm - 1] for mm in MESES_ESTACAO], "safras": blocos}
 
 
-def doadoras(wb, safra):
+def doadoras(wb, safra, corte=None):
     """S19/S20 — meta × realizado por doadora. Lista, time e meta vêm do
     PLANEJAMENTO (NOME, TIME, META TOTAL); o realizado é o embrião confirmado da
     aba ESTAÇÃO (`_prenhez`). O TOTAL EMBRIÕES do PLANEJAMENTO é o mesmo número
@@ -2078,12 +2112,12 @@ def doadoras(wb, safra):
     chave = lambda n: _chave_garanhao(_norm(n))
     da_estacao = {}
     for i, r in enumerate(wb["ESTAÇÃO"].iter_rows(values_only=True), 1):
-        if i < 3 or not _linha_estacao(r, safra) or not r[2]:
+        if i < 3 or not _linha_estacao(r, safra, corte) or not r[2]:
             continue
         x = da_estacao.setdefault(chave(r[2]), [0, 0, 0, 0])
         x[0] += 1
-        if _norm(r[10]) == "+":
-            p = _prenhez(r)
+        p = _prenhez(r, corte)
+        if p["lavado"]:
             x[1] += 1
             x[2] += p["etapas"] > 0
             x[3] += p["confirmado"]
@@ -3618,9 +3652,11 @@ def monta_deck(m, ano, ctx):
     # um registro por mês montado; o do último (o deck padrão) é o que fica
     _registra_conteudo("conteúdo do hub (comite_conteudo)", f"{ano}-{m:02d}")
     safra = safra_do_deck(ano, m)
-    if safra not in ctx["estacao_por_safra"]:
-        ctx["estacao_por_safra"][safra] = (slides_estacao(safra), slide_coberturas(safra))
-    est_slides, cob_slide = ctx["estacao_por_safra"][safra]
+    # a estação sai na posição do último dia do mês do deck (ver `_prenhez`)
+    corte = _mes_seguinte(date(ano, m, 1)) - timedelta(days=1)
+    if (safra, corte) not in ctx["estacao_por_safra"]:
+        ctx["estacao_por_safra"][(safra, corte)] = (slides_estacao(safra, corte), slide_coberturas(safra))
+    est_slides, cob_slide = ctx["estacao_por_safra"][(safra, corte)]
     MES, yy = MESES[m - 1].upper(), str(ano)[2:]
     s = [
         {"t": "capa", "titulo": "RELATÓRIO DE DESEMPENHO ESTRATÉGICO",
@@ -3787,7 +3823,8 @@ def build(so_mes=None, base=None):
         aviso("nenhum mês com realizado no DRE — deck sai só com as bases não-financeiras")
 
     # a estação é da safra do MÊS DO DECK, e um build pode montar meses de safras
-    # diferentes (julho é 25/26, agosto é 26/27) — resolve por safra, uma vez cada
+    # diferentes (julho é 25/26, agosto é 26/27), cortada no fim do mês — resolve
+    # por (safra, corte), uma vez cada
     ctx["estacao_por_safra"] = {}
     ctx["conteudo"] = le_conteudo()
     ctx["sgpg"] = le_sgpg()
