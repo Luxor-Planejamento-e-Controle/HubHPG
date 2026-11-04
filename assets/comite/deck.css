@@ -211,6 +211,17 @@ body.play .slide{box-shadow:none;border:0}
 .ed-capa{flex:1;background:rgba(255,255,255,.14);color:#fff;border-radius:5px;cursor:pointer;
   font-size:11px;line-height:1;padding:5px 0;text-align:center}
 .ed-capa:hover{background:var(--amber);color:#1a1300}
+/* mover a foto para outro grupo: o tema é do grupo, então é assim que cada
+   slide ganha o seu */
+.ed-mover{position:absolute;inset:5px 5px auto 5px;width:calc(100% - 10px);height:24px;
+  font-size:11px;padding:0 4px;border-radius:6px;border:0;background:rgba(0,0,0,.66);color:#fff;
+  opacity:0;transition:opacity .15s;cursor:pointer}
+.ed-foto:hover .ed-mover,.ed-foto:focus-within .ed-mover{opacity:1}
+.ed-mover option{color:#111;background:#fff}
+/* onde o deck quebra o grupo em slides */
+.ed-slide{grid-column:1/-1;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--ink-3);padding-top:4px;border-top:1px dashed var(--line)}
+.ed-slide:first-child{border-top:0;padding-top:0}
 .ed-vazio{grid-column:1/-1;color:var(--ink-3);font-size:12.5px;padding:10px 2px;white-space:nowrap}
 .ed-rodape{display:flex;align-items:center;justify-content:flex-end;gap:10px;
   padding:14px 20px;border-top:1px solid var(--line)}

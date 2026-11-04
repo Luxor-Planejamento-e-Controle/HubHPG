@@ -130,6 +130,8 @@ const ehExposicao = s => s.t === 'resultados' || ehExposicaoProg(s)
    `edita` (posto pelo build) dizendo que editor ele quer. */
 const editorDe = s => {
   if (!s) return null;
+  // foto de outro mês do trimestre: o Editar gravaria no mês aberto
+  if (s.mesFotos) return null;
   // comentário que veio do Trello: a fonte é o card da controladoria, não o hub
   if (s.origem === 'trello') return null;
   if (ehExposicao(s)) return null;
@@ -198,9 +200,17 @@ async function urlAssinada(path, seg){
     return (error || !data) ? null : data.signedUrl;
   } catch (e) { return null; }
 }
-async function fotoDataUri(path){
-  const url = await urlAssinada(path);
-  return url ? await dataURI(url) : null;
+/* cache por path: o editor redesenha a grade inteira a cada foto movida, e sem
+   ele baixava tudo de novo. Falha não fica guardada; capa trocada sai daqui. */
+const fotoCache = new Map();
+function fotoDataUri(path){
+  if (!fotoCache.has(path)) {
+    fotoCache.set(path, urlAssinada(path).then(url => url ? dataURI(url) : null).then(uri => {
+      if (!uri) fotoCache.delete(path);
+      return uri;
+    }));
+  }
+  return fotoCache.get(path);
 }
 
 /* Primeiro frame do vídeo, como Blob JPEG — o poster que vai pro slide, pro
@@ -465,6 +475,77 @@ function slidesManejo(hist, mNum, ano){
   return out;
 }
 
+/* Slides do tamanho mais parecido possível (7 = 4 + 3), como o _em_slides do
+   build: de 6 em 6 a sobra ficava sozinha no último. O editor usa a mesma
+   divisão para mostrar o que cai em cada slide. */
+function emSlides(itens){
+  const n = Math.ceil(itens.length / FOTOS_POR_SLIDE), out = [];
+  const base = Math.floor(itens.length / (n || 1)), resto = itens.length % (n || 1);
+  for (let k = 0, i = 0; k < n; k++) {
+    const t = base + (k < resto ? 1 : 0);
+    out.push(itens.slice(i, i + t));
+    i += t;
+  }
+  return out;
+}
+
+/* Slides de foto de uma linha do comite_conteudo, ou null se ela não tem foto.
+   Um grupo = um tema; grupo com mais de FOTOS_POR_SLIDE vira (1/2), (2/2). */
+async function slidesFotosDe(c){
+  if (!c || !c.fotos || !c.fotos.length) return null;
+  const grupos = typeof c.fotos[0] === 'string' ? [{tema:'', arquivos:c.fotos}] : c.fotos;
+  const s = [];
+  for (const g of grupos) {
+    /* Foto vira data URI (é o que o PPTX cola). Vídeo vira {img: poster,
+       video: path}: o arquivo em si nunca é embutido — o slide mostra a capa
+       e o clique busca uma URL assinada na hora. Vídeo sem poster entra
+       assim mesmo, com a marca de play e sem capa. */
+    const itens = (await Promise.all((g.arquivos || []).map(async a => {
+      const img = await fotoDataUri(ehVideo(a) ? posterDe(a) : a);
+      if (!img && !ehVideo(a)) return null;
+      return Object.assign({img, video: ehVideo(a) ? a : null}, await medeImagem(img));
+    }))).filter(Boolean);
+    const blocos = emSlides(itens), n = blocos.length;
+    blocos.forEach((bloco, k) => {
+      let sub = g.tema ? temaFoto(g.tema) : '';
+      if (n > 1) sub += sub ? ` (${k+1}/${n})` : `${k+1}/${n}`;
+      s.push({t:'fotos', n:39, titulo:'MANEJO — FOTOS E REGISTROS', sub, fotos:bloco});
+    });
+  }
+  return s.length ? s : null;
+}
+
+/* Trimestral: as fotos são as do trimestre inteiro, não só as do mês (pedido do
+   Arthur, 04/11/2026). Os meses anteriores do trimestre entram antes das fotos do
+   mês, em ordem, com os slides do deck de cada um, e o conteúdo ao vivo deles
+   troca por cima, como no deck do próprio mês. Só o tema no subtítulo, como no
+   trimestral oficial de junho/2026. */
+function mesesAnterioresDoTrimestre(mes){
+  const [a, m] = mes.split('-').map(Number), out = [];
+  for (let k = Math.floor((m - 1) / 3) * 3 + 1; k < m; k++) out.push(`${a}-${String(k).padStart(2, '0')}`);
+  return out;
+}
+const marcaMes = (mm, lista) => lista.map(s => Object.assign({}, s, {mesFotos: mm}));
+function comFotosDoTrimestre(lista, mes){
+  if (modo !== 'trimestral') return lista;
+  const extra = mesesAnterioresDoTrimestre(mes)
+    .flatMap(mm => marcaMes(mm, (SPEC.decks[mm] || []).filter(s => s.t === 'fotos')));
+  if (!extra.length) return lista;
+  const i = lista.findIndex(s => grupoDe(s) === 'fotos');
+  const pos = i >= 0 ? i : lista.length;
+  return [...lista.slice(0, pos), ...extra, ...lista.slice(pos)];
+}
+/* troca as fotos de um mês anterior do trimestre pelas do conteúdo ao vivo dele */
+function trocaFotosDoMes(mm, novos){
+  let pos = slides.findIndex(s => s.mesFotos === mm);
+  slides = slides.filter(s => s.mesFotos !== mm);
+  if (pos < 0) {
+    pos = slides.findIndex(s => (s.mesFotos && s.mesFotos > mm) || grupoDe(s) === 'fotos');
+    if (pos < 0) pos = slides.length;
+  }
+  slides.splice(pos, 0, ...marcaMes(mm, novos));
+}
+
 async function montaSlidesAoVivo(mes){
   const doSgpg = mes >= SGPG_DESDE;
   const [c, sg] = await Promise.all([buscaConteudoAoVivo(mes), doSgpg ? buscaSgpg() : null]);
@@ -526,35 +607,8 @@ async function montaSlidesAoVivo(mes){
     out.manejo = slidesManejo(hist, mNum, ano);
   }
 
-  if (c.fotos && c.fotos.length) {
-    const grupos = typeof c.fotos[0] === 'string' ? [{tema:'', arquivos:c.fotos}] : c.fotos;
-    const s = [];
-    for (const g of grupos) {
-      /* Foto vira data URI (é o que o PPTX cola). Vídeo vira {img: poster,
-         video: path}: o arquivo em si nunca é embutido — o slide mostra a capa
-         e o clique busca uma URL assinada na hora. Vídeo sem poster entra
-         assim mesmo, com a marca de play e sem capa. */
-      const itens = (await Promise.all((g.arquivos || []).map(async a => {
-        const img = await fotoDataUri(ehVideo(a) ? posterDe(a) : a);
-        if (!img && !ehVideo(a)) return null;
-        return Object.assign({img, video: ehVideo(a) ? a : null}, await medeImagem(img));
-      }))).filter(Boolean);
-      if (!itens.length) continue;
-      /* slides do tamanho mais parecido possível (7 = 4 + 3), como o
-         _em_slides do build: de 6 em 6 a sobra ficava sozinha no último */
-      const n = Math.ceil(itens.length / FOTOS_POR_SLIDE);
-      const base = Math.floor(itens.length / n), resto = itens.length % n;
-      for (let k = 0, i = 0; k < n; k++) {
-        const t = base + (k < resto ? 1 : 0);
-        const bloco = itens.slice(i, i + t);
-        i += t;
-        let sub = g.tema ? temaFoto(g.tema) : '';
-        if (n > 1) sub += sub ? ` (${k+1}/${n})` : `${k+1}/${n}`;
-        s.push({t:'fotos', n:39, titulo:'MANEJO — FOTOS E REGISTROS', sub, fotos:bloco});
-      }
-    }
-    if (s.length) out.fotos = s;
-  }
+  const fotos = await slidesFotosDe(c);
+  if (fotos) out.fotos = fotos;
   return out;
 }
 
@@ -584,11 +638,21 @@ function substituiSlidesDoTipo(chave, novos){
 
 async function aplicaConteudoAoVivo(mes){
   const vivo = await montaSlidesAoVivo(mes);
-  if (mes !== mesAtual || !vivo) return;   // usuário já trocou de mês, ou nada pra aplicar
-  // o mês que tem o comentário do Trello fica com ele; o escrito no hub só
-  // cobre mês sem comentário da controladoria
-  if (slides.some(s => s.origem === 'trello')) delete vivo.comentarios;
-  for (const [chave, novos] of Object.entries(vivo)) substituiSlidesDoTipo(chave, novos);
+  if (mes !== mesAtual) return;            // usuário já trocou de mês
+  if (vivo) {
+    // o mês que tem o comentário do Trello fica com ele; o escrito no hub só
+    // cobre mês sem comentário da controladoria
+    if (slides.some(s => s.origem === 'trello')) delete vivo.comentarios;
+    for (const [chave, novos] of Object.entries(vivo)) substituiSlidesDoTipo(chave, novos);
+  }
+  const m0 = modo;
+  if (m0 === 'trimestral') {
+    for (const mm of mesesAnterioresDoTrimestre(mes)) {
+      const novos = await slidesFotosDe(await buscaConteudoAoVivo(mm));
+      if (mes !== mesAtual || modo !== m0) return;
+      if (novos) trocaFotosDoMes(mm, novos);
+    }
+  }
   listaSlides();
   go(Math.min(idx, slides.length - 1));
 }
@@ -753,6 +817,12 @@ function renderManejo(){
    Salvar gravar a lista final. ---- */
 async function renderFotos(){
   const corpo = document.getElementById('edCorpo');
+  /* mover para: o tema é do GRUPO e vale em todos os slides dele; para cada
+     slide ter o seu, as fotos vão para grupos diferentes (haras, 04/11/2026) */
+  const rotuloGrupo = (g, k) => `${k + 1}. ${String(g.tema || '').trim() || 'sem tema'}`;
+  const mover = (gi, ai) => `<select class="ed-mover" data-mover="${gi}:${ai}" title="Mover para outro grupo">
+      ${estado.map((g, k) => `<option value="${k}"${k === gi ? ' selected' : ''}>${esc(rotuloGrupo(g, k))}</option>`).join('')}
+      <option value="novo">+ novo grupo</option></select>`;
   const blocos = await Promise.all(estado.map(async (g, gi) => {
     const thumbs = await Promise.all((g.arquivos || []).map(async (p, ai) => {
       // vídeo mostra o poster que subiu com ele; sem poster, fica só a marca
@@ -761,6 +831,7 @@ async function renderFotos(){
       return `<div class="ed-foto${v ? ' ed-video' : ''}">
         <img src="${uri || ''}" alt="">
         ${v ? '<span class="ed-play" aria-hidden="true"></span>' : ''}
+        ${mover(gi, ai)}
         <div class="ed-foto-acoes">
           <button type="button" data-mv="${gi}:${ai}:-1" ${ai === 0 ? 'disabled' : ''}>↑</button>
           <button type="button" data-mv="${gi}:${ai}:1" ${ai === g.arquivos.length - 1 ? 'disabled' : ''}>↓</button>
@@ -769,13 +840,18 @@ async function renderFotos(){
           <button type="button" data-rmf="${gi}:${ai}">✕</button>
         </div></div>`;
     }));
+    // a grade separada como o deck vai dividir: grupo com 7 vira slide de 4 + 3
+    const partes = emSlides(thumbs);
+    const grade = partes.length > 1
+      ? partes.map((p, k) => `<span class="ed-slide">slide ${k + 1} de ${partes.length}</span>${p.join('')}`).join('')
+      : thumbs.join('');
     return `<div class="ed-grupo">
       <div class="ed-grupo-head">
-        <input data-gi="${gi}" value="${escAttr(g.tema)}" placeholder="Tema (opcional)">
+        <input data-gi="${gi}" value="${escAttr(g.tema)}" placeholder="Tema (vale para todos os slides do grupo)">
         <label class="ed-upload">+ foto/vídeo<input type="file" accept="image/*,video/*" multiple data-up="${gi}" hidden></label>
         <button type="button" class="ed-rm" data-rmg="${gi}">✕ remover grupo</button>
       </div>
-      <div class="ed-fotos-grade">${thumbs.join('') || '<span class="ed-vazio">sem foto neste grupo</span>'}</div>
+      <div class="ed-fotos-grade">${grade || '<span class="ed-vazio">sem foto neste grupo</span>'}</div>
     </div>`;
   }));
   corpo.innerHTML = blocos.join('') + `<button type="button" id="edAddG" class="ed-add">+ grupo (tema)</button>`;
@@ -785,6 +861,13 @@ async function renderFotos(){
   corpo.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => {
     const [gi, ai] = b.dataset.rmf.split(':').map(Number);
     estado[gi].arquivos.splice(ai, 1); renderFotos();
+  });
+  corpo.querySelectorAll('[data-mover]').forEach(sel => sel.onchange = () => {
+    const [gi, ai] = sel.dataset.mover.split(':').map(Number);
+    const [p] = estado[gi].arquivos.splice(ai, 1);
+    if (sel.value === 'novo') estado.push({tema: '', arquivos: [p]});
+    else estado[+sel.value].arquivos.push(p);
+    renderFotos();
   });
   corpo.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => {
     const [gi, ai, dir] = b.dataset.mv.split(':').map(Number);
@@ -899,6 +982,7 @@ async function sobeFoto(file, aviso){
    slide, o PPTX e o build pegam a nova sem saber a diferença. */
 async function trocaCapa(pathVideo, file){
   if (!file || !file.type.startsWith('image/')) return false;
+  fotoCache.delete(posterDe(pathVideo));
   return await sobeArquivo(posterDe(pathVideo), file, file.type);
 }
 
@@ -977,7 +1061,7 @@ function anda(d){
 function trocaMes(mes){
   if (!SPEC.decks[mes]) return;
   mesAtual = mes;
-  slides = doModo(SPEC.decks[mes]);
+  slides = comFotosDoTrimestre(doModo(SPEC.decks[mes]), mes);
   document.getElementById('mes').value = mes;
   listaSlides();
   atualizaAviso();
