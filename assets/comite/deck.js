@@ -540,9 +540,14 @@ async function montaSlidesAoVivo(mes){
         return Object.assign({img, video: ehVideo(a) ? a : null}, await medeImagem(img));
       }))).filter(Boolean);
       if (!itens.length) continue;
+      /* slides do tamanho mais parecido possível (7 = 4 + 3), como o
+         _em_slides do build: de 6 em 6 a sobra ficava sozinha no último */
       const n = Math.ceil(itens.length / FOTOS_POR_SLIDE);
-      for (let k = 0; k < n; k++) {
-        const bloco = itens.slice(k * FOTOS_POR_SLIDE, (k + 1) * FOTOS_POR_SLIDE);
+      const base = Math.floor(itens.length / n), resto = itens.length % n;
+      for (let k = 0, i = 0; k < n; k++) {
+        const t = base + (k < resto ? 1 : 0);
+        const bloco = itens.slice(i, i + t);
+        i += t;
         let sub = g.tema ? temaFoto(g.tema) : '';
         if (n > 1) sub += sub ? ` (${k+1}/${n})` : `${k+1}/${n}`;
         s.push({t:'fotos', n:39, titulo:'MANEJO — FOTOS E REGISTROS', sub, fotos:bloco});

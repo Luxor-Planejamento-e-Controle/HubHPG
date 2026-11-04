@@ -900,7 +900,13 @@
               {i: 2, x: X0 + wa + GAP, y: Y0 + hb + GAP, w: wb, h: hb, corta: 1}];
     }
     if (itens.length >= 3) {
-      for (let corte = 1; corte < itens.length; corte++) {
+      /* cortes do mais equilibrado para o mais torto: seis fotos em pé dão a
+         mesma área em 1|5, 2|4 e 3|3 (as fileiras batem na altura máxima), e
+         com o 1|5 testado primeiro o slide saía com uma foto sozinha em cima e
+         cinco embaixo (setembro/2026). Torto só ganha com 8% a mais de foto. */
+      const n = itens.length;
+      const cortes = todos.slice(1).sort((p, q) => Math.abs(p - n / 2) - Math.abs(q - n / 2));
+      for (const corte of cortes) {
         const hRow = (Y1 - Y0 - GAP) / 2;
         const a = fileira(todos.slice(0, corte), Y0, hRow), b = fileira(todos.slice(corte), Y0 + hRow + GAP, hRow);
         const ha = a[0].h, hb = b[0].h, sobra = (Y1 - Y0 - GAP - ha - hb) / 2;

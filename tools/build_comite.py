@@ -3307,6 +3307,20 @@ FOTO_EXTS = (".jpeg", ".jpg", ".png")
 
 # 6 fotos por slide: mais que isso e cada foto vira selo; menos, sobra tela.
 FOTOS_POR_SLIDE = 6
+
+
+def _em_slides(itens: list) -> list[list]:
+    """Divide as fotos em slides de no máximo FOTOS_POR_SLIDE, do tamanho mais
+    parecido possível: 7 viram 4 + 3. De 6 em 6 a sobra ficava sozinha no último
+    slide (setembro/2026: o vídeo isolado no 2/2). O deck.js reparte igual."""
+    n = -(-len(itens) // FOTOS_POR_SLIDE)
+    base, resto = divmod(len(itens), n) if n else (0, 0)
+    out, i = [], 0
+    for k in range(n):
+        t = base + (k < resto)
+        out.append(itens[i:i + t])
+        i += t
+    return out
 # Grade por quantidade, porque o último slide raramente fecha com 6 — e julho de 2026
 # tem UMA foto no mês. Com as 3 colunas fixas de antes, essa foto virava uma tira de
 # 1/3 de largura no canto. A grade vai no spec, e não em cada renderizador, para o
@@ -3482,9 +3496,9 @@ def _fotos_grupo_por_tema(grupos, m, ano):
                 embutidas.append(_item_foto(uri))
         if not embutidas:
             continue
-        n = (len(embutidas) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
-        for k in range(n):
-            bloco = embutidas[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]
+        blocos = _em_slides(embutidas)
+        n = len(blocos)
+        for k, bloco in enumerate(blocos):
             cols, rows = GRADE_FOTOS[len(bloco)]
             sub = tema_foto(tema) if tema else ""
             if n > 1:
@@ -3565,10 +3579,10 @@ def slides_fotos(c, m, ano):
     print(f"  [fotos] {MESES[m-1]}: {len(embutidas)} de {len(caminhos)} "
           f"({kb // 1024 or 1} MB) — dias {', '.join(f'{d:02d}' for d in dias)}")
     fs = embutidas
-    n = (len(fs) + FOTOS_POR_SLIDE - 1) // FOTOS_POR_SLIDE
+    blocos = _em_slides(fs)
+    n = len(blocos)
     out = []
-    for k in range(n):
-        bloco = fs[k * FOTOS_POR_SLIDE:(k + 1) * FOTOS_POR_SLIDE]
+    for k, bloco in enumerate(blocos):
         cols, rows = GRADE_FOTOS[len(bloco)]
         out.append({"t": "fotos", "n": 39, "titulo": "MANEJO — FOTOS E REGISTROS",
                     "sub": f"{k+1}/{n}" if n > 1 else "",
