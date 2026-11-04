@@ -79,9 +79,11 @@ ALVOS = {
     "REPRODUÇÃO": {"sub": {"ESTAÇÃO DE MONTA": {"estacoes": 2}}},
     "VENDAS": {"sub": {"MAPAS DE VENDAS": {"estacoes": 2, "dias": 70},
                        "SAIDA DE ANIMAIS VENDIDOS": {}}},
-    # só a foto: a pasta do mês tem também a ata, o PPTX e cópias de planilha, e
-    # nenhum deles é fonte (as planilhas de verdade descem das pastas acima)
-    "ATA & APRESENTACOES MENSAIS": {"meses": 4, "ext": (".jpeg", ".jpg", ".png")},
+    # só foto e vídeo: a pasta do mês tem também a ata, o PPTX e cópias de
+    # planilha, e nenhum deles é fonte (as planilhas de verdade descem das pastas
+    # acima). O vídeo desce para o build subir pro bucket (importa_fotos_da_pasta).
+    "ATA & APRESENTACOES MENSAIS": {"meses": 4, "ext": (".jpeg", ".jpg", ".png",
+                                                        ".mp4", ".m4v", ".mov", ".webm")},
 }
 
 # Só o que o pipeline sabe abrir. '~$' é lock de Excel aberto — o próprio pipeline

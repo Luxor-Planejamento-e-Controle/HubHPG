@@ -3362,13 +3362,11 @@ def _fotos_do_mes(ano: int, mes: int) -> list[Path]:
     """Todas as fotos da pasta do mês, em ordem de envio. A pasta já é a seleção
     do haras para o comitê (julho/2026: 49 na pasta, 47 no deck oficial), então
     não há cota. Só sai repetição: arquivo byte-idêntico reenviado é uma foto só.
-    Vídeo não entra pelo build (não se embute mp4 no spec): sobe pelo editor."""
+    Vídeo fica de fora daqui: entra pelo importa_fotos_da_pasta."""
     pasta = _pasta_fotos(ano, mes)
     if not pasta.is_dir():
         return []
     arquivos = sorted((p for p in pasta.rglob("*") if p.is_file()), key=_foto_quando)
-    for v in (p for p in arquivos if p.suffix.lower() in VIDEO_EXTS):
-        print(f"  [fotos] {v.name}: vídeo fica de fora do build, suba pelo editor do hub")
     por_hash: dict[str, Path] = {}
     for p in arquivos:
         if p.suffix.lower() in FOTO_EXTS:
@@ -3381,10 +3379,8 @@ FOTO_LADO_MAX = 760
 FOTO_QUALIDADE = 68
 
 
-def _foto_embutida(caminho: Path) -> str | None:
-    """Foto como data URI reduzida. None se nao der pra ler — slide vira pendencia
-    em vez de imagem quebrada, que e o que acontecia com caminho relativo depois
-    que as fotos sairam do repo."""
+def _foto_reduzida(caminho: Path) -> bytes | None:
+    """JPEG no tamanho em que o deck mostra a foto. None se não der pra ler."""
     try:
         from PIL import Image
     except ImportError:
@@ -3397,10 +3393,18 @@ def _foto_embutida(caminho: Path) -> str | None:
             im = im.convert("RGB")
         buf = io.BytesIO()
         im.save(buf, "JPEG", quality=FOTO_QUALIDADE, optimize=True)
-        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+        return buf.getvalue()
     except Exception as exc:
         print(f"  [fotos] {caminho.name}: {exc!r}")
         return None
+
+
+def _foto_embutida(caminho: Path) -> str | None:
+    """Foto como data URI reduzida. None se nao der pra ler — slide vira pendencia
+    em vez de imagem quebrada, que e o que acontecia com caminho relativo depois
+    que as fotos sairam do repo."""
+    dados = _foto_reduzida(caminho)
+    return "data:image/jpeg;base64," + base64.b64encode(dados).decode() if dados else None
 
 
 def _foto_do_bucket(path: str) -> str | None:
@@ -3447,6 +3451,120 @@ _RE_PATH_BUCKET = re.compile(r"^\d{4}-\d{2}/")
 # base64 no spec.js deixaria o deck impossível de carregar. O item vira
 # {"img": <poster>, "video": <path>}; o deck monta o link a partir do path.
 _RE_VIDEO = re.compile(r"\.(mp4|webm|mov|m4v|ogv)$", re.I)
+
+
+# A pasta do mês alimenta o conteúdo do hub (04/11/2026). Até então o conteúdo
+# mandava e a pasta só valia com ele vazio: a Ana deu tema às fotos de setembro no
+# editor, e o telhado da casa e os troféus, postos na pasta depois, sumiram do deck.
+# Agora o arquivo da pasta que ainda não subiu para o bucket do mês sobe e entra
+# num grupo novo, sem tema, que o editor mostra para o haras dar tema e separar.
+# "Já subiu" se vê pelo bucket e não pelo conteúdo: foto tirada no editor continua
+# no bucket e não volta. Meses antes de setembro/2026 ficam de fora: o conteúdo
+# deles veio do PPTX oficial, com outros nomes, e a pasta inteira entraria em dobro.
+IMPORTA_PASTA_DESDE = "2026-09"
+LIMITE_VIDEO = 50 * 1024 * 1024        # teto do Storage, o mesmo do editor
+TIPO_VIDEO = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+              ".webm": "video/webm"}
+
+
+def _nome_no_bucket(nome: str) -> str:
+    """O nome como o editor grava (deck.js, sobeFoto), sem o prefixo de ms."""
+    return re.sub(r"[^\w.-]", "_", nome)
+
+
+def _poster_do_video(caminho: Path) -> bytes | None:
+    """Frame de 0,6 s, como o editor faz. Precisa do ffmpeg do imageio-ffmpeg, que
+    a Azure não tem: lá o vídeo sobe sem capa, e a capa se põe no editor."""
+    try:
+        import imageio_ffmpeg
+    except ImportError:
+        return None
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        saida = Path(tmp) / "poster.jpg"
+        r = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-ss", "0.6", "-i", str(caminho),
+                            "-frames:v", "1", "-vf", "scale='min(832,iw)':-2", "-q:v", "4", str(saida)],
+                           capture_output=True)
+        return saida.read_bytes() if r.returncode == 0 and saida.exists() else None
+
+
+def importa_fotos_da_pasta(conteudo: dict, ano: int, m: int) -> None:
+    mes = f"{ano}-{m:02d}"
+    pasta = _pasta_fotos(ano, m)
+    url, key = _supabase_env()
+    if mes < IMPORTA_PASTA_DESDE or not url or not pasta.is_dir():
+        return
+    H = {"apikey": key, "Authorization": f"Bearer {key}"}
+    try:
+        r = requests.post(f"{url}/storage/v1/object/list/comite-fotos", headers=H,
+                          json={"prefix": mes, "limit": 1000, "offset": 0}, timeout=30)
+        r.raise_for_status()
+        no_bucket = {re.sub(r"^\d+_", "", o["name"]) for o in r.json()}
+    except Exception as exc:
+        print(f"  [fotos] {mes}: não li o bucket ({exc!r}) — pasta não importada")
+        return
+    videos = [p for p in pasta.rglob("*") if p.is_file() and p.suffix.lower() in TIPO_VIDEO]
+    novos = sorted((p for p in _fotos_do_mes(ano, m) + videos
+                    if _nome_no_bucket(p.name) not in no_bucket), key=_foto_quando)
+    if not novos:
+        return
+
+    def sobe(path, dados, tipo):
+        try:
+            requests.post(f"{url}/storage/v1/object/comite-fotos/{path}",
+                          headers={**H, "Content-Type": tipo, "x-upsert": "true"},
+                          data=dados, timeout=120).raise_for_status()
+            return True
+        except Exception as exc:
+            print(f"  [fotos] {path}: não subiu ({exc!r})")
+            return False
+
+    subidos = []
+    for p in novos:
+        path = f"{mes}/{int(datetime.now().timestamp() * 1000)}_{_nome_no_bucket(p.name)}"
+        if p.suffix.lower() in TIPO_VIDEO:
+            if p.stat().st_size > LIMITE_VIDEO:
+                print(f"  [fotos] {p.name}: vídeo acima de 50 MB, suba um trecho pelo editor")
+                continue
+            if not sobe(path, p.read_bytes(), TIPO_VIDEO[p.suffix.lower()]):
+                continue
+            poster = _poster_do_video(p)
+            if not (poster and sobe(path + ".poster.jpg", poster, "image/jpeg")):
+                print(f"  [fotos] {p.name}: subiu sem capa — ponha a capa no editor")
+        else:
+            dados = _foto_reduzida(p)
+            if not (dados and sobe(path, dados, "image/jpeg")):
+                continue
+        subidos.append(path)
+    if not subidos:
+        return
+
+    # relê a linha agora, não a do início do build: quem salvou o editor no meio
+    # não perde o que gravou
+    try:
+        r = requests.get(f"{url}/rest/v1/comite_conteudo?mes=eq.{mes}&select=fotos",
+                         headers=H, timeout=30)
+        r.raise_for_status()
+        atuais = (r.json() or [{}])[0].get("fotos") or []
+        if atuais and isinstance(atuais[0], str):
+            atuais = [{"tema": "", "arquivos": atuais}]
+        fotos = atuais + [{"tema": "", "arquivos": subidos}]
+        requests.post(f"{url}/rest/v1/comite_conteudo?on_conflict=mes",
+                      headers={**H, "Content-Type": "application/json",
+                               "Prefer": "resolution=merge-duplicates,return=minimal"},
+                      json={"mes": mes, "fotos": fotos}, timeout=30).raise_for_status()
+    except Exception as exc:
+        # sem gravar no conteúdo, tira do bucket: senão a próxima rodada acha que
+        # já subiu e o arquivo nunca entra
+        print(f"  [fotos] {mes}: o conteúdo não gravou ({exc!r}) — desfazendo o upload")
+        alvos = subidos + [x + ".poster.jpg" for x in subidos if _RE_VIDEO.search(x)]
+        requests.delete(f"{url}/storage/v1/object/comite-fotos", headers=H,
+                        json={"prefixes": alvos}, timeout=30)
+        return
+    conteudo.setdefault(mes, {})["fotos"] = fotos
+    print(f"  [fotos] {MESES[m-1]}: {len(subidos)} arquivo(s) novo(s) da pasta entraram "
+          f"no conteúdo, num grupo sem tema")
 
 
 def tema_foto(t: str) -> str:
@@ -3500,8 +3618,8 @@ def slides_fotos(c, m, ano):
       1. comite_conteudo.json — extraído do PRÓPRIO deck oficial daquele mês
          (tools/extrair_conteudo.py), com o agrupamento por TEMA que o comitê usa.
       2. pasta do mês no Drive (ATA & APRESENTACOES MENSAIS/<ano>/09) SETEMBRO),
-         quando o mês não tem foto no conteúdo. Vem sem tema: o tema se põe no
-         editor, e aí o conteúdo passa a valer."""
+         só sem o banco: com ele, o importa_fotos_da_pasta já pôs a pasta no
+         conteúdo antes de chegar aqui."""
     legado = c.get("fotos") or []
     if legado and isinstance(legado[0], dict):
         # formato novo: [{tema, arquivos}], vindo do Supabase (hub) ou extraído
@@ -3659,6 +3777,7 @@ def oculto(slide):
 
 
 def monta_deck(m, ano, ctx):
+    importa_fotos_da_pasta(ctx["conteudo"], ano, m)
     cont = conteudo_do_mes(ctx["conteudo"], f"{ano}-{m:02d}")
     # um registro por mês montado; o do último (o deck padrão) é o que fica
     _registra_conteudo("conteúdo do hub (comite_conteudo)", f"{ano}-{m:02d}")
