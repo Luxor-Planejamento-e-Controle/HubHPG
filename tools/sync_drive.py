@@ -51,7 +51,8 @@ RAIZ_DRIVE_ID = os.getenv("HPG_DRIVE_ROOT_ID", "1mBrSeztRwtBnMlkOMnq6aO4LQUkNjiT
 # acumulado — e o EMBRIOES A ENTREGAR moram em REPRODUÇÃO; o mapa de vendas, em
 # VENDAS. Nunca apareceu porque a Function morria antes, na credencial do Drive; com
 # ela resolvida, o fechamento na nuvem sairia sem produção.
-PASTAS = ("PLANTEL", "ATUALIZACAO SEMANAL", "REPRODUÇÃO", "VENDAS")
+PASTAS = ("PLANTEL", "ATUALIZACAO SEMANAL", "REPRODUÇÃO", "VENDAS",
+          "ATA & APRESENTACOES MENSAIS")
 
 # E, dentro delas, só o que o pipeline abre. As quatro pastas inteiras somam ~5,7 GB
 # (medido em 30/09/2026): PLANEJAMENTO ESTAÇÃO DE MONTA tem 2 GB, MAPAS DE VENDAS
@@ -66,13 +67,21 @@ PASTAS = ("PLANTEL", "ATUALIZACAO SEMANAL", "REPRODUÇÃO", "VENDAS")
 #   - "dias": dentro dessas estações, só o modificado nos últimos N dias (e sempre
 #     o mais novo) — o mapa é cumulativo, e o comitê só abre o do fechamento do mês;
 #   - "sub": subpastas nomeadas que descem, com a regra delas. Subpasta que não
-#     está aqui não desce.
+#     está aqui não desce;
+#   - "meses": das pastas '<ano>/<MM>) <MÊS>', só as dos últimos N meses do
+#     calendário (o mês corrente conta). É onde o haras põe as fotos do comitê
+#     desde nov/2026; quatro meses cobrem o deck do mês que acabou de fechar com
+#     folga, e pasta de mês futuro criada adiantada não desce;
+#   - "ext": as extensões que descem daquela pasta (padrão: EXTENSOES).
 ALVOS = {
     "PLANTEL": {"estacoes": 2},
     "ATUALIZACAO SEMANAL": {},
     "REPRODUÇÃO": {"sub": {"ESTAÇÃO DE MONTA": {"estacoes": 2}}},
     "VENDAS": {"sub": {"MAPAS DE VENDAS": {"estacoes": 2, "dias": 70},
                        "SAIDA DE ANIMAIS VENDIDOS": {}}},
+    # só a foto: a pasta do mês tem também a ata, o PPTX e cópias de planilha, e
+    # nenhum deles é fonte (as planilhas de verdade descem das pastas acima)
+    "ATA & APRESENTACOES MENSAIS": {"meses": 4, "ext": (".jpeg", ".jpg", ".png")},
 }
 
 # Só o que o pipeline sabe abrir. '~$' é lock de Excel aberto — o próprio pipeline
@@ -173,14 +182,17 @@ def _baixar(svc, arq: dict, destino: Path) -> bool:
 # nem no glob("Estação *") dos resolvedores, que compara byte a byte no Linux.
 _nfc = lambda t: unicodedata.normalize("NFC", t)
 RE_ESTACAO = re.compile(r"^estação \d{4}", re.IGNORECASE)
+RE_ANO = re.compile(r"^(20\d\d)$")
+RE_MES = re.compile(r"^(\d{1,2})\)")
 
 
 def _andar(svc, pasta_id: str, destino: Path, regra: dict, plano: list):
     """Desce uma pasta segundo a regra dela em ALVOS (ver lá) e anota em `plano` o
     que tem de estar no espelho — o download vem depois, em paralelo."""
     itens = _listar(svc, pasta_id)
+    ext = regra.get("ext", EXTENSOES)
     arquivos = [i for i in itens if i["mimeType"] != MIME_PASTA
-                and not i["name"].startswith("~$") and i["name"].lower().endswith(EXTENSOES)]
+                and not i["name"].startswith("~$") and i["name"].lower().endswith(ext)]
     pastas = [i for i in itens if i["mimeType"] == MIME_PASTA]
     dias = regra.get("dias")
     if dias and arquivos:
@@ -198,6 +210,27 @@ def _andar(svc, pasta_id: str, destino: Path, regra: dict, plano: list):
     for p in pastas:
         if _nfc(p["name"]) in subs:
             _andar(svc, p["id"], destino / _nfc(p["name"]), subs[_nfc(p["name"])], plano)
+    if regra.get("meses"):
+        _meses(svc, pastas, destino, regra, plano)
+
+
+def _meses(svc, anos: list[dict], destino: Path, regra: dict, plano: list):
+    """'<ano>/<MM>) <MÊS>' dos últimos regra['meses'] meses, com os arquivos da
+    extensão da regra. Só lista o ano que pode ter mês na janela."""
+    hoje = datetime.now()
+    atual = hoje.year * 12 + hoje.month - 1
+    janela = range(atual - regra["meses"] + 1, atual + 1)
+    for a in anos:
+        if not (ma := RE_ANO.match(_nfc(a["name"]).strip())):
+            continue
+        ano = int(ma.group(1))
+        if ano * 12 + 11 < janela.start or ano * 12 > atual:
+            continue
+        for m in _listar(svc, a["id"]):
+            mm = RE_MES.match(_nfc(m["name"]).strip())
+            if m["mimeType"] == MIME_PASTA and mm and ano * 12 + int(mm.group(1)) - 1 in janela:
+                _andar(svc, m["id"], destino / _nfc(a["name"]) / _nfc(m["name"]),
+                       {"ext": regra["ext"]} if "ext" in regra else {}, plano)
 
 
 def sincronizar(destino: Path | None = None, verboso: bool = True) -> Path:

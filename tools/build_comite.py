@@ -1638,15 +1638,14 @@ def safra_do_deck(ano: int, m: int) -> str:
 
 
 def _master_da_safra(safra: str, mes: date | None = None):
-    """Planilha da estação da pasta daquela safra, do MÊS do deck.
+    """Planilha da estação da pasta daquela safra, com o corte do MÊS do deck.
 
-    Cada mês tem a sua cópia na pasta da safra, com o mês no prefixo do nome:
-    '260901_PAO GRANDE_ESTACAO DE MONTA_2026_2027.xlsx' é a de setembro e
-    '261001_ EDITAR ESTACAO DE MONTA.xlsx' a de outubro. O deck do mês lê a dele
-    (Arthur, 03/11/2026); sem cópia do mês, a do mês mais recente antes dele, com
-    aviso. Até então lia a mais nova da pasta e a busca só casava nome terminado em
-    'ESTACAO DE MONTA.xlsx': a de setembro nem era vista, e setembro saía com o
-    que o haras lançou em outubro. Entre duas do mesmo mês, a que não é 'EDITAR'.
+    Cada corte tem a sua cópia na pasta da safra, com a DATA DO CORTE no prefixo:
+    '261001_ PAO GRANDE_ESTACAO DE MONTA.xlsx' é a posição em 01/10, ou seja, tem
+    setembro inteiro; a '260901_...' só vai até agosto. O deck do mês m lê a de
+    prefixo do dia 1º de m+1 (Arthur, 04/11/2026); sem ela, a de corte mais recente
+    antes, com aviso. Até 03/11 o deck lia a de prefixo do PRÓPRIO mês e setembro
+    saía só com agosto. Entre duas do mesmo corte, a que não é 'EDITAR'.
 
     `_latest_estacao_master()` devolve a pasta mais nova por mtime — é o certo pro
     semanal, que quer HOJE, e o errado pro deck de um mês passado, que pediria a
@@ -1663,16 +1662,16 @@ def _master_da_safra(safra: str, mes: date | None = None):
         return []
     proprias = planilhas(a, b)
     if mes:
-        # a planilha do primeiro mês da safra fica na pasta da ANTERIOR (a de
-        # agosto/2026 é '260801 ESTACAO DE MONTA.xlsx', em 'Estação 2025-2026')
-        alvo = mes.strftime("%y%m")
+        # o corte de 01/08 fica na pasta da safra ANTERIOR ('260801 ESTACAO DE
+        # MONTA.xlsx', em 'Estação 2025-2026'), por isso olha as duas
+        alvo = _mes_seguinte(date(mes.year, mes.month, 1)).strftime("%y%m")
         ate = [(p.group(1)[:4], f) for f in proprias + planilhas(int(a) - 1, a)
                if (p := RE_PREFIXO_DATA.match(f.name)) and p.group(1)[:4] <= alvo]
         if ate:
             ult = max(p for p, _ in ate)
             if ult != alvo:
-                aviso(f"estação {safra}: sem planilha de {MESES[mes.month - 1].lower()}/{mes.year} "
-                      f"na pasta — usando a de prefixo {ult}")
+                aviso(f"estação {safra}: sem planilha com corte em 01/{alvo[2:]}/20{alvo[:2]} "
+                      f"(fechamento de {MESES[mes.month - 1].lower()}) — usando a de prefixo {ult}")
             do_mes = [f for p, f in ate if p == ult]
             fixas = [f for f in do_mes if "EDITAR" not in f.name.upper()]
             return max(fixas or do_mes, key=lambda f: f.stat().st_mtime)
@@ -3301,9 +3300,12 @@ def slides_manejo(todos, m, ano):
     return out
 
 
-# Fotos do mês, como o haras as manda: pasta única por ano, arquivos do WhatsApp.
-FOTOS_DIR_BASE = DRIVE_ROOT / "ATA & APRESENTACOES MENSAIS"   # /<ano>/FOTOS
+# Fotos do mês, como o haras as manda: na pasta do mês do comitê, junto da ata
+# ('ATA & APRESENTACOES MENSAIS/2026/09) SETEMBRO'), arquivos do WhatsApp. Até
+# out/2026 era uma pasta FOTOS única por ano, separada pela data do nome.
+FOTOS_DIR_BASE = DRIVE_ROOT / "ATA & APRESENTACOES MENSAIS"   # /<ano>/<MM>) <MÊS>
 FOTO_EXTS = (".jpeg", ".jpg", ".png")
+VIDEO_EXTS = (".mp4", ".mov", ".m4v", ".webm")
 
 # 6 fotos por slide: mais que isso e cada foto vira selo; menos, sobra tela.
 FOTOS_POR_SLIDE = 6
@@ -3321,28 +3323,17 @@ def _em_slides(itens: list) -> list[list]:
         out.append(itens[i:i + t])
         i += t
     return out
+
+
 # Grade por quantidade, porque o último slide raramente fecha com 6 — e julho de 2026
 # tem UMA foto no mês. Com as 3 colunas fixas de antes, essa foto virava uma tira de
 # 1/3 de largura no canto. A grade vai no spec, e não em cada renderizador, para o
 # HTML e o PPTX não divergirem.
 GRADE_FOTOS = {1: (1, 1), 2: (2, 1), 3: (3, 1), 4: (2, 2), 5: (3, 2), 6: (3, 2)}
-# 12 por mês = 2 slides. Junho de 2026 tem 54 arquivos, 45 depois do dedup por hash.
-FOTOS_POR_MES = 12
 
-# "WhatsApp Image 2026-06-19 at 14.31.07 (2).jpeg" — data e hora estão no nome porque
-# o WhatsApp REMOVE o EXIF (confirmado: 0 dos 80 arquivos tem tag de data).
-#
-# O nome marca o ENCAMINHAMENTO, não a foto. Duas medições mostram isso:
-#   * 9 pares são byte-idênticos com nomes de dias diferentes (08/06 07.31.42 ==
-#     19/06 14.31.03) — alguém reenviou o mesmo lote;
-#   * as 45 fotos únicas de junho ocupam 8 minutos distintos de nome, porque um lote
-#     inteiro sai com segundos consecutivos.
-# Consequência prática: a hora não separa cenas. Colapsar "rajada" por janela de tempo
-# derrubou junho de 45 para 6 e jogou fora foto legítima. Comparei as 45 por dHash e a
-# distância mínima entre quaisquer duas passa de 22 bits: são 45 imagens distintas, não
-# há rajada nenhuma. Só o hash de bytes remove repetição de verdade.
-# A DATA continua servindo: é o mês em que o registro chegou ao grupo, que é o que o
-# comitê discute.
+# "WhatsApp Image 2026-06-19 at 14.31.07 (2).jpeg": o WhatsApp tira o EXIF, então a
+# ordem das fotos sai da data e hora do nome. Essa data marca o ENCAMINHAMENTO
+# (setembro/2026 chegou toda em 21/10), por isso não decide o mês: o mês é a pasta.
 _RE_FOTO_DT = re.compile(r"(20\d\d)-(\d\d)-(\d\d)(?:\D+(\d\d)\.(\d\d)\.(\d\d))?")
 
 
@@ -3355,44 +3346,34 @@ def _foto_quando(p: Path) -> datetime:
     return datetime(int(a), int(s_), int(d), int(hh or 0), int(mm or 0), int(ss or 0))
 
 
+def _pasta_fotos(ano: int, mes: int) -> Path:
+    """'ATA & APRESENTACOES MENSAIS/<ano>/09) SETEMBRO'. Casa pelo número do mês,
+    não pelo nome ('03) MARÇO' com ou sem acento). Sem a pasta, devolve o caminho
+    esperado, que é o que o pendente mostra."""
+    raiz = FOTOS_DIR_BASE / str(ano)
+    if raiz.is_dir():
+        for d in sorted(raiz.iterdir()):
+            if d.is_dir() and re.match(rf"0*{mes}\)", d.name.strip()):
+                return d
+    return raiz / f"{mes:02d}) {MESES[mes - 1].upper()}"
+
+
 def _fotos_do_mes(ano: int, mes: int) -> list[Path]:
-    """Fotos do mês, sem repetição e espalhadas pelos dias.
-
-    Dois filtros:
-
-      1. hash — arquivo byte-idêntico reenviado noutro dia é uma foto só;
-      2. espalhamento — com mais foto que vaga, roda um dia por vez em vez de pegar
-         as primeiras. Sem isso junho seria 12 fotos do dia 19, que tem 28 das 45; os
-         dias 02, 08, 11 e 24 sumiriam do slide.
-    """
-    pasta = FOTOS_DIR_BASE / str(ano) / "FOTOS"
-    if not pasta.exists():
+    """Todas as fotos da pasta do mês, em ordem de envio. A pasta já é a seleção
+    do haras para o comitê (julho/2026: 49 na pasta, 47 no deck oficial), então
+    não há cota. Só sai repetição: arquivo byte-idêntico reenviado é uma foto só.
+    Vídeo não entra pelo build (não se embute mp4 no spec): sobe pelo editor."""
+    pasta = _pasta_fotos(ano, mes)
+    if not pasta.is_dir():
         return []
-    todas = [p for p in pasta.rglob("*") if p.suffix.lower() in FOTO_EXTS]
-    do_mes = [p for p in todas
-              if (q := _foto_quando(p)).year == ano and q.month == mes]
-    if not do_mes:
-        return []
-
-    # 1. mesma foto reenviada: fica a de nome mais antigo (primeira aparição)
+    arquivos = sorted((p for p in pasta.rglob("*") if p.is_file()), key=_foto_quando)
+    for v in (p for p in arquivos if p.suffix.lower() in VIDEO_EXTS):
+        print(f"  [fotos] {v.name}: vídeo fica de fora do build, suba pelo editor do hub")
     por_hash: dict[str, Path] = {}
-    for p in sorted(do_mes, key=_foto_quando):
-        por_hash.setdefault(hashlib.md5(p.read_bytes()).hexdigest(), p)
-    cenas = sorted(por_hash.values(), key=_foto_quando)
-    if len(cenas) <= FOTOS_POR_MES:
-        return cenas
-
-    # 2. round-robin pelos dias até fechar a cota
-    por_dia: dict[int, list[Path]] = {}
-    for p in cenas:
-        por_dia.setdefault(_foto_quando(p).day, []).append(p)
-    escolhidas = []
-    while len(escolhidas) < FOTOS_POR_MES:
-        rodada = [fila.pop(0) for _, fila in sorted(por_dia.items()) if fila]
-        if not rodada:
-            break
-        escolhidas += rodada[:FOTOS_POR_MES - len(escolhidas)]
-    return sorted(escolhidas, key=_foto_quando)
+    for p in arquivos:
+        if p.suffix.lower() in FOTO_EXTS:
+            por_hash.setdefault(hashlib.md5(p.read_bytes()).hexdigest(), p)
+    return list(por_hash.values())
 # As fotos NAO ficam no repo (publico) nem no site (publico): entram embutidas no
 # spec.json, que sai pelo bucket privado. Cru sao 12 MB em 28 arquivos; reduzidas
 # pro tamanho em que o deck as mostra (6 por slide, ~1/3 de tela) dao ~2 MB.
@@ -3518,12 +3499,9 @@ def slides_fotos(c, m, ano):
     Ordem de fonte, ao contrário do dashboard semanal:
       1. comite_conteudo.json — extraído do PRÓPRIO deck oficial daquele mês
          (tools/extrair_conteudo.py), com o agrupamento por TEMA que o comitê usa.
-      2. pasta do Drive (ATA & APRESENTACOES MENSAIS/<ano>/FOTOS) — só quando o
-         mês ainda não foi extraído. Achado em 28/08/2026: a pasta do Drive pra
-         julho/2026 tem 1 foto só (é alimentada semana a semana, sem curadoria);
-         o deck oficial de julho tem 47 fotos em 13 temas. Pra ESTE deck, o
-         extraído do oficial é o que importa — a pasta do Drive é o fallback
-         genérico, não o contrário."""
+      2. pasta do mês no Drive (ATA & APRESENTACOES MENSAIS/<ano>/09) SETEMBRO),
+         quando o mês não tem foto no conteúdo. Vem sem tema: o tema se põe no
+         editor, e aí o conteúdo passa a valer."""
     legado = c.get("fotos") or []
     if legado and isinstance(legado[0], dict):
         # formato novo: [{tema, arquivos}], vindo do Supabase (hub) ou extraído
@@ -3548,7 +3526,7 @@ def slides_fotos(c, m, ano):
             return out
 
     caminhos = _fotos_do_mes(ano, m)
-    fonte = FOTOS_DIR_BASE / str(ano) / "FOTOS"
+    fonte = _pasta_fotos(ano, m)
     if caminhos:
         _registra("fotos do mês", fonte)
     else:
@@ -3563,8 +3541,7 @@ def slides_fotos(c, m, ano):
         # subida pelo hub ia para o fim do deck em vez de tomar o lugar deste
         # (setembro/2026: as fotos acabaram numa pasta do Drive)
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
-                     caminho_curto(fonte),
-                     f"nenhuma foto de {MESES[m-1].lower()}/{str(ano)[2:]} na pasta", edita="fotos")]
+                     caminho_curto(fonte), "nenhuma foto na pasta do mês", edita="fotos")]
     # troca o caminho pela imagem embutida; some quem nao carregou
     embutidas, kb = [], 0
     for f in caminhos:
@@ -3575,11 +3552,9 @@ def slides_fotos(c, m, ano):
     if not embutidas:
         return [pend(39, "MANEJO — FOTOS E REGISTROS", f"Registros de {MESES[m-1]}",
                      caminho_curto(fonte), "nenhuma das fotos do mês pôde ser lida", edita="fotos")]
-    dias = sorted({_foto_quando(f).day for f in caminhos})
     print(f"  [fotos] {MESES[m-1]}: {len(embutidas)} de {len(caminhos)} "
-          f"({kb // 1024 or 1} MB) — dias {', '.join(f'{d:02d}' for d in dias)}")
-    fs = embutidas
-    blocos = _em_slides(fs)
+          f"({kb // 1024 or 1} MB) — pasta {fonte.name}")
+    blocos = _em_slides(embutidas)
     n = len(blocos)
     out = []
     for k, bloco in enumerate(blocos):
