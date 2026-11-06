@@ -394,7 +394,7 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   status:"Status",categoria:"Categoria",comprador:"Comprador / Sócio",nome:"Nome",cota:"Cota",
   tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)",
   mae:"Mãe",pai:"Pai",afeta_headcount:"Conta no Δ",cancelado_em:"Cancelado em",
-  contraparte:"Contraparte",condicao:"Condição atual"};
+  contraparte:"Contraparte",condicao:"Condição atual",contrato:"Contrato"};
 // `afeta_headcount` volta a ser interno (18/09/2026): a coluna 'Conta no Δ' era
 // detalhe de cálculo no meio da lista de saídas. Quem precisa da abertura tem o Δ
 // do headcount, que já publica entradas e saídas efetivas.

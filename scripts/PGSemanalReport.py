@@ -1674,6 +1674,21 @@ STATUS_TERCEIRO = "TERCEIRO"
 STATUS_SOCIEDADE_PENDENTE = "EM SOCIEDADE PENDENTE DE SAIDA"
 COL_MENSAL_OBS = 24
 
+# Venda com contrato ainda sem assinatura. A regra do haras é não dar baixa sem
+# contrato assinado; no V Leilão PG (06/11/2026) a Aline pediu que as vendas entrassem
+# na atualização porque o Eduardo quer vê-las, e a baixa foi feita com a OBS
+# 'CONTRATO NÃO ASSINADO' (coluna Y, a mesma da marca de sociedade — as duas frases
+# podem dividir a célula). Vira a coluna 'Contrato' das listas de pendentes: sem ela,
+# quem lê o painel toma a venda por fechada. `_norm` não tira acento, daí o N[AÃ]O.
+RE_CONTRATO_PENDENTE = re.compile(
+    r"CONTRATO\s+(AINDA\s+)?(N[AÃ]O|SEM)\s+ASSINA"
+    r"|SEM\s+ASSINATURA|FALTA\w*\s+(A\s+)?ASSINATURA"
+    r"|AGUARDANDO\s+(A\s+)?ASSINATURA|ASSINATURA\s+PENDENTE|PENDENTE\s+DE\s+ASSINATURA")
+
+
+def _contrato_pendente(obs) -> str | None:
+    return "não assinado" if RE_CONTRATO_PENDENTE.search(_norm(obs)) else None
+
 # Status que significam "o animal AINDA ESTÁ AQUI".
 #
 # Vendido conta: a venda foi fechada mas o animal não saiu da fazenda, e enquanto
@@ -1994,10 +2009,13 @@ def _status_plantel_mensal() -> dict:
         soc = _limpa_socio(r[COL_MENSAL_NOME_SOCIO]) if len(r) > COL_MENSAL_NOME_SOCIO else None
         if m_rec and soc:
             socio_por_recep[m_rec.group(1)] = soc
+        obs = _norm(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else ""
+        contrato = _contrato_pendente(obs)
         if _e_vendido_pendente(status_plantel, local) and _sem_cotista(nome) not in vend_vistos:
             marcado = True
             vend_vistos.add(_sem_cotista(nome))
-            vendidos_pend.append({"nome": _sem_cotista(nome), "local": local, "cota": None,
+            vendidos_pend.append({"nome": _sem_cotista(nome), "local": local,
+                                  "contrato": contrato, "cota": None,
                                   "comprador": None, "tipo": "VENDA",
                                   "obs": _s(r[L["status"]]), "reposicao": False,
                                   "categoria": categoria,
@@ -2007,13 +2025,13 @@ def _status_plantel_mensal() -> dict:
             terceiros.append({"nome": nome, "local": local, "categoria": categoria,
                               "status_plantel": _s(r[L["status"]]),
                               "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
-        obs = _norm(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else ""
         # Mesma regra dos vendidos: pendente de saída é quem ainda está aqui. A
         # GABRIELA ELFAR e o ORFEU MH2 seguem marcados na OBS, mas o LOCAL já é SOCIO
         # — são justamente as duas saídas desta semana. Contá-los punha 3 animais onde
         # o haras publica 01 (a LIBRA DA PAO GRANDE, essa sim ainda na fazenda).
         if STATUS_SOCIEDADE_PENDENTE in obs and _norm(local) in LOCAIS_NA_PROPRIEDADE:
-            soc_pend.append({"nome": nome, "local": local, "categoria": categoria,
+            soc_pend.append({"nome": nome, "local": local, "contrato": contrato,
+                             "categoria": categoria,
                              "obs": _s(r[COL_MENSAL_OBS]),
                              "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
     wb.close()
