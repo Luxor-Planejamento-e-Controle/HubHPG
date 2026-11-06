@@ -384,6 +384,8 @@ function fmtVal(k){
   if(hasOv(k.p) && !noBanco(k)) return getOv(k.p);   // override antigo não esconde o salvo
   const v=rawVal(k);
   if(k.delta) return v==null?"--":v;   // já vem com HTML
+  // decimal com vírgula, como o haras escreve ("2,2")
+  if(typeof v==="number" && !Number.isInteger(v)) return v.toFixed(1).replace(".",",");
   return (v===null||v===undefined||v==="")?"--":v;
 }
 
@@ -394,7 +396,8 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   status:"Status",categoria:"Categoria",comprador:"Comprador / Sócio",nome:"Nome",cota:"Cota",
   tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)",
   mae:"Mãe",pai:"Pai",afeta_headcount:"Conta no Δ",cancelado_em:"Cancelado em",
-  contraparte:"Contraparte",condicao:"Condição atual"};
+  contraparte:"Contraparte",condicao:"Condição atual",
+  classificacao:"Classificação",local_saida:"Local saída",local_entrada:"Local entrada",id:"ID"};
 // `afeta_headcount` volta a ser interno (18/09/2026): a coluna 'Conta no Δ' era
 // detalhe de cálculo no meio da lista de saídas. Quem precisa da abertura tem o Δ
 // do headcount, que já publica entradas e saídas efetivas.

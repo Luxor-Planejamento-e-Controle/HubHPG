@@ -269,8 +269,12 @@ def _s(v):
 
 
 def _dt(v):
+    # 1899/1900 não é data, é número pequeno numa célula com formato de data — em geral
+    # fórmula sobre célula vazia. Em 06/11/2026 a IA da LIBRA DA PAO GRANDE x FAVORITO
+    # (estação, linha 667) era '=J670-9' com a TE em branco: -9 virou 21/12/1899 e a
+    # confirmação publicada saiu 05/01/1900.
     if isinstance(v, datetime):
-        return v.date()
+        return v.date() if v.year > 1900 else None
     return None
 
 
@@ -759,7 +763,7 @@ def build_producao(rep: Report, ini: date, fim: date):
     rep.fontes["estacao_master"] = master.name
     wb = _load(master)
     ws = wb["ESTAÇÃO"]
-    embrioes = []
+    embrioes, perdas_outras_safras = [], []
     _SAFRA_PARICAO_PENDENTE.clear()
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 3 or r[0] is None:
@@ -787,7 +791,12 @@ def build_producao(rep: Report, ini: date, fim: date):
             # mesma receptora serve várias estações: vale a cobrição mais recente
             if not antes or (ia_linha and (not antes[1] or ia_linha > antes[1])):
                 _SAFRA_PARICAO_PENDENTE[rec] = (safra_linha, ia_linha)
-        if not safra_linha or safra_linha not in (SAFRA_ATUAL, SAFRA_PROXIMA):
+        # Fora da safra a linha só interessa se tiver PERDA (aborto/óbito): perda é
+        # da semana em que acontece, de qualquer safra. Em 06/11/2026 o aborto de
+        # MUSICA DA PAO GRANDE x IMPERIO SAPECADO (recep 56, safra 2025/2026, aborto
+        # 05/11) ficava fora — 0 contra o "Abortos / óbitos: 01" do haras.
+        fora_da_safra = not safra_linha or safra_linha not in (SAFRA_ATUAL, SAFRA_PROXIMA)
+        if fora_da_safra and not (_dt(r[21]) or _dt(r[28])):
             continue
         ia = _dt(r[7])
         te = _dt(r[9])
@@ -808,7 +817,9 @@ def build_producao(rep: Report, ini: date, fim: date):
         # "confirmado na semana" da liberação do haras, e caía em 09/10 aqui — a
         # semana fechava com 0 contra 1 deles. Sem TE lançada, IA+15 aproxima (a
         # coleta vem ~7 dias depois da IA).
-        base_conf = te or ia
+        # Sem TE nem IA (a IA da estação é fórmula sobre a TE e some junto com ela), a
+        # OVULAÇÃO (coluna I) é a data que sobra — e o 15D conta a partir dela.
+        base_conf = te or ia or _dt(r[8])
         data_conf = (base_conf + timedelta(days=15)) if base_conf else None
         cotas = _to_num(r[5])
         # split PG / sócio / vendido (defs do comitê: total produzido aberto nessas 3 fatias)
@@ -819,7 +830,7 @@ def build_producao(rep: Report, ini: date, fim: date):
             fatia = "socio"
         else:
             fatia = "pg"
-        embrioes.append({
+        (perdas_outras_safras if fora_da_safra else embrioes).append({
             "doadora": _s(r[2]), "garanhao": _s(r[3]), "local": _s(r[4]),
             "cotas_pg": cotas, "socio": _s(r[6]), "fatia": fatia,
             "data_ia": ia.isoformat() if ia else None,
@@ -885,8 +896,12 @@ def build_producao(rep: Report, ini: date, fim: date):
     nascimentos = [e for e in embrioes if _in_week(e["data_paricao"])]
     # aborto = embrião confirmado que não nasceu (data aborto na semana);
     # óbito = nasceu e morreu (data óbito na semana). (absorção = perda pré-60d, não confirmada)
-    abortos = [e for e in embrioes if e["confirmado"] and _in_week(e["data_aborto"])]
-    obitos = [e for e in embrioes if _in_week(e["data_obito"])]
+    # PERDA conta na semana em que acontece, venha da safra que vier: a próxima
+    # (embrioes_proxima) e as anteriores (perdas_outras_safras) entram aqui e SÓ aqui —
+    # o acumulado da safra corrente continua lendo `embrioes`.
+    perdas = embrioes + embrioes_proxima + perdas_outras_safras
+    abortos = [e for e in perdas if e["confirmado"] and _in_week(e["data_aborto"])]
+    obitos = [e for e in perdas if _in_week(e["data_obito"])]
     # óbito de animal já no plantel não passa pela estação — vem do controle mensal
     mortes_plantel = _mortes_do_plantel(ini, fim)
     if mortes_plantel:
@@ -993,7 +1008,7 @@ def build_producao(rep: Report, ini: date, fim: date):
     rep.eventos["nascimentos"] = [dict(e, data=e["data_paricao"]) for e in embrioes if e["data_paricao"]]
     rep.eventos["abortos_obitos"] = [
         dict(e, data=(e["data_aborto"] or e["data_obito"]))
-        for e in embrioes if (e["confirmado"] and e["data_aborto"]) or e["data_obito"]
+        for e in perdas if (e["confirmado"] and e["data_aborto"]) or e["data_obito"]
     ]
     wb.close()
 
@@ -3890,9 +3905,18 @@ def _compute_confirmados_diff(rep: Report):
         # agora aparece no diff contra o snapshot de antes do mês — e entraria de novo.
         do_mes_anterior = {k for k, v in _registro_confirmados_extra().items()
                            if v.get("semana", "") < month_start}
+        # Confirmação nova DEPOIS do fim do mês de referência é do mês seguinte. Na
+        # semana 31/10–06/11/2026 o mês é outubro (janela abre em 31/10), e a única
+        # confirmação (LIBRA x FAVORITO, 15D em 01/11) entrava em outubro: 6 contra
+        # "Acumulado no mês (outubro): 05" do haras. Ela entra em novembro na semana
+        # seguinte, cujo diff é contra o último snapshot de outubro.
+        fim_mes = (date.fromisoformat(month_start) + timedelta(days=32)).replace(day=1)
+        def _depois_do_mes(e):
+            dc = e.get("data_confirmacao")
+            return bool(dc and date.fromisoformat(dc) >= fim_mes)
         rep.producao["acumulado_mes"] = sum(
             1 for e in _novos_confirmados(cur, prev_month_keys)
-            if not _ia_no_futuro(e)
+            if not _ia_no_futuro(e) and not _depois_do_mes(e)
             and _chave_recep(e.get("receptora")) not in do_mes_anterior) + len(do_mes)
     else:
         dxp = (rep.docx_ref or {}).get(rep.semana_atual, {}).get("producao", {})
