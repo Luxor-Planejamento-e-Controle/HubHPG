@@ -1676,18 +1676,31 @@ COL_MENSAL_OBS = 24
 
 # Venda com contrato ainda sem assinatura. A regra do haras é não dar baixa sem
 # contrato assinado; no V Leilão PG (06/11/2026) a Aline pediu que as vendas entrassem
-# na atualização porque o Eduardo quer vê-las, e a baixa foi feita com a OBS
-# 'CONTRATO NÃO ASSINADO' (coluna Y, a mesma da marca de sociedade — as duas frases
-# podem dividir a célula). Vira a coluna 'Contrato' das listas de pendentes: sem ela,
-# quem lê o painel toma a venda por fechada. `_norm` não tira acento, daí o N[AÃ]O.
+# na atualização porque o Eduardo quer vê-las. A baixa foi feita e a pendência sai na
+# OBS da linha do animal — sem ela, quem lê a atualização toma a venda por fechada.
+#
+# Duas portas: a lista abaixo (o haras deu a baixa sem escrever nada na planilha) e a
+# OBS da própria linha (coluna Y), se o haras passar a escrever lá. Contrato assinado
+# SAI DA LISTA. OPALA DA PAO GRANDE: assinado pelo Gian em 06/11/2026, já fora.
+CONTRATO_NAO_ASSINADO = {
+    "LEVADA DA PAO GRANDE": "V Leilão PG — falta a assinatura do Gian (06/11/2026)",
+    "PITAYA DA PAO GRANDE": "V Leilão PG — falta a assinatura do Gian (06/11/2026)",
+    "OMEGA DO ATLANTICO SUL DA PAO GRANDE": "V Leilão PG — falta a assinatura do Gian (06/11/2026)",
+}
+OBS_CONTRATO_PENDENTE = "Contrato não assinado"
+# `_norm` não tira acento, daí o N[AÃ]O.
 RE_CONTRATO_PENDENTE = re.compile(
     r"CONTRATO\s+(AINDA\s+)?(N[AÃ]O|SEM)\s+ASSINA"
     r"|SEM\s+ASSINATURA|FALTA\w*\s+(A\s+)?ASSINATURA"
     r"|AGUARDANDO\s+(A\s+)?ASSINATURA|ASSINATURA\s+PENDENTE|PENDENTE\s+DE\s+ASSINATURA")
 
 
-def _contrato_pendente(obs) -> str | None:
-    return "não assinado" if RE_CONTRATO_PENDENTE.search(_norm(obs)) else None
+def _contrato_pendente(nome, obs=None) -> str | None:
+    """'Contrato não assinado' para a OBS da linha, ou None."""
+    if (_norm(_sem_cotista(nome)) in CONTRATO_NAO_ASSINADO
+            or RE_CONTRATO_PENDENTE.search(_norm(obs))):
+        return OBS_CONTRATO_PENDENTE
+    return None
 
 # Status que significam "o animal AINDA ESTÁ AQUI".
 #
@@ -1712,11 +1725,17 @@ def _contrato_pendente(obs) -> str | None:
 # e não pega 'VENDIDO E ENTREGUE', que é quem de fato foi embora.
 STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA")
 PREFIXO_VENDIDO_PENDENTE = "VENDIDO PENDEN"
+# SOCIEDADE PENDENTE também é animal AINDA AQUI. Até 30/10/2026 a marca vivia só na
+# OBS (STATUS_SOCIEDADE_PENDENTE); em 06/11/2026 o haras passou a escrevê-la no
+# STATUS PLANTEL ('SOCIEDADE PENDENTE SAIDA', PRIMAVERA DA PAO GRANDE) e o roster a
+# descartou: saiu publicada como saída e o headcount caiu 1, com ela na fazenda.
+PREFIXO_SOCIEDADE_PENDENTE = "SOCIEDADE PENDEN"
 
 
 def _status_conta(status) -> bool:
     st = _norm(status)
-    return st in STATUS_NO_PLANTEL or st.startswith(PREFIXO_VENDIDO_PENDENTE)
+    return (st in STATUS_NO_PLANTEL or st.startswith(PREFIXO_VENDIDO_PENDENTE)
+            or PREFIXO_SOCIEDADE_PENDENTE in st)
 # MARRETADA, autorizada pelo Arthur em 04/09/2026: animal que saiu do plantel e
 # cuja linha no controle mensal ainda não foi atualizada. A lista que o haras usa
 # na atualização semanal já não o tem. Cada fechamento imprime um aviso, e a
@@ -1992,7 +2011,7 @@ def _status_plantel_mensal() -> dict:
     # aparece como (CARLA) e (EDUARDO), e as duas estão 'VENDIDO PENDENTE DE SAIDA'
     # na fazenda. É um animal só: contar as duas dava 6 onde o haras publica 05.
     # Mesma deduplicação que o roster já faz em _plantel_por_status.
-    vend_vistos = set()
+    vend_vistos, soc_vistos = set(), set()
     # NOME SOCIO / COTAS (%) ficam fora do layout mínimo porque só este trecho usa.
     # Indexado pela receptora do fim do nome: é o que o roster semanal e o mensal
     # têm em comum (o mensal escreve a data no meio e acentua o garanhão).
@@ -2010,14 +2029,17 @@ def _status_plantel_mensal() -> dict:
         if m_rec and soc:
             socio_por_recep[m_rec.group(1)] = soc
         obs = _norm(r[COL_MENSAL_OBS]) if len(r) > COL_MENSAL_OBS else ""
-        contrato = _contrato_pendente(obs)
+        contrato = _contrato_pendente(nome, obs)
         if _e_vendido_pendente(status_plantel, local) and _sem_cotista(nome) not in vend_vistos:
             marcado = True
             vend_vistos.add(_sem_cotista(nome))
+            # OBS: só o que diz algo a quem recebe a atualização. Era o texto do
+            # STATUS ('VENDIDO PENDENTE SAIDA'), igual em toda linha de uma lista que
+            # já se chama 'Vendidos pendentes'.
             vendidos_pend.append({"nome": _sem_cotista(nome), "local": local,
-                                  "contrato": contrato, "cota": None,
+                                  "cota": None,
                                   "comprador": None, "tipo": "VENDA",
-                                  "obs": _s(r[L["status"]]), "reposicao": False,
+                                  "obs": contrato, "reposicao": False,
                                   "categoria": categoria,
                                   "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
         if STATUS_TERCEIRO in status_plantel:
@@ -2029,10 +2051,16 @@ def _status_plantel_mensal() -> dict:
         # GABRIELA ELFAR e o ORFEU MH2 seguem marcados na OBS, mas o LOCAL já é SOCIO
         # — são justamente as duas saídas desta semana. Contá-los punha 3 animais onde
         # o haras publica 01 (a LIBRA DA PAO GRANDE, essa sim ainda na fazenda).
-        if STATUS_SOCIEDADE_PENDENTE in obs and _norm(local) in LOCAIS_NA_PROPRIEDADE:
-            soc_pend.append({"nome": nome, "local": local, "contrato": contrato,
+        # A marca pode estar na OBS ou no STATUS (ver PREFIXO_SOCIEDADE_PENDENTE), e a
+        # linha se repete por cotista — PRIMAVERA DA PAO GRANDE tem (CARLA) e (EDUARDO).
+        soc_marca = (STATUS_SOCIEDADE_PENDENTE in obs
+                     or PREFIXO_SOCIEDADE_PENDENTE in status_plantel)
+        if (soc_marca and _norm(local) in LOCAIS_NA_PROPRIEDADE
+                and _sem_cotista(nome) not in soc_vistos):
+            soc_vistos.add(_sem_cotista(nome))
+            soc_pend.append({"nome": _sem_cotista(nome), "local": local,
                              "categoria": categoria,
-                             "obs": _s(r[COL_MENSAL_OBS]),
+                             "obs": contrato or _s(r[COL_MENSAL_OBS]),
                              "especie": "EMBRIAO" if categoria == "EMBRIAO" else None})
     wb.close()
     return {"fonte": src.name, "marcado": marcado,
@@ -2766,10 +2794,10 @@ def _refina_afeta_headcount(rep: Report):
         1 for x in (rep.detalhe.get("entradas_diff") or []) if x.get("afeta_headcount"))
 
 
-# Uma frase só para as duas formas de saída vista pelo roster. O QUE aconteceu já vai
-# em `classificacao` (SAIDA-SOCIO, SAIDA-VENDIDO E ENTREGUE) e em `de`/`para`; a OBS
-# diz apenas o que falta na origem, sem repetir a causa em texto corrido.
-OBS_SEM_LANCAMENTO = "não consta o movimento da aba SAIDAS-ENTRADAS"
+# A OBS da saída vista pelo roster é o que interessa a quem recebe a atualização
+# (contrato não assinado). Até 06/11/2026 levava "não consta o movimento da aba
+# SAIDAS-ENTRADAS" — recado para o haras, que já sai no log do run e não diz nada no
+# painel. O painel apaga esse texto das semanas congeladas (PGSemanalDashboard.py).
 
 
 def _saidas_anteriores(semana: str) -> dict:
@@ -2845,7 +2873,7 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
                 "fonte": "roster",
                 # continua na contagem: mudou de bucket, não saiu do headcount
                 "afeta_headcount": False,
-                "obs": OBS_SEM_LANCAMENTO,
+                "obs": _contrato_pendente(linha.get("nome"), linha.get("obs")),
             })
 
     # SAIU DO ROSTER por entrega/baixa: some da contagem sem passar pela aba. Em
@@ -2897,7 +2925,7 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
             "fonte": "roster",
             "afeta_headcount": True,
             "so_plantel": so_plantel,
-            "obs": OBS_SEM_LANCAMENTO,
+            "obs": _contrato_pendente(linha.get("nome"), linha.get("obs")),
         })
     if novas:
         print(f"  [saídas] {len(novas)} saída(s) vistas só pelo roster — a aba "

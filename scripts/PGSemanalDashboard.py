@@ -394,12 +394,18 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   status:"Status",categoria:"Categoria",comprador:"Comprador / Sócio",nome:"Nome",cota:"Cota",
   tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)",
   mae:"Mãe",pai:"Pai",afeta_headcount:"Conta no Δ",cancelado_em:"Cancelado em",
-  contraparte:"Contraparte",condicao:"Condição atual",contrato:"Contrato"};
+  contraparte:"Contraparte",condicao:"Condição atual"};
 // `afeta_headcount` volta a ser interno (18/09/2026): a coluna 'Conta no Δ' era
 // detalhe de cálculo no meio da lista de saídas. Quem precisa da abertura tem o Δ
 // do headcount, que já publica entradas e saídas efetivas.
+// `fonte` e `so_plantel` (06/11/2026): 'FONTE roster' e 'SO PLANTEL false' na lista de
+// saídas não dizem nada a quem recebe a atualização — são de cálculo.
 const HIDE=new Set(["key","confirmado","reposicao","origem","especie","chave",
-  "afeta_headcount","era_receptora_contada","trocou_de_bucket"]);   // internos, não exibir
+  "afeta_headcount","era_receptora_contada","trocou_de_bucket",
+  "fonte","so_plantel"]);   // internos, não exibir
+// recado para o haras gravado na OBS das semanas congeladas até 06/11/2026; o pipeline
+// não grava mais, e aqui some também do passado
+const OBS_INTERNA=new Set(["não consta o movimento da aba SAIDAS-ENTRADAS"]);
 const DATECOLS=new Set(["data","data_ia","data_confirmacao","data_paricao","data_aborto","data_obito"]);
 const PCTCOLS=new Set(["cota","cotas_pg"]);
 function lab(c){ return LABELS[c] || c.replace(/_/g," "); }
@@ -407,6 +413,7 @@ function lab(c){ return LABELS[c] || c.replace(/_/g," "); }
 function detTable(title, key, opts){
   let rows = (snap().detalhe||{})[key];
   if(!rows || !rows.length) return "";
+  rows = rows.map(r=>(r && typeof r==="object" && OBS_INTERNA.has(r.obs))? {...r, obs:null} : r);
   // minRows: detalhe que já cabe descrito no card só vira tabela quando é muito
   if(opts && opts.minRows && rows.length < opts.minRows) return "";
   let head, body, nCols=1, unica=null;
