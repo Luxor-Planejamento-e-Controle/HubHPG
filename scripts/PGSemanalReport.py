@@ -3877,7 +3877,15 @@ def _compute_confirmados_diff(rep: Report):
     # considerando o final mês de agosto" — e a liberação daquela semana escreve
     # "Acumulado no mês (agosto): 01". Com o mês do fechamento (setembro) dava 0
     # contra 1 divulgado, na semana que atravessa a virada do mês.
-    mes_ref = rep.semana_inicio[:7]                    # YYYY-MM da abertura da janela
+    #
+    # AJUSTE de 06/11/2026: é o mês do PRIMEIRO DIA ÚTIL da janela, não do primeiro dia.
+    # A janela 31/10–06/11/2026 abre num sábado e todos os dias úteis são de novembro
+    # ("a semana toda foi novembro" — Arthur); pela data de abertura o card dizia
+    # outubro. A de 04/09 continua agosto: a janela 29/08–04/09 tem a segunda 31/08.
+    d_ref = date.fromisoformat(rep.semana_inicio)
+    while d_ref.weekday() >= 5:                        # sábado/domingo não abrem o mês
+        d_ref += timedelta(days=1)
+    mes_ref = d_ref.isoformat()[:7]                    # YYYY-MM do 1º dia útil da janela
     rep.producao["mes_referencia"] = mes_ref
     rep.producao["mes_referencia_rotulo"] = MESES_PT[int(mes_ref[5:7]) - 1]
     month_start = mes_ref + "-01"                      # YYYY-MM-01
