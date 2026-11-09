@@ -727,11 +727,14 @@
     const P = claro(s, []);
     P.push(R(0, 141, 1280, 535, {fill: PAINEL.fundo}));
     const anos = s.anos || [];
+    // Unidade: Mi, como no P&C; abaixo de 1 milhão (a Casa) vira mil, senão os
+    // investimentos dela saem "−0,02 Mi" em todos os anos (09/11/2026).
+    const kfx = v => Math.abs(v) >= 1e6 ? mi2(v) : nf(v / 1e3, 0) + ' mil';
     const totO = anos.reduce((x, a) => x + a.orc, 0), totR = anos.reduce((x, a) => x + a.real, 0);
     const dev = totR - totO, devP = totO ? dev / Math.abs(totO) * 100 : null;
     const corV = v => v == null ? PAINEL.txt : (v >= 0 ? PC.pos : PC.neg);
-    [['ORÇADO (ACUM.)', mi2(totO), brl2(totO), PAINEL.txt], ['REALIZADO (ACUM.)', mi2(totR), brl2(totR), PAINEL.txt],
-     ['DESVIO (REAL − ORÇ)', mi2(dev), brl2(dev), corV(dev)], ['DESVIO %', pctPC(devP), '', corV(devP)]]
+    [['ORÇADO (ACUM.)', kfx(totO), brl2(totO), PAINEL.txt], ['REALIZADO (ACUM.)', kfx(totR), brl2(totR), PAINEL.txt],
+     ['DESVIO (REAL − ORÇ)', kfx(dev), brl2(dev), corV(dev)], ['DESVIO %', pctPC(devP), '', corV(devP)]]
       .forEach(([rot, v, apoio, c], j) => {
         const x = 16 + j * 314, y = 153, w = 306, h = 86;
         P.push(R(x, y, w, h, {fill: PAINEL.card, line: PAINEL.borda}));
@@ -757,6 +760,8 @@
     }
     // eixo com passo "redondo", como o do ECharts, sempre passando pelo zero
     const vals = anos.flatMap(a => [a.orc, a.real, a.orc_ano, a.real_ano]).filter(v => v != null);
+    const emMi = Math.max(0, ...vals.map(Math.abs)) >= 1e6;
+    const fx = v => emMi ? mi2(v) : nf(v / 1e3, 0) + ' mil';
     let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
     if (lo === hi) hi = 1;
     // folga pros dois rótulos empilhados na ponta da barra (acumulado + ano)
@@ -770,7 +775,9 @@
     for (let t = lo; t <= hi + st / 2; t += st) {
       const y = Y(t);
       P.push(R(gx, y, gw, 0.8, {fill: PC.grade}));
-      P.push(T(gx - 70, y - 8, 62, 16, (t / 1e6).toLocaleString('pt-BR', {maximumFractionDigits: 2}) + ' Mi', {pt: 6.5, c: PAINEL.apoio, al: 'r', va: 'm'}));
+      P.push(T(gx - 70, y - 8, 62, 16, emMi
+        ? (t / 1e6).toLocaleString('pt-BR', {maximumFractionDigits: 2}) + ' Mi'
+        : (t / 1e3).toLocaleString('pt-BR', {maximumFractionDigits: 0}) + ' mil', {pt: 6.5, c: PAINEL.apoio, al: 'r', va: 'm'}));
     }
     const slot = gw / Math.max(anos.length, 1), bw = Math.min(46, slot * 0.17), y0 = Y(0);
     anos.forEach((a, j) => {
@@ -780,9 +787,11 @@
         // rótulo do lado de FORA da ponta da barra; `passo` empilha mais um pra fora
         const fora = (val, yp, passo) => val < 0 ? yp + 2 + passo * 16 : yp - 18 - passo * 16;
         const rotYtd = {pt: 6.5, c: PAINEL.apoio, al: 'c', va: 'm'};
+        // ano e acumulado zerados (orçado de receita da Casa em 2024): um rótulo só
+        if (va != null && Math.abs(va) < 0.5 && Math.abs(v) < 0.5) va = null;
         if (va == null) {
           if (h > 0.5) P.push(R(bx, topoB, bw, h, {fill: c}));
-          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, mi2(v), rotYtd));
+          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, fx(v), rotYtd));
           return;
         }
         const ya = Y(va), topoA = Math.min(ya, y0), ha = Math.abs(ya - y0);
@@ -793,16 +802,16 @@
         const mesmoLado = (v < 0) === (va < 0);
         if (mesmoLado && Math.abs(va) >= Math.abs(v) && Math.abs(ya - yv) >= 18) {
           // cada um na sua ponta: o do acumulado cai dentro do tracejado
-          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, mi2(v), rotYtd));
-          P.push(T(bx - 30, fora(va, ya, 0), bw + 60, 16, mi2(va), rotAno));
+          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, fx(v), rotYtd));
+          P.push(T(bx - 30, fora(va, ya, 0), bw + 60, 16, fx(va), rotAno));
         } else if (mesmoLado) {
           // pontas próximas (ou o ano menor que o acumulado): os dois empilhados na de fora
           const yp = Math.abs(va) >= Math.abs(v) ? ya : yv;
-          P.push(T(bx - 30, fora(v, yp, 0), bw + 60, 16, mi2(v), rotYtd));
-          P.push(T(bx - 30, fora(v, yp, 1), bw + 60, 16, mi2(va), rotAno));
+          P.push(T(bx - 30, fora(v, yp, 0), bw + 60, 16, fx(v), rotYtd));
+          P.push(T(bx - 30, fora(v, yp, 1), bw + 60, 16, fx(va), rotAno));
         } else {
-          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, mi2(v), rotYtd));
-          P.push(T(bx - 30, fora(va, ya, 0), bw + 60, 16, mi2(va), rotAno));
+          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, fx(v), rotYtd));
+          P.push(T(bx - 30, fora(va, ya, 0), bw + 60, 16, fx(va), rotAno));
         }
       });
       P.push(T(gx + j * slot, gy + gh + 24, slot, 18, String(a.ano), {pt: 7.5, c: PAINEL.apoio, al: 'c', va: 'm'}));

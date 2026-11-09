@@ -3736,15 +3736,41 @@ def _desconto_avaliacao(df, chave, a) -> tuple[float, float]:
     return o, r
 
 
-def slides_grafico_dre(ano: int, m: int) -> list:
-    titulo = lambda rot: f"HARAS COMPETÊNCIA — ORÇADO × REALIZADO POR ANO — {rot.upper()}"
+# Os mesmos gráficos para a CASA (pedido do Arthur, 09/11/2026), com os grupos do slide
+# da Casa: Receita Bruta, Despesas Gerais e Investimentos. FPG só tem o modelo Caixa
+# (2023 em diante), o mesmo dos slides 13 e 14.
+#  - Receita Bruta: 'RECEITA TOTAL - CAIXA' até 2025 (locação + financeira), 'RECEITA
+#    OPERACIONAL - BRUTA' em 2026.
+#  - Despesas Gerais não tem subtotal confiável na base: 'DESPESAS - GERAIS' some em
+#    2026 e em 2025 é outra coisa (0 / −54 mil). Sai pela conta do próprio slide da
+#    Casa, Resultado Operacional − Receita Líquida (fluxo antes dos investimentos menos
+#    receita líquida), que bate com o subtotal impresso em 2023, 2025 e 2026. Em 2024 o
+#    realizado dá −1.073 mil contra −863 mil do subtotal daquele ano.
+#  Termo = (sinal, nomes): soma com sinal, e o primeiro nome que existir no ano vale.
+GRAFICO_DRE_CASA = [
+    ("Receita Bruta", [(1, ["RECEITA OPERACIONAL - BRUTA", "RECEITA TOTAL - CAIXA"])]),
+    ("Despesas Gerais", [(1, ["FLUXO DE CAIXA ANTES DOS INVESTIMENTOS"]),
+                         (-1, ["RECEITA LIQUIDA - LOCAÇÃO"])]),
+    ("Investimentos", [(1, ["INVESTIMENTOS"])]),
+]
+GRAFICOS_DRE = {
+    "HPG": {"modelo": "Competência", "rotulo": "HARAS COMPETÊNCIA", "n": 7,
+            "naturezas": [(rot, [(1, nomes)]) for rot, nomes in GRAFICO_DRE]},
+    "FPG": {"modelo": "Caixa", "rotulo": "CASA/FPG", "n": 14, "naturezas": GRAFICO_DRE_CASA},
+}
+
+
+def slides_grafico_dre(ano: int, m: int, cc: str = "HPG") -> list:
+    cfg = GRAFICOS_DRE[cc]
+    titulo = lambda rot: f"{cfg['rotulo']} — ORÇADO × REALIZADO POR ANO — {rot.upper()}"
     sub = f"Acumulado Jan–{ABR[m-1]} de cada ano"
+    n = cfg["n"]
     h = le_historico()
     if not h:
-        return [pend(7, titulo(r), sub, "DRE_Historico.xlsx", "base do DRE não encontrada")
-                for r, _ in GRAFICO_DRE]
+        return [pend(n, titulo(r), sub, "DRE_Historico.xlsx", "base do DRE não encontrada")
+                for r, _ in cfg["naturezas"]]
     y = h["ytd"]
-    hpg = y[(y["Centro de Custo"] == "HPG") & (y["Modelo"] == "Competência") & (y["ano"] <= ano)]
+    hpg = y[(y["Centro de Custo"] == cc) & (y["Modelo"] == cfg["modelo"]) & (y["ano"] <= ano)]
     faixa = hpg[hpg["Acumulado"] == f"{m:02d}-Jan a {ABR[m-1]}"]
     anos = sorted(int(a) for a in faixa["ano"].unique())
     _ch = lambda d: d["Natureza de Lançamento"].map(lambda x: _chave_dre(x) if isinstance(x, str) else "")
@@ -3760,22 +3786,31 @@ def slides_grafico_dre(ano: int, m: int) -> list:
     else:
         dfa = chave_a = None
 
-    def valor(d, ch, a, rot, nomes):
-        """(orçado, realizado) da natureza no ano, ou None se a base não tem."""
+    def termo(d, ch, a, nomes):
+        """(orçado, realizado) da primeira natureza da lista que existir no ano."""
         g = next((x for x in (d[(ch == _chave_dre(nm)) & (d["ano"] == a)] for nm in nomes)
                   if not x.empty), None)
         if g is None:
             return None
         o, r = g["Orçado YTD"].map(lambda x: num(x) or 0.0), g["Realizado YTD"].map(lambda x: num(x) or 0.0)
         i = (o.abs() + r.abs()).idxmax()
-        vo, vr = float(o[i]), float(r[i])
-        if rot == "Receita Bruta" and a in RB_SEM_AVALIACAO_ANOS:
+        return float(o[i]), float(r[i])
+
+    def valor(d, ch, a, rot, termos):
+        """Soma com sinal dos termos no ano, ou None se algum termo falta na base."""
+        vo = vr = 0.0
+        for sinal, nomes in termos:
+            t = termo(d, ch, a, nomes)
+            if t is None:
+                return None
+            vo, vr = vo + sinal * t[0], vr + sinal * t[1]
+        if cc == "HPG" and rot == "Receita Bruta" and a in RB_SEM_AVALIACAO_ANOS:
             do, dr = _desconto_avaliacao(d, ch, a)
             vo, vr = vo - do, vr - dr
         return vo, vr
 
     out = []
-    for rot, nomes in GRAFICO_DRE:
+    for rot, nomes in cfg["naturezas"]:
         vals = []
         for a in anos:
             v = valor(df, chave, a, rot, nomes)
@@ -3788,10 +3823,10 @@ def slides_grafico_dre(ano: int, m: int) -> list:
                 item["orc_ano"], item["real_ano"] = va
             vals.append(item)
         if not any(v["orc"] or v["real"] for v in vals):
-            out.append(pend(7, titulo(rot), sub, "DRE_Historico.xlsx",
+            out.append(pend(n, titulo(rot), sub, "DRE_Historico.xlsx",
                             "sem acumulado dessa natureza na base"))
             continue
-        out.append({"t": "dre_anos", "n": 7, "titulo": titulo(rot), "sub": sub, "anos": vals,
+        out.append({"t": "dre_anos", "n": n, "titulo": titulo(rot), "sub": sub, "anos": vals,
                     "ytd": f"Jan–{ABR[m-1]}"})   # rótulo da legenda do acumulado
     return out
 
@@ -3936,6 +3971,8 @@ def monta_deck(m, ano, ctx):
     s.append(dre(14, f"CASA/FPG — ORÇADO X REALIZADO ACUMULADO JAN–{ABR[m-1].upper()} {ano}",
                  "",
                  linhas_face(face_casa_ytd, gab_casa, CASA_EXTRAS, "Tributos"), "casa"))
+    # os gráficos por ano da Casa, logo depois do acumulado dela (como os do Haras)
+    s += slides_grafico_dre(ano, m, "FPG")
 
     s.append(divisor(2, "ESTAÇÃO DE MONTA", f"Embriões  ·  Doadoras  ·  Garanhões  |  {safra}"))
     s += est_slides
