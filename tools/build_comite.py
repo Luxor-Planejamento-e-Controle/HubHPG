@@ -3710,11 +3710,30 @@ def divide_contratos(slide):
 # trimestral, depois da análise de despesas do acumulado (pedidos do Arthur,
 # 14/10/2026). Os anos são todos os da base. Até 2023 o DRE chamava as linhas de
 # outro jeito ("RECEITA BRUTA", "CUSTOS INDIRETOS E DESPESAS"); o primeiro nome da
-# lista que existir no ano é o que vale. Atenção: a receita bruta até 2023 inclui
-# ativo biológico e reavaliação, que de 2024 em diante ficam fora dela.
+# lista que existir no ano é o que vale.
 GRAFICO_DRE = [("Receita Bruta", ["RECEITA OPERACIONAL BRUTA", "RECEITA BRUTA"]),
                ("Custos e Despesas", ["CUSTOS E DESPESAS OPERACIONAIS", "CUSTOS INDIRETOS E DESPESAS"]),
                ("Investimentos", ["INVESTIMENTOS"])]
+# Receita bruta de 2022 e 2023 = Receita Bruta − Reavaliação do Plantel − Ativos
+# Biológicos (pedido do Arthur, 09/11/2026, por questões conceituais). Até 2023 o DRE
+# punha as duas dentro da receita bruta; de 2024 em diante ficam fora. Mesma regra do
+# card do hub do P&C (LuxorP&CHub/tools/build_data.py, _rb_sem_avaliacao). Só os
+# subtotais: REAVALIAÇÃO DA TROPA é a linha de dentro do subtotal Reavaliação do
+# Plantel, com o mesmo valor — descontar os dois tiraria duas vezes.
+RB_SEM_AVALIACAO_ANOS = (2022, 2023)
+
+
+def _desconto_avaliacao(df, chave, a) -> tuple[float, float]:
+    """(orçado, realizado) de Ativos Biológicos + Reavaliação do Plantel no ano `a`."""
+    tira = (df["ano"] == a) & (chave.str.startswith("ATIVOSBIOLOGIC")
+                                | (chave == "REAVALIACAODOPLANTEL"))
+    o = r = 0.0
+    for _, g in df[tira].groupby(chave[tira]):
+        go = g["Orçado YTD"].map(lambda x: num(x) or 0.0)
+        gr = g["Realizado YTD"].map(lambda x: num(x) or 0.0)
+        i = (go.abs() + gr.abs()).idxmax()       # mesmo critério da linha da receita
+        o, r = o + float(go[i]), r + float(gr[i])
+    return o, r
 
 
 def slides_grafico_dre(ano: int, m: int) -> list:
@@ -3741,7 +3760,11 @@ def slides_grafico_dre(ano: int, m: int) -> list:
                 continue
             o, r = g["Orçado YTD"].map(lambda x: num(x) or 0.0), g["Realizado YTD"].map(lambda x: num(x) or 0.0)
             i = (o.abs() + r.abs()).idxmax()
-            vals.append({"ano": a, "orc": float(o[i]), "real": float(r[i])})
+            vo, vr = float(o[i]), float(r[i])
+            if rot == "Receita Bruta" and a in RB_SEM_AVALIACAO_ANOS:
+                do, dr = _desconto_avaliacao(df, chave, a)
+                vo, vr = vo - do, vr - dr
+            vals.append({"ano": a, "orc": vo, "real": vr})
         if not any(v["orc"] or v["real"] for v in vals):
             out.append(pend(7, titulo(rot), sub, "DRE_Historico.xlsx",
                             "sem acumulado dessa natureza na base"))
