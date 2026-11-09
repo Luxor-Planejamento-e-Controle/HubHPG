@@ -746,10 +746,21 @@
       P.push(R(x, 268, 12, 12, {fill: c}));
       P.push(T(x + 18, 262, 84, 24, t, {pt: 8, c: PAINEL.txt, va: 'm'}));
     });
+    // ANO COMPLETO dos anos anteriores (09/11/2026): a barra cheia é o acumulado Jan–mês,
+    // e o ano fechado fica atrás dela, tracejado e translúcido, com o valor na ponta.
+    const temAno = anos.some(a => a.orc_ano != null || a.real_ano != null);
+    if (temAno) {
+      P.push(R(700, 268, 12, 12, {fill: PAINEL.apoio}));
+      P.push(T(718, 262, 150, 24, 'Acumulado ' + (s.ytd || ''), {pt: 8, c: PAINEL.txt, va: 'm'}));
+      P.push(R(868, 268, 12, 12, {fill: PAINEL.apoio, alfa: 0.18, line: PAINEL.apoio, traco: 1, espL: 1.5}));
+      P.push(T(886, 262, 140, 24, 'Ano completo', {pt: 8, c: PAINEL.txt, va: 'm'}));
+    }
     // eixo com passo "redondo", como o do ECharts, sempre passando pelo zero
-    const vals = anos.flatMap(a => [a.orc, a.real]);
+    const vals = anos.flatMap(a => [a.orc, a.real, a.orc_ano, a.real_ano]).filter(v => v != null);
     let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
     if (lo === hi) hi = 1;
+    // folga pros dois rótulos empilhados na ponta da barra (acumulado + ano)
+    if (temAno) { const f = (hi - lo) * 0.1; if (hi > 0) hi += f; if (lo < 0) lo -= f; }
     const redondo = r => { const e = Math.pow(10, Math.floor(Math.log10(r))), f = r / e;
       return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e; };
     const st = redondo((hi - lo) / 5);
@@ -764,11 +775,35 @@
     const slot = gw / Math.max(anos.length, 1), bw = Math.min(46, slot * 0.17), y0 = Y(0);
     anos.forEach((a, j) => {
       const cx = gx + j * slot + slot / 2;
-      [[a.orc, PC.teal, cx - bw - 4], [a.real, PC.laranja, cx + 4]].forEach(([v, c, bx]) => {
+      [[a.orc, a.orc_ano, PC.teal, cx - bw - 4], [a.real, a.real_ano, PC.laranja, cx + 4]].forEach(([v, va, c, bx]) => {
         const yv = Y(v), topoB = Math.min(yv, y0), h = Math.abs(yv - y0);
-        if (h > 0.5) P.push(R(bx, topoB, bw, h, {fill: c}));
-        P.push(T(bx - 30, v < 0 ? y0 + h + 2 : topoB - 18, bw + 60, 16, mi2(v),
-                 {pt: 6.5, c: PAINEL.apoio, al: 'c', va: 'm'}));
+        // rótulo do lado de FORA da ponta da barra; `passo` empilha mais um pra fora
+        const fora = (val, yp, passo) => val < 0 ? yp + 2 + passo * 16 : yp - 18 - passo * 16;
+        const rotYtd = {pt: 6.5, c: PAINEL.apoio, al: 'c', va: 'm'};
+        if (va == null) {
+          if (h > 0.5) P.push(R(bx, topoB, bw, h, {fill: c}));
+          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, mi2(v), rotYtd));
+          return;
+        }
+        const ya = Y(va), topoA = Math.min(ya, y0), ha = Math.abs(ya - y0);
+        if (ha > 0.5) P.push(R(bx, topoA, bw, ha, {fill: c, alfa: 0.18}));   // ano: fundo translúcido
+        if (h > 0.5) P.push(R(bx, topoB, bw, h, {fill: c}));                  // acumulado: cheia
+        if (ha > 0.5) P.push(R(bx, topoA, bw, ha, {line: c, traco: 1, espL: 1.5}));   // ano: tracejado por cima
+        const rotAno = {pt: 6.5, c, i: 1, b: 1, al: 'c', va: 'm'};
+        const mesmoLado = (v < 0) === (va < 0);
+        if (mesmoLado && Math.abs(va) >= Math.abs(v) && Math.abs(ya - yv) >= 18) {
+          // cada um na sua ponta: o do acumulado cai dentro do tracejado
+          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, mi2(v), rotYtd));
+          P.push(T(bx - 30, fora(va, ya, 0), bw + 60, 16, mi2(va), rotAno));
+        } else if (mesmoLado) {
+          // pontas próximas (ou o ano menor que o acumulado): os dois empilhados na de fora
+          const yp = Math.abs(va) >= Math.abs(v) ? ya : yv;
+          P.push(T(bx - 30, fora(v, yp, 0), bw + 60, 16, mi2(v), rotYtd));
+          P.push(T(bx - 30, fora(v, yp, 1), bw + 60, 16, mi2(va), rotAno));
+        } else {
+          P.push(T(bx - 30, fora(v, yv, 0), bw + 60, 16, mi2(v), rotYtd));
+          P.push(T(bx - 30, fora(va, ya, 0), bw + 60, 16, mi2(va), rotAno));
+        }
       });
       P.push(T(gx + j * slot, gy + gh + 24, slot, 18, String(a.ano), {pt: 7.5, c: PAINEL.apoio, al: 'c', va: 'm'}));
     });
@@ -1003,7 +1038,8 @@
       const box = `left:${p.x.toFixed(1)}px;top:${p.y.toFixed(1)}px;width:${p.w.toFixed(1)}px;height:${p.h.toFixed(1)}px`;
       if (p.k === 'r') {
         const st = box + (p.fill ? `;background:${rgba(p.fill, p.alfa)}` : '') +
-          (p.line ? `;border:1px solid #${p.line}` : '') + (p.forma === 'elipse' ? ';border-radius:50%' : '');
+          (p.line ? `;border:${p.espL || 1}px ${p.traco ? 'dashed' : 'solid'} #${p.line}` : '') +
+          (p.forma === 'elipse' ? ';border-radius:50%' : '');
         return p.link ? `<a class="pr" href="${escH(p.link)}" data-video="${escH(p.video || '')}" style="${st}"></a>`
                       : `<div class="pr" style="${st}"></div>`;
       }
@@ -1037,7 +1073,9 @@
       if (p.k === 'r') {
         const o = Object.assign({}, g);
         if (p.fill) o.fill = {color: p.fill, transparency: p.alfa != null ? Math.round((1 - p.alfa) * 100) : 0};
-        if (p.line) o.line = {color: p.line, width: 0.75};
+        // espL em px do slide (1280 de largura); 1 px = 0,75 pt
+        if (p.line) o.line = Object.assign({color: p.line, width: (p.espL || 1) * 0.75},
+                                           p.traco ? {dashType: 'dash'} : {});
         if (p.link) o.hyperlink = {url: p.link, tooltip: 'Abrir o vídeo no hub'};
         sl.addShape(p.forma === 'elipse' ? pres.ShapeType.ellipse : pres.ShapeType.rect, o);
         continue;

@@ -3744,32 +3744,55 @@ def slides_grafico_dre(ano: int, m: int) -> list:
         return [pend(7, titulo(r), sub, "DRE_Historico.xlsx", "base do DRE não encontrada")
                 for r, _ in GRAFICO_DRE]
     y = h["ytd"]
-    faixa = y[(y["Centro de Custo"] == "HPG") & (y["Modelo"] == "Competência")
-              & (y["Acumulado"] == f"{m:02d}-Jan a {ABR[m-1]}") & (y["ano"] <= ano)]
+    hpg = y[(y["Centro de Custo"] == "HPG") & (y["Modelo"] == "Competência") & (y["ano"] <= ano)]
+    faixa = hpg[hpg["Acumulado"] == f"{m:02d}-Jan a {ABR[m-1]}"]
     anos = sorted(int(a) for a in faixa["ano"].unique())
+    _ch = lambda d: d["Natureza de Lançamento"].map(lambda x: _chave_dre(x) if isinstance(x, str) else "")
     df = faixa[faixa["É Subtotal"].astype(bool)]
-    chave = df["Natureza de Lançamento"].map(lambda x: _chave_dre(x) if isinstance(x, str) else "")
+    chave = _ch(df)
+    # ANO COMPLETO dos anos anteriores (pedido do Arthur, 09/11/2026): a barra continua
+    # sendo o acumulado Jan–mês, e o ano fechado entra atrás dela, tracejado — orçado e
+    # realizado. O ano do deck não tem (ainda não acabou), e no deck de dezembro o
+    # acumulado JÁ é o ano completo.
+    if m < 12:
+        dfa = hpg[(hpg["Acumulado"] == "12-Jan a Dez") & hpg["É Subtotal"].astype(bool)]
+        chave_a = _ch(dfa)
+    else:
+        dfa = chave_a = None
+
+    def valor(d, ch, a, rot, nomes):
+        """(orçado, realizado) da natureza no ano, ou None se a base não tem."""
+        g = next((x for x in (d[(ch == _chave_dre(nm)) & (d["ano"] == a)] for nm in nomes)
+                  if not x.empty), None)
+        if g is None:
+            return None
+        o, r = g["Orçado YTD"].map(lambda x: num(x) or 0.0), g["Realizado YTD"].map(lambda x: num(x) or 0.0)
+        i = (o.abs() + r.abs()).idxmax()
+        vo, vr = float(o[i]), float(r[i])
+        if rot == "Receita Bruta" and a in RB_SEM_AVALIACAO_ANOS:
+            do, dr = _desconto_avaliacao(d, ch, a)
+            vo, vr = vo - do, vr - dr
+        return vo, vr
+
     out = []
     for rot, nomes in GRAFICO_DRE:
         vals = []
         for a in anos:
-            g = next((x for x in (df[(chave == _chave_dre(nm)) & (df["ano"] == a)] for nm in nomes)
-                      if not x.empty), df.iloc[0:0])
-            if g.empty:
+            v = valor(df, chave, a, rot, nomes)
+            if v is None:
                 vals.append({"ano": a, "orc": 0.0, "real": 0.0})
                 continue
-            o, r = g["Orçado YTD"].map(lambda x: num(x) or 0.0), g["Realizado YTD"].map(lambda x: num(x) or 0.0)
-            i = (o.abs() + r.abs()).idxmax()
-            vo, vr = float(o[i]), float(r[i])
-            if rot == "Receita Bruta" and a in RB_SEM_AVALIACAO_ANOS:
-                do, dr = _desconto_avaliacao(df, chave, a)
-                vo, vr = vo - do, vr - dr
-            vals.append({"ano": a, "orc": vo, "real": vr})
+            item = {"ano": a, "orc": v[0], "real": v[1]}
+            va = valor(dfa, chave_a, a, rot, nomes) if dfa is not None and a < ano else None
+            if va is not None:
+                item["orc_ano"], item["real_ano"] = va
+            vals.append(item)
         if not any(v["orc"] or v["real"] for v in vals):
             out.append(pend(7, titulo(rot), sub, "DRE_Historico.xlsx",
                             "sem acumulado dessa natureza na base"))
             continue
-        out.append({"t": "dre_anos", "n": 7, "titulo": titulo(rot), "sub": sub, "anos": vals})
+        out.append({"t": "dre_anos", "n": 7, "titulo": titulo(rot), "sub": sub, "anos": vals,
+                    "ytd": f"Jan–{ABR[m-1]}"})   # rótulo da legenda do acumulado
     return out
 
 
