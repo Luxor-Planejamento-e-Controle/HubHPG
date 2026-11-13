@@ -373,7 +373,8 @@ const SECTIONS = [
  ], det:[["Saídas na semana","saidas"],["Entradas na semana","entradas"],
          ["Embriões vendidos pendentes de saída","terceiros_vendidos_embrioes"],
          ["Em sociedade pendentes de saída","terceiros_sociedade"],
-         ["Embriões em sociedade aguardando entrega","terceiros_sociedade_embrioes"]]},
+         ["Embriões em sociedade aguardando entrega","terceiros_sociedade_embrioes"],
+         ["Contratos pendentes de assinatura","contratos_pendentes"]]},
 ];
 
 function rawVal(k){
@@ -402,7 +403,8 @@ const LABELS={doadora:"Doadora",garanhao:"Garanhão",local:"Local",cotas_pg:"Cot
   tipo:"Tipo",obs:"Obs",animal:"Animal",data:"Data",ocorrencia:"Ocorrência",produto:"Produto (animal)",
   mae:"Mãe",pai:"Pai",afeta_headcount:"Conta no Δ",cancelado_em:"Cancelado em",
   contraparte:"Contraparte",condicao:"Condição atual",
-  classificacao:"Classificação",local_saida:"Local saída",local_entrada:"Local entrada",id:"ID"};
+  classificacao:"Classificação",local_saida:"Local saída",local_entrada:"Local entrada",id:"ID",
+  lote:"Lote",pendencia:"Pendência"};
 // `afeta_headcount` volta a ser interno (18/09/2026): a coluna 'Conta no Δ' era
 // detalhe de cálculo no meio da lista de saídas. Quem precisa da abertura tem o Δ
 // do headcount, que já publica entradas e saídas efetivas.

@@ -1702,12 +1702,26 @@ COL_MENSAL_OBS = 24
 #
 # Duas portas: a lista abaixo (o haras deu a baixa sem escrever nada na planilha) e a
 # OBS da própria linha (coluna Y), se o haras passar a escrever lá. Contrato assinado
-# SAI DA LISTA. OPALA DA PAO GRANDE: assinado pelo Gian em 06/11/2026, já fora.
-CONTRATO_NAO_ASSINADO = {
-    "LEVADA DA PAO GRANDE": "V Leilão PG — falta a assinatura do Gian (06/11/2026)",
-    "PITAYA DA PAO GRANDE": "V Leilão PG — falta a assinatura do Gian (06/11/2026)",
-    "OMEGA DO ATLANTICO SUL DA PAO GRANDE": "V Leilão PG — falta a assinatura do Gian (06/11/2026)",
-}
+# SAI DA LISTA.
+#
+# CONTRATOS_PENDENTES é a lista que o haras mandou em 13/11/2026 (V Leilão PG) e vira
+# a lista "Contratos pendentes de assinatura" da seção 5 — inclusive de quem não
+# aparece em lista de venda nenhuma (ORIANA segue PLANTEL, o embrião da JAVA não está
+# marcado vendido, a OPALA já foi entregue). Nome do cliente fica fora: repo público.
+# (lote, animal, categoria, pendência)
+CONTRATOS_PENDENTES = [
+    ("05", "JAVA DA PAO GRANDE", "EMBRIÃO", "assinatura de 1 testemunha"),
+    ("15", "LEVADA DA PAO GRANDE", "ÉGUA", "assinatura de 1 testemunha"),
+    ("17", "OMEGA DO ATLANTICO SUL DA PAO GRANDE", "POTRA", "assinatura do Gian (testemunha)"),
+    ("18", "ORIANA DA PAO GRANDE", "POTRA",
+     "assinatura do comprador nos 2 contratos (cota Carla e cota Eduardo)"),
+    ("22", "PITAYA DA PAO GRANDE", "POTRA", "assinatura do Gian (testemunha)"),
+    ("24", "OPALA DA PAO GRANDE", "POTRO", "assinatura do Gian (testemunha)"),
+]
+# OBS na linha do animal. Embrião fica fora: o nome dele é o da doadora, e a JAVA
+# doadora ganharia a pendência do embrião.
+CONTRATO_NAO_ASSINADO = {nome: pend for _, nome, cat, pend in CONTRATOS_PENDENTES
+                         if cat != "EMBRIÃO"}
 OBS_CONTRATO_PENDENTE = "Contrato não assinado"
 # `_norm` não tira acento, daí o N[AÃ]O.
 RE_CONTRATO_PENDENTE = re.compile(
@@ -1717,9 +1731,11 @@ RE_CONTRATO_PENDENTE = re.compile(
 
 
 def _contrato_pendente(nome, obs=None) -> str | None:
-    """'Contrato não assinado' para a OBS da linha, ou None."""
-    if (_norm(_sem_cotista(nome)) in CONTRATO_NAO_ASSINADO
-            or RE_CONTRATO_PENDENTE.search(_norm(obs))):
+    """Pendência do contrato para a OBS da linha, ou None."""
+    pend = CONTRATO_NAO_ASSINADO.get(_norm(_sem_cotista(nome)))
+    if pend:
+        return f"Contrato pendente: {pend}"
+    if RE_CONTRATO_PENDENTE.search(_norm(obs)):
         return OBS_CONTRATO_PENDENTE
     return None
 
@@ -2429,6 +2445,9 @@ def build_pendentes(rep: Report):
     # lista completa da seção 5 = o que os dois KPIs contam. Era `pend + pend_emb` (só
     # o "Animais para sair"), então os marcados no STATUS PLANTEL não apareciam.
     rep.detalhe["pendentes_saida"] = vendidos + sociedade
+    rep.detalhe["contratos_pendentes"] = [
+        {"lote": lote, "animal": nome, "categoria": cat, "pendencia": pend}
+        for lote, nome, cat, pend in CONTRATOS_PENDENTES]
 
 
 def _latest_animais_sair() -> Path:
@@ -4044,6 +4063,7 @@ def _snap_from_rep(rep: Report) -> dict:
             # headcount e não aparecia em relatório nenhum (ver _cancelamentos_pendentes)
             "cancelamentos_pendentes": rep.detalhe.get("cancelamentos_pendentes"),
             "pendentes_saida": rep.detalhe.get("pendentes_saida"),
+            "contratos_pendentes": rep.detalhe.get("contratos_pendentes"),
             # Faltava esta — mesmo esquecimento do fontes_caminhos e do
             # acumulado_estacao_proxima: existe em rep.detalhe, nunca chegava no
             # dict congelado. É a lista que a seção 4 (Terceiros na propriedade /
