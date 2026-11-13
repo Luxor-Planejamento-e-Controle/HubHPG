@@ -42,13 +42,63 @@ function allowed(){
 }
 const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 
+/* ---- menu em pastas (13/11/2026, mesma organização do LuxorP&CHub) ----
+   A ORDEM do menu mora aqui: id solto é link no primeiro nível; objeto é pasta.
+   Aba nova que não entrar em lugar nenhum aparece no fim do primeiro nível — nunca
+   some do menu por esquecimento. */
+const MENU = [
+  '',
+  {pasta:'haras', titulo:'Rotinas Haras', itens:['semanal','comite','sgpg']},
+  {pasta:'gastos', titulo:'Controles de gastos', itens:['gastos','gastos_casa']},
+  {pasta:'luxor', titulo:'Rotinas Luxor', itens:['plantel']},
+];
+const PASTA_ICO='M3 7.5A1.5 1.5 0 014.5 6H9.2l1.8 2h8.5A1.5 1.5 0 0121 9.5v8A1.5 1.5 0 0119.5 19h-15A1.5 1.5 0 013 17.5z';
+const pastaDe = id => MENU.find(m=>typeof m==='object' && m.itens.includes(id));
+// pastas abertas, por navegador (como o menu recolhido)
+const pastasAbertas=()=>{try{return new Set(JSON.parse(localStorage.getItem('hpg-pastas')||'[]'));}catch(e){return new Set();}};
+function salvaPastas(s){try{localStorage.setItem('hpg-pastas',JSON.stringify([...s]));}catch(e){}}
+
+/* menu já resolvido pelo que o usuário pode abrir: [{rota}|{pasta, titulo, rotas}] */
+function menuDoUsuario(){
+  const ok=new Map(allowed().map(r=>[r.id,r]));
+  const usados=new Set();
+  const out=[];
+  for(const m of MENU){
+    if(typeof m==='string'){ if(ok.has(m)){ out.push({rota:ok.get(m)}); usados.add(m); } continue; }
+    const rotas=m.itens.filter(id=>ok.has(id)).map(id=>ok.get(id));
+    m.itens.forEach(id=>usados.add(id));
+    if(rotas.length) out.push({pasta:m.pasta, titulo:m.titulo, rotas});
+  }
+  for(const [id,r] of ok) if(!usados.has(id)) out.push({rota:r});
+  return out;
+}
+
+function linkNav(r){
+  const a=document.createElement('a'); a.href='#/'+r.id; a.className=r.soon?'locked':''; a.title=r.nav||r.title;
+  a.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg>`
+    +`<span>${r.nav||r.title}</span>`+(r.soon?'<span class="badge">em breve</span>':'');
+  return a;
+}
 function buildNav(){
   const nav=document.getElementById('nav'); nav.innerHTML='';
-  for(const r of allowed()){
-    const a=document.createElement('a'); a.href='#/'+r.id; a.className=r.soon?'locked':'';
-    a.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg>`
-      +`<span>${r.nav||r.title}</span>`+(r.soon?'<span class="badge">em breve</span>':'');
-    nav.appendChild(a);
+  const abertas=pastasAbertas();
+  for(const m of menuDoUsuario()){
+    if(m.rota){ nav.appendChild(linkNav(m.rota)); continue; }
+    const g=document.createElement('div');
+    g.className='pasta'+(abertas.has(m.pasta)?' aberta':''); g.dataset.pasta=m.pasta;
+    const b=document.createElement('button'); b.type='button'; b.className='pasta-cab'; b.title=m.titulo;
+    b.setAttribute('aria-expanded', abertas.has(m.pasta)?'true':'false');
+    b.innerHTML=`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="${PASTA_ICO}"/></svg><span>${m.titulo}</span>`+
+      `<svg class="seta" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
+    b.onclick=()=>{
+      const s=pastasAbertas();
+      const abre=!g.classList.contains('aberta');
+      g.classList.toggle('aberta',abre); b.setAttribute('aria-expanded',abre?'true':'false');
+      abre?s.add(m.pasta):s.delete(m.pasta); salvaPastas(s);
+    };
+    const filhos=document.createElement('div'); filhos.className='pasta-itens';
+    m.rotas.forEach(r=>filhos.appendChild(linkNav(r)));
+    g.append(b,filhos); nav.appendChild(g);
   }
 }
 function router(){
@@ -56,20 +106,31 @@ function router(){
   const r=byId(id);
   document.getElementById('pageTitle').textContent=r.title;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#/'+id));
+  // a pasta da aba aberta abre junto (link direto, Início) — e fica aberta
+  const p=pastaDe(r.id), g=p && document.querySelector(`#nav .pasta[data-pasta="${p.pasta}"]`);
+  if(g && !g.classList.contains('aberta')){
+    g.classList.add('aberta'); g.querySelector('.pasta-cab').setAttribute('aria-expanded','true');
+    const s=pastasAbertas(); s.add(p.pasta); salvaPastas(s);
+  }
   const c=document.getElementById('content'); c.className='content'; c.innerHTML='';
   (r.render||renderPlaceholder)(c,r); window.scrollTo(0,0);
 }
 
 /* ---- Início ---- */
+/* Os cartões seguem as pastas do menu: primeiro as abas soltas, depois uma seção por pasta. */
 function renderHome(el){
-  const cards=allowed().filter(r=>r.id).map(r=>`
+  const cartao=r=>`
     <a class="card hover" href="#/${r.id}">
       <div class="card-title"><svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#CA9703" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[r.icon]}"/></svg><h3 style="margin:0">${r.nav||r.title}</h3>
         ${r.soon?'<span class="pill soon" style="margin-left:auto">em breve</span>':''}</div>
-      <div class="desc">${r.sub||''}</div></a>`).join('');
+      <div class="desc">${r.sub||''}</div></a>`;
+  const menu=menuDoUsuario();
+  const soltas=menu.filter(m=>m.rota && m.rota.id).map(m=>cartao(m.rota)).join('');
+  const pastas=menu.filter(m=>m.pasta).map(m=>
+    `<h2 class="home-pasta">${m.titulo}</h2><div class="grid g-3">${m.rotas.map(cartao).join('')}</div>`).join('');
   el.innerHTML=`<div class="hero"><h1>Haras Pao Grande</h1>
     <p>Hub dos painéis do haras.</p></div>
-    <div class="grid g-3">${cards}</div>`;
+    ${soltas?`<div class="grid g-3">${soltas}</div>`:''}${pastas}`;
 }
 
 /* ---- placeholder ----
