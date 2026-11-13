@@ -1684,8 +1684,13 @@ def _e_vendido_pendente(status_plantel, local=None) -> bool:
     para SOCIO É a saída (ver a marca de OBS em _status_plantel_mensal).
 
     `local` fica no parâmetro porque quem chama já o tem em mãos e a assimetria acima
-    é fácil de esquecer — documentada aqui em vez de virar filtro escondido."""
-    return PREFIXO_VENDIDO_PENDENTE in _norm(status_plantel)
+    é fácil de esquecer — documentada aqui em vez de virar filtro escondido.
+
+    Exceção: LOCAL OUTROS é o destino de quem sai. Em 13/11/2026 a LEVADA DA PAO
+    GRANDE saiu (SAIDA-VENDA na aba), o haras mudou o LOCAL para OUTROS e deixou o
+    STATUS em VENDIDO PENDENTE SAIDA; contada como pendente, a saída dela sumia."""
+    return (PREFIXO_VENDIDO_PENDENTE in _norm(status_plantel)
+            and _norm(local) != "OUTROS")
 
 STATUS_TERCEIRO = "TERCEIRO"
 # Sociedade pendente de animal: até 28/08/2026 não tinha marca nenhuma (comentário
