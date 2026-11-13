@@ -1608,6 +1608,31 @@ def _transferencias_de_animais(rep: Report) -> list:
     return out
 
 
+# animal (sem cotista) -> [(data iso, ocorrência)] da aba MOVIMENTAÇÕES, preenchido
+# por build_movimentacao. Ver _baixa_anterior_a_semana.
+_MOV_POR_ANIMAL: dict = {}
+# Ocorrência que tira o animal da PG: cota zerada, entrega, doação, óbito. Venda
+# parcial ('MUDOU A COTA DE 10% PARA 5%') não entra; 'PARA 0,0%' entra, 'PARA 0,5%' não.
+MOV_BAIXA_RE = re.compile(
+    r"ZEROU|PORCENTAGEM PARA 0(?:[.,]0+)?\s*%|VENDIDO E ENTREGUE|STATUS PARA (?:DOADO|OBITO)")
+
+
+def _baixa_anterior_a_semana(rep: Report, nome: str) -> str | None:
+    """Data da baixa do animal, quando ela é de ANTES da semana.
+
+    O LEGADO DA PAO GRANDE foi vendido ao Sr. Cesar Furtado em 05/10/2026 ('ALTEROU A
+    PORCENTAGEM PARA 0,0%') e o STATUS PLANTEL só virou VENDIDO E ENTREGUE em
+    13/11/2026. Sem lançamento na aba SAIDAS-ENTRADAS, a regra do roster o publicou
+    como saída da semana, com a data do fechamento; o haras reclamou. Vale só o
+    ÚLTIMO movimento do animal até o fim da semana: se ele é baixa e caiu antes da
+    janela, a mudança de status é atualização atrasada, não saída desta semana."""
+    evs = sorted(e for e in _MOV_POR_ANIMAL.get(nome, []) if e[0] <= rep.semana_fim)
+    if not evs:
+        return None
+    data, texto = evs[-1]
+    return data if data < rep.semana_inicio and MOV_BAIXA_RE.search(texto) else None
+
+
 def build_movimentacao(rep: Report, ini: date, fim: date):
     src = _latest_no_plantel("*CONTROLE_DE_PLANTEL_PAO_GRANDE_*.xlsx", "controle mensal")
     rep.fontes["controle_plantel_mensal"] = src.name
@@ -1616,6 +1641,7 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
     ws = wb["MOVIMENTAÇÕES"]
     evs = {"SAIDA": [], "ENTRADA": [], "TRANSFERENCIA": []}
     ultimo = None  # último lançamento DATADO da aba, de qualquer tipo
+    _MOV_POR_ANIMAL.clear()
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 3 or r[3] is None:
             continue
@@ -1624,6 +1650,9 @@ def build_movimentacao(rep: Report, ini: date, fim: date):
             continue
         if ultimo is None or d > ultimo:
             ultimo = d
+        if len(r) > 4 and _s(r[2]):
+            _MOV_POR_ANIMAL.setdefault(_norm(_sem_cotista(_s(r[2]))), []).append(
+                (d.isoformat(), _norm(r[4])))
         tipo = _categorize_mov(str(r[4] or "").upper())
         if tipo is None:
             continue
