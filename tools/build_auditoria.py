@@ -71,6 +71,8 @@ FONTES = {
     "Arrendamento": ("3 · Headcount", "CONTROLE_DE_PLANTEL mensal · PLANTEL", "Animais mais receptoras do arrendamento."),
     "Centro de Treinamento": ("3 · Headcount", "CONTROLE_DE_PLANTEL mensal · PLANTEL",
         "LOCAL OUTROS no roster. Mato Grosso fica fora da contagem por decisão de negócio."),
+    "Central": ("3 · Headcount", "CONTROLE_DE_PLANTEL mensal · PLANTEL",
+        "CENTRAL no STATUS PLANTEL ou no LOCAL do roster (animal em central de reprodução fora da fazenda)."),
     "Sócios": ("3 · Headcount", "CONTROLE_DE_PLANTEL mensal · PLANTEL", "LOCAL SOCIO no roster."),
     "Δ headcount": ("3 · Headcount", "snapshot local · headcount_history.json",
         "Variação do número de ANIMAIS, que é o que o relatório publica no '+02 / -01'. Receptora não entra aqui: ela é contada à parte, e receptora que vai pro sócio sai da contagem sem aparecer nesse Δ. A variação do total (animais + receptoras) fica em delta, separada."),

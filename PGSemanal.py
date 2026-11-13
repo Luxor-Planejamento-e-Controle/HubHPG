@@ -97,6 +97,7 @@ def _validacao(rep):
         ("Fazenda Pao Grande", h["fazenda_pg"], dh["fazenda_pg"]),
         ("Arrendamento", h["arrendamento"], dh["arrendamento"]),
         ("Centro de Treinamento", h.get("cte"), dh.get("cte")),
+        ("Central", h.get("central"), dh.get("central")),
         ("Sócios", h["socio"], dh["socio"]),
         # O Δ do relatório é a ABERTURA (+entradas / -saídas efetivas), não a
         # variação do total nem o Δ só de animais. Comparar `delta_animais` era

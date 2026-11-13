@@ -94,6 +94,15 @@ def parse_docx(path: Path, ref: date) -> dict:
                 return v
         return None
 
+    # Rótulo que também aparece em texto corrido ("foi para a central do Goretti"):
+    # só vale a linha que COMEÇA por ele, já sem o marcador do bullet.
+    def find_inicio(label):
+        for ln in paras:
+            s = ln.lstrip("•·-\t ").strip()
+            if s.lower().startswith(label.lower()) and ":" in s:
+                return s.split(":", 1)[1].strip()
+        return None
+
     # detalhe de produção = linhas soltas entre os bullets (nascimento/aborto)
     def det_after(label, stop_prefixes):
         out = []
@@ -141,6 +150,7 @@ def parse_docx(path: Path, ref: date) -> dict:
             "fazenda_pg": _int(find("Fazenda Pao Grande") or find("Fazenda Pão Grande")),
             "arrendamento": _int(find("Arrendamento")),
             "cte": _int(find("Centro de Treinamento")),
+            "central": _int(find_inicio("Central")),
             "socio": _int(find("Sócios")),
             "delta_txt": find("vs semana passada") or find("Δ"),
         },
@@ -182,7 +192,7 @@ def parse_docx(path: Path, ref: date) -> dict:
     # arrendamento foi escrito como 31 (era 41) e o total como 204, e a conta não
     # fecha. Quem valida contra ele precisa saber disso, senão persegue divergência
     # que não é do cálculo — foi o que fez o Δ da semana seguinte parecer errado.
-    locais = [h["fazenda_pg"], h["arrendamento"], h["cte"], h["socio"]]
+    locais = [h["fazenda_pg"], h["arrendamento"], h["cte"], h["central"], h["socio"]]
     h["soma_locais"] = sum(x for x in locais if x) if any(locais) else None
     h["coerente"] = (h["soma_locais"] == h["total"]) if (h["soma_locais"] and h["total"]) else None
 

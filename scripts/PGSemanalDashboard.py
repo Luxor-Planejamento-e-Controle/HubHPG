@@ -329,7 +329,12 @@ const SECTIONS = [
     {p:"hc.del", l:"Δ vs semana passada", delta:true},
     {p:"hc.fpg", l:"Fazenda Pao Grande", get:s=>s.headcount?.fazenda_pg},
     {p:"hc.arr", l:"Arrendamento", get:s=>s.headcount?.arrendamento},
-    {p:"hc.cte", l:"Centro de Treinamento", get:s=>s.headcount?.cte},
+    // CTE virou CENTRAL em 13/11/2026 (LOTUS na Central do Goretti); cada linha só
+    // aparece na semana que tem o bucket, como no relatório do haras.
+    {p:"hc.cte", l:"Centro de Treinamento", skip:s=>s.headcount?.cte==null,
+     get:s=>s.headcount?.cte},
+    {p:"hc.cen", l:"Central", skip:s=>s.headcount?.central==null,
+     get:s=>s.headcount?.central},
     {p:"hc.soc", l:"Sócios", get:s=>s.headcount?.socio},
  ]},
  {n:"4", t:"TERCEIROS NA PROPRIEDADE", wide:true, kpis:[

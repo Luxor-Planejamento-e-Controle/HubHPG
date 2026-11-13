@@ -117,7 +117,7 @@ def monta(fim: date) -> Workbook:
     # ---------------- RESUMO ----------------
     wr = wb.create_sheet("RESUMO")
     _cabecalho(wr, ["LOCAL", "ANIMAIS + RECEPTORAS"])
-    for rot in ("FAZENDA", "ARRENDAMENTO", "CTE", "SOCIO"):
+    for rot in ("FAZENDA", "ARRENDAMENTO", "CTE", "CENTRAL", "SOCIO"):
         wr.append([rot, por_bucket.get(rot, 0)])
     wr.append(["TOTAL", n])
     wr.append([])

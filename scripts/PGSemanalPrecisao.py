@@ -44,6 +44,7 @@ def _linhas(snap: dict, dx: dict) -> list:
         ("Fazenda Pao Grande", hc.get("fazenda_pg"), dh["fazenda_pg"]),
         ("Arrendamento", hc.get("arrendamento"), dh["arrendamento"]),
         ("Centro de Treinamento", hc.get("cte"), dh.get("cte")),
+        ("Central", hc.get("central"), dh.get("central")),
         ("Sócios", hc.get("socio"), dh["socio"]),
         # ver PGSemanal._validacao: o Δ do relatório é a abertura, aberta em duas linhas
         ("Saídas efetivas (Δ)", hc.get("delta_saidas"), dh.get("delta_saidas")),

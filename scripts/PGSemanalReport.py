@@ -247,6 +247,7 @@ def _alvos(rep) -> dict:
         "headcount_fpg": hc.get("fazenda_pg"),
         "headcount_arr": hc.get("arrendamento"),
         "headcount_cte": hc.get("cte"),
+        "headcount_central": hc.get("central"),
         "headcount_soc": hc.get("socio"),
         "saidas_semana": sa.get("saidas_semana"),
         "vendidos_pendentes": sa.get("vendidos_pendentes"),
@@ -1126,8 +1127,10 @@ def _count_doadoras() -> int:
 # A CONTAGEM é COUNTIF puro sobre o LOCAL do roster:
 #     C3 =COUNTIF(PLANTEL!E:E;"FAZENDA PAO GRANDE")      D3 = 25   (digitado)
 #     C4 =COUNTIF(PLANTEL!E:E;"ARRENDAMENTO CESAR FURTADO")  D4 = 37   (digitado)
-#     C5 =COUNTIF(PLANTEL!E:E;"OUTROS")                  D5 = 0     (rótulo "CTE")
+#     C5 =COUNTIF(PLANTEL!E:E;"CENTRAL")                 D5 = 0     (rótulo "CENTRAL")
 #     C6 =COUNTIF(PLANTEL!E:E;"SOCIO")                   D6 = 0
+# Até 13/11/2026 a linha 5 era o CTE, =COUNTIF(PLANTEL!E:E;"OUTROS"); o haras trocou
+# por CENTRAL quando o LOTUS DA CATIMBA foi para a Central do Goretti.
 #     E7 =SUM(E3:E6)
 # Reproduzimos a MESMA regra (conta linha por LOCAL, sem filtrar STATUS — por isso
 # os vendidos pendentes de saída entram) e o MESMO conjunto de buckets. Só muda de
@@ -1146,7 +1149,10 @@ def _count_doadoras() -> int:
 HEADCOUNT_BUCKETS = {
     "FAZENDA PAO GRANDE": ("FAZENDA", "fazenda_pg"),
     "ARRENDAMENTO CESAR FURTADO": ("ARRENDAMENTO", "arrendamento"),
+    # CTE fica para os meses passados que o comitê reconstrói (LEGADO em ago/26).
+    # Hoje não há OUTROS com status PLANTEL, então o bucket não aparece.
     "OUTROS": ("CTE", "cte"),
+    "CENTRAL": ("CENTRAL", "central"),     # ver STATUS_CENTRAL / _local_do_roster
     "SOCIO": ("SOCIO", "socio"),
 }
 # LOCAL que existe no roster mas não conta no headcount.
@@ -1738,7 +1744,13 @@ def _contrato_pendente(nome, obs=None) -> str | None:
 # e em 10/09/2026 isso tirou MELISSA, MUSICA e PROSPERO do headcount de uma vez —
 # 3 animais que não saíram do lugar, só mudaram de status. Prefixo resolve as três
 # e não pega 'VENDIDO E ENTREGUE', que é quem de fato foi embora.
-STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA")
+# CENTRAL: animal do plantel que está numa central de reprodução fora da fazenda. Em
+# 13/11/2026 o LOTUS DA CATIMBA foi para a Central do Goretti e o controle mensal
+# escreveu 'CENTRAL' no STATUS PLANTEL (o LOCAL ficou FAZENDA PAO GRANDE), enquanto a
+# planilha da divulgação pôs no LOCAL. Fora desta lista ele sumia do roster e saía
+# publicado como saída. O bucket vem de _local_do_roster.
+STATUS_CENTRAL = "CENTRAL"
+STATUS_NO_PLANTEL = ("PLANTEL", "VENDIDO", "VENDIDO PENDENTE SAIDA", STATUS_CENTRAL)
 PREFIXO_VENDIDO_PENDENTE = "VENDIDO PENDEN"
 # SOCIEDADE PENDENTE também é animal AINDA AQUI. Até 30/10/2026 a marca vivia só na
 # OBS (STATUS_SOCIEDADE_PENDENTE); em 06/11/2026 o haras passou a escrevê-la no
@@ -1751,6 +1763,14 @@ def _status_conta(status) -> bool:
     st = _norm(status)
     return (st in STATUS_NO_PLANTEL or st.startswith(PREFIXO_VENDIDO_PENDENTE)
             or PREFIXO_SOCIEDADE_PENDENTE in st)
+
+
+def _local_do_roster(local, status) -> str | None:
+    """LOCAL que vale para o headcount. 'CENTRAL' no STATUS ou no LOCAL dá o bucket
+    CENTRAL: o haras já escreveu nas duas colunas (ver STATUS_CENTRAL)."""
+    if _norm(status) == STATUS_CENTRAL or _norm(local) == STATUS_CENTRAL:
+        return STATUS_CENTRAL
+    return _s(local)
 # MARRETADA, autorizada pelo Arthur em 04/09/2026: animal que saiu do plantel e
 # cuja linha no controle mensal ainda não foi atualizada. A lista que o haras usa
 # na atualização semanal já não o tem. Cada fechamento imprime um aviso, e a
@@ -1951,7 +1971,8 @@ def _plantel_por_status(src: Path | None = None, quando: date | None = None) -> 
         _dfim = (_dt(r[COL_MENSAL_COND_FINAL_DATA])
                  if len(r) > COL_MENSAL_COND_FINAL_DATA else None)
         linhas.append({"nome": limpo, "categoria": _s(r[L["categoria"]]),
-                       "status_plantel": _s(r[L["status"]]), "local": _s(r[L["local"]]),
+                       "status_plantel": _s(r[L["status"]]),
+                       "local": _local_do_roster(r[L["local"]], r[L["status"]]),
                        "mae": mae, "pai": pai,
                        # movimento (ver _saidas_por_mudanca_de_local): data e destino
                        # de quem mudou de lugar sem passar pela aba SAIDAS-ENTRADAS
@@ -2455,7 +2476,8 @@ def build_headcount_delta(rep: Report, fim: date):
     rep.headcount["delta_receptoras"] = (rec - pr) if None not in (rec, pr) else None
     atual = {"total": total, "fpg": rep.headcount.get("fazenda_pg"),
              "arr": rep.headcount.get("arrendamento"),
-             "cte": rep.headcount.get("cte"), "soc": rep.headcount.get("socio"),
+             "cte": rep.headcount.get("cte"), "cen": rep.headcount.get("central"),
+             "soc": rep.headcount.get("socio"),
              # abertura animais/receptoras: base do Δ de animais, que e o que o
              # relatorio publica
              "animais": tg.get("animais"), "receptoras": tg.get("receptoras")}
@@ -2751,7 +2773,7 @@ def _refina_afeta_headcount(rep: Report):
         if i < L["linha1"] or r[L["nome"]] is None:
             continue
         k = _norm(_sem_cotista(_s(r[L["nome"]])))
-        local_de.setdefault(k, _norm(r[L["local"]]))
+        local_de.setdefault(k, _norm(_local_do_roster(r[L["local"]], r[L["status"]])))
         status_de.setdefault(k, _norm(r[L["status"]]))
     wb.close()
     rec_local = {}

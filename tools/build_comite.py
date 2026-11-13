@@ -1610,7 +1610,7 @@ def slide_contagem(m, ano):
                     f"{MESES[m-1].upper()} {ano}", src.name, f"não consegui contar: {e}")
 
     det = {k: v for k, v in (hc.get("detalhe") or {}).items() if k != "TOTAL GERAL"}
-    ordem = [k for k in ("FAZENDA", "ARRENDAMENTO", "CTE", "SOCIO") if k in det]
+    ordem = [k for k in ("FAZENDA", "ARRENDAMENTO", "CTE", "CENTRAL", "SOCIO") if k in det]
     ordem += [k for k in det if k not in ordem]
     rows = [[k.title(), int(det[k]["animais"]), int(det[k]["receptoras"]),
              int(det[k]["total"])] for k in ordem]
