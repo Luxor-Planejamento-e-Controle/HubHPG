@@ -2910,7 +2910,9 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
     if not ant:
         return []
     antes = {_norm(l.get("nome")): _norm(l.get("local")) for l in ant}
+    status_antes = {_norm(l.get("nome")): _norm(l.get("status_plantel")) for l in ant}
     lancados = {_norm(e.get("animal")) for e in ja_lancadas}
+    atrasadas = set()
     novas = []
     for linha in _LINHAS_BRUTAS.get("roster") or []:
         nome, local = _norm(linha.get("nome")), _norm(linha.get("local"))
@@ -2972,6 +2974,18 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         # vendidos ao sócio que já estava com eles; a saída física foi só o
         # PATRIARCA). Isso substitui, para a lista física, a leitura da MELISSA acima.
         so_plantel = antes.get(nome) == "SOCIO"
+        # Baixa lançada na MOVIMENTAÇÕES ANTES da semana e status atualizado só agora
+        # (LEGADO DA PAO GRANDE: vendido em 05/10, status trocado em 13/11/2026). Deixa
+        # o plantel nesta semana — o headcount cai agora, então conta no Δ —, mas não é
+        # saída desta semana: vai junto com quem já estava no sócio, fora da lista.
+        # Só para quem vinha como PLANTEL: o vendido pendente que é entregue agora sai
+        # de verdade, e a venda antiga dele não diz nada sobre a data da entrega.
+        lanc = _LANCAMENTOS_SAIDA.get(nome) or {}
+        atrasada = (None if lanc or status_antes.get(nome) not in ("PLANTEL", STATUS_CENTRAL)
+                    else _baixa_anterior_a_semana(rep, nome))
+        if atrasada:
+            atrasadas.add(nome)
+            so_plantel = True
         novas.append({
             "animal": _sem_cotista(linha.get("nome")),
             "classificacao": f'SAIDA-{_norm(linha.get("status")) or "BAIXA"}',
@@ -2984,7 +2998,7 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
             # nesta semana que o animal deixou o plantel, é o que se sabe. A MELISSA DA
             # PAO GRANDE entra assim, com a saída de hoje, e o aviso segue pedindo o
             # lançamento na aba para a data real substituir esta.
-            "data": ((_LANCAMENTOS_SAIDA.get(nome) or {}).get("data")
+            "data": (lanc.get("data") or atrasada
                      or _data_na_janela(rep, linha) or rep.semana_fim),
             "local_saida": _s(antes.get(nome)),
             "local_entrada": _s(linha.get("local_final")) or _s(linha.get("local")),
@@ -2997,7 +3011,11 @@ def _saidas_por_mudanca_de_local(rep: Report, ja_lancadas: list) -> list:
         print(f"  [saídas] {len(novas)} saída(s) vistas só pelo roster — a aba "
               f"SAIDAS-ENTRADAS não foi preenchida para elas:")
         for n in novas:
-            if n.get("so_plantel"):
+            if _norm(n["animal"]) in atrasadas:
+                print(f"    - {n['animal']}: {n['classificacao']} (baixa de {n['data']} na "
+                      f"MOVIMENTAÇÕES, status atualizado só agora: sai do plantel, "
+                      f"não é saída desta semana)")
+            elif n.get("so_plantel"):
                 print(f"    - {n['animal']}: {n['classificacao']} (já estava no sócio: "
                       f"sai do plantel, não é saída física)")
             elif n["afeta_headcount"]:
