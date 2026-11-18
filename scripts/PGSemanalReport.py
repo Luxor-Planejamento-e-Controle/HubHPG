@@ -1469,7 +1469,11 @@ def _reversoes_receptoras(cru: dict, fonte: str, semana: str) -> dict:
 
 def _receptoras_cru(src: Path) -> dict:
     wb = _load(src)
-    ws = wb["ANIMAIS"]
+    # Até out/2025 a aba se chamava RECEPTORAS, com o mesmo layout (ANIMAL, STATUS,
+    # LOCAL, EMBRIÃO, OBSERVAÇÃO a partir da coluna B, cabeçalho na linha 3). Sem o
+    # fallback, o headcount de um mês de 2024/25 morria em "Worksheet ANIMAIS does
+    # not exist".
+    ws = wb["ANIMAIS"] if "ANIMAIS" in wb.sheetnames else wb["RECEPTORAS"]
     out = {}
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < 4 or r[1] is None:

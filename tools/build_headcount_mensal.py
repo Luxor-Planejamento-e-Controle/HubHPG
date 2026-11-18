@@ -21,6 +21,7 @@ Uso:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -34,12 +35,45 @@ DESTINO = "plantel.headcount.json"
 ORDEM = ("FAZENDA", "ARRENDAMENTO", "CTE", "CENTRAL", "SOCIO")
 
 
+# Primeiro mês da série. Antes de 2024 o fechamento não traz o mês no nome do
+# arquivo (`..._PAO_GRANDE_.xlsx`), e `_fechamento_do_mes` não tem como achá-lo.
+# Na Azure o espelho do Drive só tem as duas últimas estações: os meses antigos
+# entram uma vez pelo notebook (--publicar) e ficam fixos no bucket.
+INICIO = (2024, 1)
+
+
 def _meses(hoje: date):
-    """Do janeiro do ano anterior até o mês passado: o mês corrente ainda não fechou."""
-    a, m = hoje.year - 1, 1
+    """De INICIO até o mês passado: o mês corrente ainda não fechou."""
+    a, m = INICIO
     while (a, m) < (hoje.year, hoje.month):
         yield a, m
         a, m = (a + 1, 1) if m == 12 else (a, m + 1)
+
+
+RX_SUFIXO_MES = re.compile(r"_[A-Z]{3}_\d{2}$")
+
+
+def _receptoras_para(src: Path):
+    """Arquivo de receptoras daquele fechamento: o de prefixo mais recente que não
+    passa do prefixo do fechamento — a regra do comitê (`_receptoras_do_fechamento`),
+    com o nome aceito mais largo. Em 2025 o haras salvou variantes ('... USAR
+    ESSA.xlsx', '... RECEPTORAS .xlsx') que o padrão do comitê não pega, e abr/mai/25
+    saíam com as receptoras de março. Cópia de trabalho ('EDITAR', sufixo _MES_AA)
+    continua fora. Para 2026 o resultado é o mesmo arquivo do slide."""
+    import build_comite as bc
+    pref = bc.RE_PREFIXO_DATA.match(src.name)
+    if not pref:
+        return bc._receptoras_do_fechamento(src)
+    limite, cands = pref.group(1), []
+    for d in bc._estacao_dirs():
+        for f in d.glob("*PLANTEL ARRENDAMENTOS E RECEPTORAS*.xlsx"):
+            mm = bc.RE_PREFIXO_DATA.match(f.name)
+            nome = f.stem.strip().upper()
+            if (f.name.startswith("~$") or not mm or mm.group(1) > limite
+                    or "EDITAR" in nome or RX_SUFIXO_MES.search(nome)):
+                continue
+            cands.append((mm.group(1), f.stat().st_mtime, f))
+    return max(cands)[2] if cands else None
 
 
 def conta(ano: int, m: int) -> dict | None:
@@ -49,7 +83,7 @@ def conta(ano: int, m: int) -> dict | None:
     src = bc._fechamento_do_mes(ano, m)
     if src is None:
         return None
-    rec = bc._receptoras_do_fechamento(src)
+    rec = _receptoras_para(src)
     fim = date(ano + m // 12, m % 12 + 1, 1) - timedelta(days=1)
     hc, _ = headcount_de(src, rec, fim)
     det = {k: v for k, v in (hc.get("detalhe") or {}).items() if k != "TOTAL GERAL"}
