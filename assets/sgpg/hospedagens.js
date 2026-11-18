@@ -5,7 +5,7 @@
    misturar com o módulo de exposições: as ações daqui começam com "h-", o formulário
    é [data-hform] e a tela é `htela` — nada disso cruza com o que o sgpg.js trata.
 
-   A acomodação é uma só, a Casa: não há quarto, suíte ou chalé a escolher.
+   A acomodação é uma só: a Casa.
 
    A consulta tem duas visões: Agenda (o mapa do mês da Casa e as próximas chegadas — é
    a agenda futura) e Lista (histórico por ano, lista e ficha, igual às exposições).

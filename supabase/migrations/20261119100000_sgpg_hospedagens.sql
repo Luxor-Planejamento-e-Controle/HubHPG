@@ -1,5 +1,5 @@
--- SGPG — módulo Hospedagens: as estadias na Casa da Fazenda Pao Grande (a casa é a
--- única acomodação — não há suíte nem chalé a escolher).
+-- SGPG — módulo Hospedagens: as estadias na Casa da Fazenda Pao Grande (a única
+-- acomodação é a Casa).
 --
 -- A casa recebe a família (no DRE da Casa: "Hospedagem Família" de cada núcleo),
 -- locação (receita "Locação da Casa") e visitas ("Despesas com Visitas"). Até aqui nada
