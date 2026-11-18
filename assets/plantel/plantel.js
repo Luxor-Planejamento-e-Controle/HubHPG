@@ -1629,13 +1629,16 @@ function painelPlantel(){
       <span>Carla + Eduardo: <b>${rs(somaEsc('hpg') + somaEsc('eduardo'))}</b></span>
     </div>
     ${chipsFiltro('plantel')}
-    <div class="rolagem"><table class="t">
+    <div class="rolagem clara"><table class="t t-plantel">
       <thead>
         <tr>${cols.map(([i, r]) => cabFiltro('plantel', i, r, EH_NUM(r), ST.ordem.plantel)).join('')}</tr>
       </thead>
       <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) => {
           const txt = fmtCel(l, i, r);
-          return `<td class="${EH_NUM(r) ? '' : 'l'} cort" title="${esc(txt)}">${esc(txt)}</td>`;
+          // nome e valor em destaque, QTDE e valor zerado recuam (tabela clara, plantel.css)
+          const k = i === ix.nome ? ' nome-pl' : i === ix.qtde ? ' qtde-pl'
+            : i === ix.valor ? (num(l[i]) ? ' valor-pl' : ' valor-pl vz') : '';
+          return `<td class="${EH_NUM(r) ? '' : 'l'} cort${k}" title="${esc(txt)}">${esc(txt)}</td>`;
         }).join('')}</tr>`).join('')}</tbody>
     </table></div>`;
 }

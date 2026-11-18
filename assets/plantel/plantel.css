@@ -225,3 +225,26 @@ h3 .cont{display:inline-block;margin-left:6px;font-size:11px;background:var(--li
   font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
 .caixa-import button.secundario{background:transparent;border:1px solid var(--line);color:var(--ink-2);font-weight:400}
 
+/* ---- aba Plantel: tabela clara "Névoa" (18/11/2026) ----
+   Escolhida entre as variações claras: cinza-azulado de pouco brilho e cabeçalho
+   no azul do hub com fio dourado — o menor salto de contraste com a casca escura.
+   Só a tabela do Plantel; Movimentações, Conciliação e Checks seguem escuras. */
+.rolagem.clara{background:#E6ECF1;border:1px solid var(--line-2);border-radius:10px;
+  box-shadow:0 2px 12px rgba(0,0,0,.22);scrollbar-color:#A9B9C7 transparent}
+.rolagem.clara::-webkit-scrollbar-thumb{background:#A9B9C7}
+table.t-plantel{min-width:100%}
+table.t-plantel th{background:#0A3050;color:#C9D8E4;border-bottom:2px solid var(--amber);
+  padding:8px 9px;font-weight:700}
+table.t-plantel th:hover{color:#FFFFFF}
+table.t-plantel th.ord{color:#F2C14E}
+table.t-plantel .fbtn{border-color:#3D6E93;color:#C9D8E4}
+table.t-plantel .fbtn:hover{background:rgba(255,255,255,.12);border-color:#C9D8E4;color:#C9D8E4}
+table.t-plantel .fbtn.on{background:#F2C14E;border-color:#F2C14E;color:#0A3050}
+table.t-plantel td{color:#14304A;background:#E6ECF1;border-bottom:1px solid #CBD6DF;padding:6px 9px}
+table.t-plantel tbody tr:nth-child(even) td{background:#DCE4EB}
+table.t-plantel tbody tr:hover td{background:#F4E4B5}
+table.t-plantel tbody tr td.aberta{background:#F4E4B5}
+table.t-plantel td.nome-pl{font-weight:600;color:#0B2236}
+table.t-plantel td.qtde-pl{color:#6B8296}
+table.t-plantel td.valor-pl{font-weight:600;color:#0B2236}
+table.t-plantel td.valor-pl.vz{font-weight:400;color:#6B8296}
