@@ -2469,7 +2469,7 @@ function montaGraficoHC(){
       name: `${a}|${x.p.id}`, type: 'bar', stack: String(a), data: x.dados,
       barGap: '14%', barCategoryGap: '30%', barMaxWidth: 30,
       itemStyle: {color: tom(cor, x.p.t), borderColor: '#E6ECF1', borderWidth: doAno.length > 1 ? 1 : 0,
-        borderRadius: n === doAno.length - 1 ? [3, 3, 0, 0] : 0, decal: x.p.hach ? HC_HACHURA : 'none'},
+        borderRadius: n === doAno.length - 1 ? [3, 3, 0, 0] : 0, ...(x.p.hach ? {decal: HC_HACHURA} : {})},
       emphasis: {disabled: true},
     }));
     // série vazia no topo da pilha só para escrever o total da barra
