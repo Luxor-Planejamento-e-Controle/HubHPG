@@ -50,7 +50,7 @@ const MENU = [
   '',
   {pasta:'haras', titulo:'Rotinas Haras', itens:['semanal','comite','sgpg']},
   {pasta:'gastos', titulo:'Controles de gastos', itens:['gastos','gastos_casa']},
-  {pasta:'luxor', titulo:'Rotinas Luxor', itens:['plantel']},
+  'plantel',
 ];
 const PASTA_ICO='M3 7.5A1.5 1.5 0 014.5 6H9.2l1.8 2h8.5A1.5 1.5 0 0121 9.5v8A1.5 1.5 0 0119.5 19h-15A1.5 1.5 0 013 17.5z';
 const pastaDe = id => MENU.find(m=>typeof m==='object' && m.itens.includes(id));

@@ -1588,11 +1588,19 @@ function marcaValor(qual, col, valor, ligado){
 }
 
 /* ---------- aba Plantel: todas as colunas, filtro e ordenação por coluna ---------- */
-/* Plantel: as colunas são as do arquivo, todas, na ordem dele. Filtro e
-   ordenação por coluna, como na planilha. */
+/* Plantel: as colunas são as do arquivo, na ordem dele, menos as de OCULTAS.
+   Filtro e ordenação por coluna, como na planilha. Vale pra tela e pro Excel. */
+/* Fora da tabela (18/11/2026): safra, registro, chip, letra, notas de avaliação
+   (GIAN - <data>; o VALOR ... GIANFRANCO fica), condição atual/final, as duas DATA
+   delas e período. Só some da vista: LETRA segue na chave do animal. */
+const OCULTAS = /^(SAFRA|REGISTRO|CHIP|LETRA|CONDICAO (ATUAL|FINAL)|DATA$|PERIODO|GIAN\b)/;
+/* o rótulo do haras é 'COMISSÃO (ZERAR SEMPRE QUE HOUVER REAVALIAÇÃO)' e, com o
+   cabeçalho sem quebra, alargava a coluna inteira */
+const rotuloCurto = r => /^COMISS/.test(norm(r)) ? 'COMISSÃO' : r;
 function colunasDoMes(d){
   return d.cab.map((r, i) => [i, String(r == null ? '' : r).replace(/\s+/g, ' ').trim()])
-    .filter(([, r]) => r);
+    .filter(([, r]) => r && !OCULTAS.test(norm(r)))
+    .map(([i, r]) => [i, rotuloCurto(r)]);
 }
 
 function painelPlantel(){
