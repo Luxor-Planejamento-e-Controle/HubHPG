@@ -35,8 +35,8 @@ DESTINO = "plantel.headcount.json"
 ORDEM = ("FAZENDA", "ARRENDAMENTO", "CTE", "CENTRAL", "SOCIO")
 
 
-# Primeiro mês da série. Antes de 2024 o fechamento não traz o mês no nome do
-# arquivo (`..._PAO_GRANDE_.xlsx`), e `_fechamento_do_mes` não tem como achá-lo.
+# Primeiro mês da série. Até jan/2024 o fechamento não traz o mês no nome do
+# arquivo (`..._PAO_GRANDE_.xlsx`); ver _fechamento_sem_rotulo.
 # Na Azure o espelho do Drive só tem as duas últimas estações: os meses antigos
 # entram uma vez pelo notebook (--publicar) e ficam fixos no bucket.
 INICIO = (2024, 1)
@@ -76,11 +76,23 @@ def _receptoras_para(src: Path):
     return max(cands)[2] if cands else None
 
 
+def _fechamento_sem_rotulo(ano: int, m: int):
+    """Até jan/2024 o haras salvava o fechamento sem o mês no nome
+    ('240206_CONTROLE_DE_PLANTEL_PAO_GRANDE_.xlsx'), e `_fechamento_do_mes` só acha
+    '..._JAN_24'. Sem arquivo rotulado, vale o primeiro sem rótulo gerado no mês
+    seguinte: o de 06/02/2024 tem MOVIMENTAÇÕES até 02/02, o de 04/01 fecha dez/23."""
+    import build_comite as bc
+    a2, m2 = (ano + 1, 1) if m == 12 else (ano, m + 1)
+    cands = [f for d in bc._estacao_dirs()
+             for f in d.glob(f"{a2 % 100:02d}{m2:02d}??_CONTROLE_DE_PLANTEL_PAO_GRANDE_.xlsx")]
+    return min(cands, key=lambda f: f.name) if cands else None
+
+
 def conta(ano: int, m: int) -> dict | None:
     import build_comite as bc
     from PGSemanalReport import headcount_de
 
-    src = bc._fechamento_do_mes(ano, m)
+    src = bc._fechamento_do_mes(ano, m) or _fechamento_sem_rotulo(ano, m)
     if src is None:
         return None
     rec = _receptoras_para(src)

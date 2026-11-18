@@ -261,8 +261,6 @@ table.t-plantel td.valor-pl.vz{font-weight:400;color:#6B8296}
 .chip-sel:hover{border-color:var(--ink-3);color:var(--ink)}
 .chip-sel.on{background:#E6ECF1;border-color:#E6ECF1;color:#0B2236;font-weight:600}
 .chip-sel.on::before{content:'\2713';font-size:11px}
-.chip-ano.on::before{content:none}
-.chip-ano i{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--cor)}
 .chip-sel[disabled]{cursor:default;opacity:1}
 .seg{display:inline-flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
 .seg button{background:transparent;border:0;border-right:1px solid var(--line-2);color:var(--ink-2);
@@ -271,7 +269,7 @@ table.t-plantel td.valor-pl.vz{font-weight:400;color:#6B8296}
 .seg button:hover{color:var(--ink)}
 .seg button.on{background:#E6ECF1;color:#0B2236;font-weight:600}
 .hc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
-.hc-kpi{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--cor);border-radius:10px;
+.hc-kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;
   padding:10px 15px 12px;display:flex;flex-direction:column;gap:2px}
 .hc-kpi i{font-style:normal;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
 .hc-kpi b{margin:3px 0 4px;font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
@@ -279,7 +277,14 @@ table.t-plantel td.valor-pl.vz{font-weight:400;color:#6B8296}
 .hc-kpi strong{color:var(--ink);font-weight:600}
 .hc-card{background:#E6ECF1;border:1px solid var(--line-2);border-radius:10px;padding:14px 16px 8px;
   box-shadow:0 2px 12px rgba(0,0,0,.22)}
-.hc-card h3{margin:0 0 4px;font-size:13px;font-weight:700;color:#0A3050}
+.hc-kpi.atual{border-color:var(--line-2);box-shadow:inset 0 3px 0 var(--amber)}
+.hc-card-cab{display:flex;align-items:center;flex-wrap:wrap;gap:6px 18px;margin-bottom:2px}
+.hc-card h3{margin:0;font-size:13px;font-weight:700;color:#0A3050}
+.hc-leg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-left:auto;font-size:12px;color:#14304A}
+.hc-leg span{display:inline-flex;align-items:center;gap:6px}
+.hc-leg .hc-leg-sep{margin-left:10px;padding-left:14px;border-left:1px solid #AFC0CE}
+.hc-leg .sw{display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--cor)}
+.hc-leg .sw.hach{background:repeating-linear-gradient(-45deg,var(--cor) 0 2px,rgba(255,255,255,.75) 2px 4px)}
 .hc-graf{height:340px;width:100%}
 .hc-sec-cab{display:flex;align-items:center;gap:12px;margin-bottom:8px}
 .hc-sec-tit{background:transparent;border:0;padding:0;color:var(--ink);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
@@ -291,7 +296,7 @@ table.t-plantel td.valor-pl.vz{font-weight:400;color:#6B8296}
 .hc-tab{flex:0 0 auto}
 .hc-tab table.t-plantel th{text-align:right;cursor:default}
 .hc-tab table.t-plantel th small{display:block;font-size:9.5px;font-weight:600;color:#93AABC;letter-spacing:.04em;margin-top:1px}
-.hc-tab table.t-plantel th.th-ano{box-shadow:inset 0 -3px 0 var(--cor)}
+.hc-tab table.t-plantel th.th-ano{box-shadow:inset 0 -3px 0 var(--amber)}
 .hc-tab table.t-plantel th.hc-mes{cursor:pointer;text-align:center}
 .hc-tab table.t-plantel th.sub{font-size:9.5px;text-align:right;top:30px}
 .hc-tab table.t-plantel th .chev{margin-left:4px;font-size:9px;color:#93AABC}
