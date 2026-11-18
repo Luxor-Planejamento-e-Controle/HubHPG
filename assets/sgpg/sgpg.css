@@ -221,6 +221,65 @@ ol.tempo{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;g
 .tempo-it .lnk{font-size:13.5px;font-weight:600}
 .tempo-it .it-meta{margin:2px 0 8px}
 
+/* ---- módulo Hospedagens (assets/sgpg/hospedagens.js) ----
+   Agenda: a Casa, um dia por coluna; a cor da barra é o tipo da
+   estadia (--cor, posta pelo JS) e a prevista vai tracejada. */
+.h-mesnav{display:inline-flex;align-items:center;gap:6px}
+.h-mesnav .bt{padding:7px 12px}
+.h-mesnav .mes{min-width:150px;text-align:center;font-weight:600;font-size:14px}
+.hist-barra > .h-nova{margin-left:auto}
+.busca + .h-nova{margin-left:0}
+.agenda{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px 14px;
+  margin-bottom:22px;overflow-x:auto}
+.ag-grade{min-width:820px}
+.ag-linha{display:grid;grid-template-columns:130px minmax(0,1fr)}
+.ag-cab .ag-rot{border:0}
+.ag-dias{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr))}
+.ag-dia{display:flex;flex-direction:column;align-items:center;padding:4px 0 6px;font-size:10px;color:var(--ink-3);
+  border-radius:6px 6px 0 0}
+.ag-dia b{font-size:12px;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.ag-dia.fds{background:rgba(255,255,255,.03)}
+.ag-dia.hoje{background:var(--amber-soft)}
+.ag-dia.hoje b,.ag-dia.hoje span{color:var(--amber)}
+.ag-rot{font-size:12.5px;font-weight:600;color:var(--ink-2);padding:10px 12px 0 2px;border-top:1px solid var(--line);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-faixa{position:relative;border-top:1px solid var(--line);min-height:40px}
+.ag-fundo{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr))}
+.ag-fundo i{border-left:1px solid rgba(27,72,107,.45)}
+.ag-fundo i.fds{background:rgba(255,255,255,.03)}
+.ag-fundo i.hoje{background:var(--amber-soft)}
+.ag-barra{position:absolute;height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;margin:0 2px;
+  max-width:calc(100% - 4px);border:0;border-radius:6px;background:var(--cor);color:#fff;font:inherit;font-size:11.5px;
+  font-weight:600;white-space:nowrap;overflow:hidden;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.ag-barra .nm{overflow:hidden;text-overflow:ellipsis}
+.ag-barra .n{flex:none;font-size:10.5px;font-weight:700;background:rgba(0,0,0,.22);border-radius:8px;padding:0 6px}
+.ag-barra.prevista{background:color-mix(in srgb,var(--cor) 18%,transparent);border:1.5px dashed var(--cor);color:var(--ink)}
+.ag-barra.prevista .n{background:rgba(255,255,255,.1)}
+.ag-barra.corta-ini{border-top-left-radius:0;border-bottom-left-radius:0;margin-left:0}
+.ag-barra.corta-fim{border-top-right-radius:0;border-bottom-right-radius:0;margin-right:0}
+.ag-barra:hover{filter:brightness(1.12)}
+.ag-barra:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+.ag-vazio{color:var(--ink-3);font-size:13px;padding:12px 2px 0}
+.h-leg{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:12px;font-size:12px;color:var(--ink-2)}
+.h-leg span{display:inline-flex;align-items:center;gap:7px}
+.h-leg i{display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--cor)}
+.h-leg i.prev{background:transparent;border:1.5px dashed var(--ink-3)}
+.h-tit{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.h-prox .lista{max-width:640px}
+.tipo-tag{display:inline-flex;align-items:center;gap:5px}
+.tipo-tag::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--cor)}
+/* tela de registro */
+.h-registro{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.h-registro .acoes{display:flex}
+.h-linha{display:flex;flex-wrap:wrap;gap:14px}
+.h-linha > .campo{flex:0 1 160px}
+.h-valor{max-width:260px}
+input[type=number]{width:100%;background:var(--bg-2);border:1px solid var(--line);color:var(--ink);border-radius:8px;
+  height:36px;padding:0 10px;font:inherit;font-size:13.5px;color-scheme:dark;font-variant-numeric:tabular-nums}
+.seg.tipo button::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--cor);
+  margin-right:7px;vertical-align:0}
+.seg.tipo button.on{background:color-mix(in srgb,var(--cor) 22%,transparent);color:var(--ink)}
+
 
 @media (max-width:900px){
   .registro{grid-template-columns:minmax(0,1fr)}
