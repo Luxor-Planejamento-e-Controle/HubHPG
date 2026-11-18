@@ -262,7 +262,7 @@ table.t-plantel td.valor-pl.vz{font-weight:400;color:#6B8296}
 .chip-sel.on{background:#E6ECF1;border-color:#E6ECF1;color:#0B2236;font-weight:600}
 .chip-sel.on::before{content:'\2713';font-size:11px}
 .chip-ano.on::before{content:none}
-.chip-ano i{display:inline-block;width:14px;height:3px;border-radius:2px;background:var(--cor)}
+.chip-ano i{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--cor)}
 .chip-sel[disabled]{cursor:default;opacity:1}
 .seg{display:inline-flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
 .seg button{background:transparent;border:0;border-right:1px solid var(--line-2);color:var(--ink-2);

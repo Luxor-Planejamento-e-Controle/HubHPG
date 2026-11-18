@@ -2126,7 +2126,7 @@ const FMT_PCT = '0.00%';
    mês, pela mesma conta do slide de headcount do comitê e da semanal. Nada é
    recontado aqui — a regra de quem entra no headcount mora num lugar só.
 
-   Uma linha por ano no mesmo eixo jan–dez: o ano do mês escolhido no topo e todos
+   Uma barra por ano em cada mês do eixo jan–dez: o ano do mês escolhido no topo e todos
    os anteriores marcados. Os meses que ainda não fecharam ficam no eixo, como
    "em aberto". As tabelas seguem o painel de gastos: o local abre plantel e
    receptoras, o mês abre os anos lado a lado. */
@@ -2137,7 +2137,7 @@ const MES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set'
 /* Cor por ANO, contada a partir do ano do topo (0 = ele, 1 = o anterior...): ligar e
    desligar anos não repinta ninguém. Validada com dataviz/validate_palette.js sobre o
    fundo #E6ECF1 — todas acima de 3:1; o par 2 × 3 fica na faixa 6–8 de daltonismo,
-   coberto pelo rótulo do ano na ponta de cada linha. */
+   coberto pela legenda, pelo tooltip e pelas tabelas. */
 const HC_CORES = ['#A87D02', '#2459A8', '#00916E', '#A8458F'];
 const corAno = (ano, a) => HC_CORES[ano - a] || '#7A8C9C';
 const fmt1 = v => v == null || isNaN(v) ? '—' : v.toLocaleString('pt-BR', {minimumFractionDigits: 1, maximumFractionDigits: 1});
@@ -2401,13 +2401,13 @@ function montaGraficoHC(){
   ch.setOption({
     backgroundColor: 'transparent', animationDuration: 500,
     textStyle: {fontFamily: '"Segoe UI", system-ui, sans-serif', color: '#14304A'},
-    grid: {left: 46, right: 58, top: 36, bottom: 30},
-    legend: {top: 0, right: 0, itemWidth: 18, itemHeight: 3, icon: 'rect',
-      textStyle: {color: '#14304A', fontSize: 12, fontWeight: 600}, data: anos.map(String)},
+    grid: {left: 46, right: 16, top: 36, bottom: 30},
+    legend: {top: 0, right: 0, itemWidth: 12, itemHeight: 12, icon: 'roundRect',
+      textStyle: {color: '#14304A', fontSize: 12, fontWeight: 600}, data: anos.slice().reverse().map(String)},
     tooltip: {
       trigger: 'axis', backgroundColor: '#FFFFFF', borderColor: '#AFC0CE', padding: [8, 11],
       textStyle: {color: '#14304A', fontSize: 12},
-      axisPointer: {type: 'line', lineStyle: {color: '#93AABC', type: 'dashed'}},
+      axisPointer: {type: 'shadow', shadowStyle: {color: 'rgba(10,48,80,.06)'}},
       formatter: ps => {
         const i = ps[0].dataIndex;
         const cur = series[ano][i];
@@ -2416,24 +2416,25 @@ function montaGraficoHC(){
           const v = series[a][i];
           if (v == null) return '';
           const d = a !== ano && cur != null ? ` <span style="color:#6B8296">· ${ano} ${sinal(cur - v)}</span>` : '';
-          return `<span style="display:inline-block;width:10px;height:3px;background:${corAno(ano, a)};margin:0 7px 3px 0"></span>`
+          return `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${corAno(ano, a)};margin:0 7px -1px 0"></span>`
             + `${a}: <b>${fmt0(v)}</b>${split(a, i)}${d}<br>`;
         }).join('');
       },
     },
-    xAxis: {type: 'category', data: MES_CURTO, boundaryGap: false, axisTick: {show: false},
+    xAxis: {type: 'category', data: MES_CURTO, axisTick: {show: false},
       axisLine: {lineStyle: {color: '#AFC0CE'}}, axisLabel: {color: '#4A6378', fontSize: 12}},
-    yAxis: {type: 'value', scale: true, splitNumber: 4, axisLabel: {color: '#4A6378', fontSize: 12},
+    yAxis: {type: 'value', min: 0, splitNumber: 4, axisLabel: {color: '#4A6378', fontSize: 12},
       splitLine: {lineStyle: {color: '#CBD6DF'}}},
-    series: anos.map(a => {
+    /* barras agrupadas por mês, do ano mais antigo ao do topo; o rótulo só no
+       último mês fechado do ano do topo — o resto está no tooltip e nas tabelas */
+    series: anos.slice().reverse().map(a => {
       const cor = corAno(ano, a), atual = a === ano;
       return {
-        name: String(a), type: 'line', data: series[a], z: atual ? 5 : 3,
-        connectNulls: false, symbol: 'circle', symbolSize: atual ? 9 : 7,
-        lineStyle: {color: cor, width: atual ? 3 : 2},
-        itemStyle: {color: cor, borderColor: '#E6ECF1', borderWidth: 2},
+        name: String(a), type: 'bar', data: series[a], barMaxWidth: 22, barGap: '12%', barCategoryGap: '30%',
+        itemStyle: {color: cor, borderRadius: [3, 3, 0, 0]},
         emphasis: {focus: 'series'},
-        endLabel: {show: true, formatter: String(a), color: cor, fontWeight: 700, fontSize: 12, distance: 6},
+        label: atual ? {show: true, position: 'top', color: '#0B2236', fontWeight: 700, fontSize: 12,
+          formatter: p => p.dataIndex === ult ? fmt0(p.value) : ''} : undefined,
         markArea: atual && ult < 11 ? {
           silent: true, itemStyle: {color: 'rgba(10,48,80,.06)'},
           label: {show: true, position: 'insideTop', color: '#6B8296', fontSize: 11, formatter: 'em aberto'},
