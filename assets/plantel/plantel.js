@@ -1621,71 +1621,23 @@ function painelPlantel(){
       : String(a[i] == null ? '' : a[i]).localeCompare(String(b[i] == null ? '' : b[i]), 'pt-BR') * dir);
   }
   const somaEsc = escopo => linhas.reduce((s, l) => s + patr(l, escopo, ix), 0);
-  const carla = somaEsc('hpg'), edu = somaEsc('eduardo');
-  const noPlantel = linhas.filter(l => norm(l[ix.status]) === 'PLANTEL').length;
-  /* barra de status: a distribuição do mês e o atalho do filtro da coluna STATUS.
-     Conta com os OUTROS filtros aplicados (como o menu da coluna), e clicar liga
-     ou desliga o valor no mesmo filtro — a etiqueta de cima mostra igual. */
-  const marcados = new Set(ST.filtros.plantel[ix.status] || []);
-  const porStatus = ix.status < 0 ? [] : opcoesDe(base, 'plantel', txtPl, ordPl, ix.status)
-    .sort((a, b) => b[1].n - a[1].n);
-  const kpi = (rot, val, cls) => `<div class="kpi${cls ? ' ' + cls : ''}"><i>${rot}</i><b>${val}</b></div>`;
   return `
-    <div class="kpis">
-      ${kpi('Animais', `${linhas.length}<small> de ${d.linhas.length}</small>`)}
-      ${kpi('No plantel', noPlantel)}
-      ${kpi('Carla', rs(carla), 'k-hpg')}
-      ${kpi('Eduardo', rs(edu), 'k-eduardo')}
-      ${kpi('Carla + Eduardo', rs(carla + edu), 'k-total')}
+    <div class="resumo-linha">
+      <span>${linhas.length} de ${d.linhas.length} linhas</span>
+      <span>Carla: <b>${rs(somaEsc('hpg'))}</b></span>
+      <span>Eduardo: <b>${rs(somaEsc('eduardo'))}</b></span>
+      <span>Carla + Eduardo: <b>${rs(somaEsc('hpg') + somaEsc('eduardo'))}</b></span>
     </div>
-    ${porStatus.length ? `<div class="status-bar">${porStatus.map(([t, o]) =>
-      `<button type="button" class="st-pill ${clsStatus(t)}${marcados.has(t) ? ' on' : ''}"`
-      + ` data-fst="${esc(t)}">${esc(t)}<span class="n">${o.n}</span></button>`).join('')}</div>` : ''}
     ${chipsFiltro('plantel')}
-    <div class="rolagem"><table class="t t-plantel">
+    <div class="rolagem"><table class="t">
       <thead>
-        <tr>${cols.map(([i, r]) => cabFiltro('plantel', i, r, EH_NUM(r), ST.ordem.plantel)
-          .replace('<th ', i === ix.nome ? '<th data-fixa="1" ' : '<th ')).join('')}</tr>
+        <tr>${cols.map(([i, r]) => cabFiltro('plantel', i, r, EH_NUM(r), ST.ordem.plantel)).join('')}</tr>
       </thead>
-      <tbody>${linhas.map(l => `<tr class="${SAIU(l[ix.status]) ? 'saiu' : ''}">${
-        cols.map(([i, r]) => celPlantel(l, i, r, ix)).join('')}</tr>`).join('')}</tbody>
+      <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) => {
+          const txt = fmtCel(l, i, r);
+          return `<td class="${EH_NUM(r) ? '' : 'l'} cort" title="${esc(txt)}">${esc(txt)}</td>`;
+        }).join('')}</tr>`).join('')}</tbody>
     </table></div>`;
-}
-
-/* ---- aparência da tabela do Plantel ----
-   Só a CÉLULA muda: o texto de filtro, ordenação e Excel continua sendo o de
-   fmtCel/txtPl. Status e categoria viram etiqueta, cota ganha barra, o nome fica
-   preso à esquerda com a marca do dono (a cor é a do cartão Carla/Eduardo) e o
-   animal que já saiu (entregue, doado, óbito) fica apagado. */
-const SAIU = s => /^(VENDIDO E ENTREGUE|DOADO|OBITO)$/.test(norm(s));
-function clsStatus(s){
-  const n = norm(s);
-  if (n === 'PLANTEL') return 'st-ok';
-  if (n === 'OBITO') return 'st-obito';
-  if (SAIU(n)) return 'st-saiu';
-  if (/PENDENTE|^VENDIDO/.test(n)) return 'st-pend';
-  return 'st-outro';
-}
-function celPlantel(l, i, r, ix){
-  const txt = fmtCel(l, i, r);
-  if (!txt) return `<td class="${EH_NUM(r) ? '' : 'l'} vazio">—</td>`;
-  const t = esc(txt);
-  if (i === ix.nome) {
-    const dono = donoDaLinha(l, ix);
-    return `<td class="l cort nome-fixo" title="${t}"><span class="dono d-${dono}" title="${
-      ATRIB[dono] || ''}"></span>${t}</td>`;
-  }
-  if (i === ix.status) return `<td class="l"><span class="bdg ${clsStatus(txt)}">${t}</span></td>`;
-  if (i === ix.categoria) return `<td class="l"><span class="bdg cat">${t}</span></td>`;
-  if (i === ix.sexo) return `<td class="c"><span class="sexo">${t}</span></td>`;
-  if (i === ix.cota) {
-    const w = Math.max(0, Math.min(100, num(l[i]) * 100));
-    return `<td class="cota${w ? '' : ' zero'}"><span class="cota-in"><span class="cota-barra">`
-      + `<i style="width:${w}%"></i></span><span class="cota-n">${t}</span></span></td>`;
-  }
-  const extra = i === ix.qtde ? ' qtde' : (i === ix.mae || i === ix.pai) ? ' sec'
-    : EH_MOEDA(r) ? ' moeda' : '';
-  return `<td class="${EH_NUM(r) ? '' : 'l'} cort${extra}" title="${t}">${t}</td>`;
 }
 
 /* o texto da célula é o mesmo que a lista de filtro oferece — se as duas
@@ -2316,13 +2268,6 @@ function liga(){
     const fz = e.target.closest('[data-fzerar]');
     if (fz) {
       ST.filtros[fz.dataset.fzerar] = {};
-      ST.pop = null; pintaPop(); pinta(); return;
-    }
-    // barra de status do Plantel: liga/desliga o valor no filtro da coluna STATUS
-    const fst = e.target.closest('[data-fst]');
-    if (fst) {
-      const col = (ST.meses[ST.mes] || {ix: {}}).ix.status;
-      if (col >= 0) marcaValor('plantel', col, fst.dataset.fst, !fst.classList.contains('on'));
       ST.pop = null; pintaPop(); pinta(); return;
     }
     const ord = e.target.closest('[data-ord]');
