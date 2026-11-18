@@ -2202,12 +2202,19 @@ function hcContexto(){
   const ult = fechados.length ? fechados[fechados.length - 1] : -1;
   /* valor de um mês para uma lista de locais (vazia = todos); null = sem fechamento
      ou mês do ano corrente que ainda não fechou */
+  /* local que não aparece em mês nenhum do ano (CTE antes de ago/25) é "não
+     existia", não zero; dentro do ano, mês sem o local conta 0 */
+  const noAno = {};
+  const existeNoAno = (a, k) => (noAno[a] || (noAno[a] = new Set(Array.from({length: 12}, (_, i) =>
+    Object.keys(((ST.hc.meses || {})[chaveMes(a, i)] || {}).locais || {})).flat()))).has(k);
   const valor = (a, i, locs, m) => {
     if (a === ano && !fechados.includes(i)) return null;
     const reg = (ST.hc.meses || {})[chaveMes(a, i)];
     if (!reg) return null;
     const ls = reg.locais || {};
-    return (locs && locs.length ? locs : Object.keys(ls)).reduce((s, k) => {
+    const ks = locs && locs.length ? locs.filter(k => existeNoAno(a, k)) : Object.keys(ls);
+    if (!ks.length) return null;
+    return ks.reduce((s, k) => {
       const v = ls[k] || {animais: 0, receptoras: 0};
       return s + (m === 'total' ? v.animais + v.receptoras : v[m]);
     }, 0);
@@ -2388,7 +2395,7 @@ function montaGraficoHC(){
   const split = (a, i) => {
     if (met !== 'total') return '';
     const an = c.valor(a, i, sel, 'animais'), rc = c.valor(a, i, sel, 'receptoras');
-    return rc ? ` <span style="color:#6B8296">${fmt0(an)} + ${fmt0(rc)}</span>` : '';
+    return rc ? ` <span style="color:#6B8296">(${fmt0(an)} + ${fmt0(rc)} receptoras)</span>` : '';
   };
   const ch = echarts.init(el, null, {renderer: 'canvas'});
   ch.setOption({
