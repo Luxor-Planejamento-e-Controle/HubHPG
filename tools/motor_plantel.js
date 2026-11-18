@@ -39,7 +39,8 @@ global.document = {
   body: {addEventListener: () => {}},
   createElement: () => elemento(),
 };
-global.window = {parent: {}, innerWidth: 1280, innerHeight: 800, location: {hash: ''}};
+global.window = {parent: {}, innerWidth: 1280, innerHeight: 800, location: {hash: ''},
+                 addEventListener: () => {}};
 global.alert = msg => console.error('[alert]', msg);
 global.XLSX = XLSX;
 

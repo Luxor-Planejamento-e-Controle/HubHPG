@@ -25,7 +25,8 @@ const elemento = () => new Proxy({}, {
 global.document = {getElementById: () => elemento(), querySelector: () => null,
                    querySelectorAll: () => [], body: {addEventListener: () => {}},
                    createElement: () => elemento()};
-global.window = {parent: {}, innerWidth: 1280, innerHeight: 800, location: {hash: ''}};
+global.window = {parent: {}, innerWidth: 1280, innerHeight: 800, location: {hash: ''},
+                 addEventListener: () => {}};
 global.alert = () => {};
 global.XLSX = XLSX;
 

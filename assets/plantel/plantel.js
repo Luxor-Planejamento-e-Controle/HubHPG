@@ -435,6 +435,15 @@ const nomeAntigoDoLog = o => {
   return n ? n[1] : null;
 };
 
+/* Nome NOVO dentro da ocorrência. Só serve quando o haras lança o renome na linha
+   do nome ANTIGO — out/26, dois potros: "ALTEROU O NOME, ESTAVA BELA Q-MARCHA X
+   ENCANTADO DA AGROTEXAS 04/10/2025 RECEP 453 - PASSOU A SER QUEBELO DA PAO
+   GRANDE." com produto = o nome antigo. A regra tomava o produto como nome novo,
+   achava esse nome no mês anterior e desistia ("convivem"): o QUEBELO virava
+   venda de −R$ 45.000 do nome velho e compra de +R$ 22.500 do novo, quando o mês
+   teve um renome e a venda de 50% no leilão (−R$ 22.500). */
+const RX_NOVO_NOME = /(?:PASSOU\s+A\s+SER|PASSOU\s+A\s+SE\s+CHAMAR|E\s+FICOU|FICOU)\s+(?:COMO\s+)?"?(.+?)"?\.?\s*$/;
+
 function tipoLog(oc){
   const o = norm(oc);
   if (/MUDOU DE NOME|MUDOU O NOME|ALTEROU O NOME|TROCOU O NOME|ADICAO DE SUFIXO/.test(o)) return 'nome';
@@ -496,14 +505,21 @@ function movimentacaoDoMes(mes){
   const ponte = {}, renomes = [];
   for (const x of log) {
     if (x.tipo !== 'nome') continue;
-    const bruto = nomeAntigoDoLog(norm(x.ocorrencia));
+    const oc = norm(x.ocorrencia);
+    const bruto = nomeAntigoDoLog(oc);
     if (!bruto) continue;
     const antigo = norm(bruto);
-    const kOld = achaNome(antigo, idxAnt), kNew = achaNome(norm(x.produto), idxAtual);
+    let novo = norm(x.produto);
+    if (novo === antigo) {   // lançado sob o nome antigo: o novo vem no texto
+      const p = RX_NOVO_NOME.exec(oc);
+      if (!p) continue;
+      novo = norm(p[1]);
+    }
+    const kOld = achaNome(antigo, idxAnt), kNew = achaNome(novo, idxAtual);
     if (!kOld || !kNew || kOld === kNew) continue;
-    if (idxAtual[antigo] || (ant && idxAnt[norm(x.produto)])) continue;  // convivem: não é renome
+    if (idxAtual[antigo] || (ant && idxAnt[novo])) continue;  // convivem: não é renome
     ponte[kOld] = kNew;
-    renomes.push({de: antigo, para: x.produto, data: x.data, chave: kNew});
+    renomes.push({de: antigo, para: novo, data: x.data, chave: kNew, item: x});
   }
 
   /* chave nova -> chave antiga, pra achar o dono do mês anterior de quem foi
@@ -571,8 +587,13 @@ function movimentacaoDoMes(mes){
     const emCE = dn => ['hpg', 'eduardo'].includes(dn);
     const deltaCarla = +(noEsc(dono, p1) - noEsc(donoAnt, p0)).toFixed(2);
     const deltaCE = +((emCE(dono) ? p1 : 0) - (emCE(donoAnt) ? p0 : 0)).toFixed(2);
-    const itensLog = logPorNome[chaveLog(linha[ixL.nome])]
+    let itensLog = logPorNome[chaveLog(linha[ixL.nome])]
       || (ren ? logPorNome[chaveLog(ren.para)] : []) || [];
+    /* renome lançado sob o nome antigo fica fora do log do nome novo; sem ele a
+       ficha não mostra que o animal trocou de nome */
+    if (ren && ren.item && !itensLog.includes(ren.item)) {
+      itensLog = [...itensLog, ren.item].sort((x, y) => new Date(x.data) - new Date(y.data));
+    }
     const comum = {
       /* `chave` é sobrescrita nos eventos (`k#1`, `k#1r`, `k#resto`), e quem
          precisa saber que as duas são do MESMO animal fica sem saber. Cota é um
