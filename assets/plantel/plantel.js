@@ -376,6 +376,51 @@ function chavesRemovidas(mes){
   return out;
 }
 
+/* Saída que o haras lançou no log e no STATUS mas esqueceu de zerar na COTA.
+   MESTRE DA PAO GRANDE (EDUARDO), out/26: "ALTEROU O STATUS ... VENDIDO E ENTREGUE
+   ... ALTEROU A PORCENTAGEM ESTAVA 50% PASSOU A SER 0,0%", status VENDIDO E
+   ENTREGUE e cota 50% na planilha. A linha gêmea (CARLA), mesma ocorrência, veio
+   zerada. Sem isto os R$ 15.000 do Eduardo seguiam no saldo e a venda não aparecia.
+   Pede as DUAS coisas, porque o status sozinho engana: a RELIQUIA DA TERRA BRAVA
+   teve a venda cancelada em 31/08/2026, a cota voltou a 50% e o status ficou
+   parado em VENDIDO E ENTREGUE. Vale a última ocorrência de cota até o fim do mês.
+   A planilha não muda: a linha corrigida é cópia, e `_orig` guarda a do arquivo
+   (os checks descontam a diferença, ver subChecks). */
+const STATUS_SAIU = /^(VENDIDO E ENTREGUE|DOADO|OBITO)$/;
+const RX_COTA_FIM = /(?:PASSOU\s+A\s+SER|PASSOU\s+PARA|PARA)\s*(\d+(?:[,.]\d+)?)\s*%|\b(ZEROU|ZERADA)\b/g;
+function cotaFinalDoLog(oc){
+  let fim = null;
+  for (const m of oc.matchAll(RX_COTA_FIM)) fim = m[2] ? 0 : _num(m[1]) / 100;
+  return fim;
+}
+const _linhasCorrigidas = new WeakMap();
+function linhasDoArquivo(mes){
+  const d = ST.meses[mes];
+  if (!d) return [];
+  if (_linhasCorrigidas.has(d)) return _linhasCorrigidas.get(d);
+  const {fim} = limitePosterior(mes);
+  const ultima = {};
+  for (const x of d.log || []) {
+    const dt = x.data instanceof Date ? x.data : new Date(x.data);
+    if (dt > fim) continue;
+    const c = cotaFinalDoLog(norm(x.ocorrencia));
+    if (c == null) continue;
+    const k = norm(x.produto);
+    if (!ultima[k] || dt >= ultima[k].dt) ultima[k] = {dt, c};
+  }
+  const out = d.linhas.map(l => {
+    if (!num(l[d.ix.cota]) || !STATUS_SAIU.test(norm(l[d.ix.status]))) return l;
+    const u = ultima[norm(l[d.ix.nome])];
+    if (!u || u.c !== 0) return l;
+    const c = l.slice();
+    c[d.ix.cota] = 0;
+    c._orig = l;
+    return c;
+  });
+  _linhasCorrigidas.set(d, out);
+  return out;
+}
+
 /* As linhas que valem no mês, cada uma com o seu ix (o layout de colunas muda de
    arquivo pra arquivo, e a linha pode vir do mês anterior):
    - tocada por ocorrência POSTERIOR ao mês: a linha do arquivo anterior, como antes;
@@ -384,12 +429,12 @@ function chavesRemovidas(mes){
 function paresEfetivos(mes){
   const d = ST.meses[mes];
   if (!d) return [];
-  const pares = d.linhas.map(l => ({l, ix: d.ix}));
+  const pares = linhasDoArquivo(mes).map(l => ({l, ix: d.ix}));
   const ant = ST.meses[mesAnterior(mes)];
   const pos = posterioresDoMes(mes), rem = chavesRemovidas(mes);
   if (!ant || (!Object.keys(pos).length && !rem.size)) return pares;
   const doArquivoAnt = {};
-  for (const l of ant.linhas) doArquivoAnt[chaveCom(l, ant.ix)] = {l, ix: ant.ix};
+  for (const l of linhasDoArquivo(mesAnterior(mes))) doArquivoAnt[chaveCom(l, ant.ix)] = {l, ix: ant.ix};
   const efetivaAnt = {};
   if (rem.size) for (const par of paresEfetivos(mesAnterior(mes))) efetivaAnt[chaveCom(par.l, par.ix)] = par;
   const out = [], vistas = new Set();
@@ -2033,17 +2078,27 @@ function subChecks(){
     const arq = (d.linhas || []).filter(l => rem.has(chaveCom(l, d.ix))).reduce((s, l) => s + val(l, d.ix), 0);
     return ef - arq;
   };
+  /* Cota zerada pelo log (ver linhasDoArquivo) é a outra divergência escolhida */
+  const corrigidas = linhasEfetivasIx(ST.mes).filter(par => par.l._orig && !rem.has(chaveCom(par.l, par.ix)));
+  const efeitoCorr = campo => corrigidas.reduce((s, par) => s + (campo === 'comissao'
+    ? comissaoDaLinha(par.l, par.ix) - comissaoDaLinha(par.l._orig, par.ix)
+    : num(par.l[par.ix[campo]]) - num(par.l._orig[par.ix[campo]])), 0);
+  const efeito = campo => efeitoRem(campo) + efeitoCorr(campo);
   const linhas = [
     ['Valor: soma do plantel Luxor = soma do plantel do haras',
-     somaEfetiva('valor') - efeitoRem('valor'), somaArquivo('valor')],
+     somaEfetiva('valor') - efeito('valor'), somaArquivo('valor')],
     ['Comissões: soma do plantel Luxor = soma do plantel do haras',
-     somaEfetiva('comissao') - efeitoRem('comissao'), somaArquivo('comissao')],
+     somaEfetiva('comissao') - efeito('comissao'), somaArquivo('comissao')],
     ['Cotas (%): soma do plantel Luxor = soma do plantel do haras',
-     somaEfetiva('cota') - efeitoRem('cota'), somaArquivo('cota'), 'cota'],
+     somaEfetiva('cota') - efeito('cota'), somaArquivo('cota'), 'cota'],
   ];
   if (rem.size) linhas.push(
     [`Movimentações removidas (${rem.size}): valor mantido do mês anterior × planilha`,
      somaArquivo('valor') + efeitoRem('valor'), somaArquivo('valor'), 'info']);
+  if (corrigidas.length) linhas.push(
+    [`Saída sem cota zerada na planilha (${corrigidas.length}): ${corrigidas.map(par =>
+        esc(par.l[par.ix.nome])).join(', ')}`,
+     somaArquivo('cota') + efeitoCorr('cota'), somaArquivo('cota'), 'info-cota']);
   // sem o mês anterior carregado não há 'inicial': o check acusaria diferença
   // que é só ausência de base
   if (ant) linhas.push(
@@ -2086,10 +2141,10 @@ function subChecks(){
          senão o check acusa erro que é da fonte. Em COTA, 0,0001 já é 0,01%. */
       const tol = un === 'cota' ? 0.0001 : un === 'divulgado' ? 1 : 0.005;
       const ok = Math.abs(dif) < tol;
-      const f = un === 'cota' ? pct : rs;   // 'divulgado' também é dinheiro
+      const f = un === 'cota' || un === 'info-cota' ? pct : rs;   // 'divulgado' também é dinheiro
       // linha informativa: a diferença é a que se escolheu ter
-      if (un === 'info') return `<tr><td class="l">${t}</td><td>${f(a)}</td><td>${f(b)}</td>
-        <td>${f(dif)}</td><td class="l"><span class="tag">removidas</span></td></tr>`;
+      if (un === 'info' || un === 'info-cota') return `<tr><td class="l">${t}</td><td>${f(a)}</td><td>${f(b)}</td>
+        <td>${f(dif)}</td><td class="l"><span class="tag">${un === 'info' ? 'removidas' : 'cota zerada'}</span></td></tr>`;
       return `<tr><td class="l">${t}</td><td>${f(a)}</td><td>${f(b)}</td>
         <td class="${ok ? 'pos' : 'neg'}">${f(dif)}</td>
         <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
