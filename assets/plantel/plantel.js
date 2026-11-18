@@ -130,7 +130,7 @@ const ST = {
   hc: undefined,    // série do headcount (aba Visualização de dados): undefined = não baixada
   /* aba Visualização de dados: locais somados (vazio = todos), contagem, anos
      desligados; linhas abertas ('tabela:LOCAL'), meses abertos e seções recolhidas */
-  hcSel: {locais: new Set(['FAZENDA']), met: 'total', anosOff: new Set()},
+  hcSel: {locais: new Set(['FAZENDA']), met: 'total', anosOff: new Set(), compor: 'local'},
   hcAbertos: new Set(), hcMesAberto: new Set(['media']), hcSecFechada: new Set(),
   hcCtx: null, hcChart: null,
 };
@@ -2235,7 +2235,8 @@ function painelDados(){
     + ` data-hcloc="${k}">${esc(nomeLocal(k))}</button>`;
   const chipAno = a => {
     const on = a === ano || !ST.hcSel.anosOff.has(a);
-    return `<button type="button" class="chip-sel${on ? ' on' : ''}"${a === ano ? ' disabled' : ` data-hcano="${a}"`}>${a}</button>`;
+    return `<button type="button" class="chip-sel chip-ano${on ? ' on' : ''}"${a === ano ? ' disabled' : ` data-hcano="${a}"`}`
+      + ` style="--cor:${corAno(ano, a)}"><i></i>${a}</button>`;
   };
 
   // um cartão por ano visível: média do trecho comparável, e do ano inteiro
@@ -2243,14 +2244,14 @@ function painelDados(){
   const mAno = mediaDe(fechados.map(i => sAno[i]));
   const cartoes = c.anosVis.slice().reverse().map(a => {
     if (a === ano) {
-      return `<div class="hc-kpi atual"><i>${a} · ${trecho(fechados)}</i><b>${fmt1(mAno)}</b>`
+      return `<div class="hc-kpi" style="--cor:${corAno(ano, a)}"><i>${a} · ${trecho(fechados)}</i><b>${fmt1(mAno)}</b>`
         + `<span>${MES_CURTO[ult]}/${String(a).slice(2)}: <strong>${fmt0(sAno[ult])}</strong></span></div>`;
     }
     const s = c.serie(a, sel, met), idx = c.comparaveis(a), todos = c.doAno(a);
     const mA = mediaDe(idx.map(i => s[i])), mCur = mediaDe(idx.map(i => sAno[i]));
     const d = mA == null || mCur == null ? null : mCur - mA;
     const pc = d == null || !mA ? '' : ` (${d > 0 ? '+' : ''}${Math.round(d / mA * 100)}%)`;
-    return `<div class="hc-kpi"><i>${a} · ${trecho(idx)}</i><b>${fmt1(mA)}</b>`
+    return `<div class="hc-kpi" style="--cor:${corAno(ano, a)}"><i>${a} · ${trecho(idx)}</i><b>${fmt1(mA)}</b>`
       + `<span>${ano} vs ${a}: <strong>${sinal(d, 1)}${pc}</strong></span>`
       + `<span>${todos.length === 12 ? 'ano' : trecho(todos)}: ${fmt1(mediaDe(todos.map(i => s[i])))}</span></div>`;
   }).join('');
@@ -2264,6 +2265,8 @@ function painelDados(){
         <span class="hc-ctrl-g"><span class="hc-ctrl-rot">Contagem</span><div class="seg">${HC_METRICAS.map(([k, rot]) =>
           `<button type="button" data-hcsel="met:${k}" class="${k === met ? 'on' : ''}">${rot}</button>`).join('')}</div></span>
         <span class="hc-ctrl-g"><span class="hc-ctrl-rot">Anos</span>${c.anos.slice().reverse().map(chipAno).join('')}</span>
+        <span class="hc-ctrl-g"><span class="hc-ctrl-rot">Dividir por</span><div class="seg">${HC_COMPOR.map(([k, rot]) =>
+          `<button type="button" data-hccomp="${k}" class="${k === ST.hcSel.compor ? 'on' : ''}">${rot}</button>`).join('')}</div></span>
       </div>
       <div class="hc-kpis">${cartoes}</div>
       <section class="hc-card">
@@ -2307,7 +2310,7 @@ function tabelaMediasHC(c){
   const ant = anosVis.filter(a => a !== ano).reverse();
   const cab = anosVis.map(a => {
     const idx = c.doAno(a);
-    return `<th class="${a === ano ? 'th-ano' : ''}">${a}${idx.length < 12 ? `<small>${trecho(idx)}</small>` : ''}</th>`;
+    return `<th class="th-ano" style="--cor:${corAno(ano, a)}">${a}${idx.length < 12 ? `<small>${trecho(idx)}</small>` : ''}</th>`;
   }).join('')
     + ant.map(a => `<th class="ini">${a}<small>${trecho(c.comparaveis(a))}</small></th>`).join('')
     + ant.map((a, j) => `<th class="${j ? '' : 'ini'}">${ano} vs ${a}</th>`).join('');
@@ -2345,7 +2348,7 @@ function tabelaMesesHC(c){
       + `${g.k === 'media' ? `<small>${trecho(c.fechados)}</small>` : ''}</th>`;
   }).join('');
   const cab2 = grupos.filter(aberto).map(() =>
-    asc.map((a, j) => `<th class="sub${j ? '' : ' ini'}${a === ano ? ' th-ano' : ''}">${String(a).slice(2)}</th>`).join('')
+    asc.map((a, j) => `<th class="sub${j ? '' : ' ini'} th-ano" style="--cor:${corAno(ano, a)}">${String(a).slice(2)}</th>`).join('')
     + ant.map(a => `<th class="sub">vs ${String(a).slice(2)}</th>`).join('')).join('');
   const celulas = (locs, m) => grupos.map(g => {
     const em = g.i != null && g.i > ult;
@@ -2376,28 +2379,52 @@ function tabelaMesesHC(c){
       <tbody>${corpo}</tbody></table></div>`);
 }
 
-/* Composição de cada barra: um segmento por local × contagem. A cor é do LOCAL
-   (validada com dataviz/validate_palette.js sobre #E6ECF1, na ordem da pilha);
-   receptoras levam a mesma cor com hachura. O ano é a POSIÇÃO: em cada mês, uma
-   barra por ano marcado, do mais antigo ao do topo, com o ano escrito na base. O
-   total vai em cima de toda barra. */
-const HC_COR_LOCAL = {FAZENDA: '#2a78d6', ARRENDAMENTO: '#eb6834', SOCIO: '#1baf7a', CTE: '#6250d6', CENTRAL: '#e87ba4'};
+/* Cor por ANO, contada a partir do ano do topo (0 = ele, 1 = o anterior...): ligar e
+   desligar anos não repinta ninguém. Validada com dataviz/validate_palette.js sobre o
+   fundo #E6ECF1, todas acima de 3:1.
+   A composição da barra (local ou plantel/receptoras) é feita em TONS da cor do ano,
+   do mais escuro (embaixo) ao mais claro: o ano continua sendo a cor, e a parte é a
+   intensidade, igual em todos os anos. */
+const HC_CORES = ['#A87D02', '#2459A8', '#00916E', '#A8458F'];
+const corAno = (ano, a) => HC_CORES[ano - a] || '#7A8C9C';
+const HC_COMPOR = [['local', 'Local'], ['contagem', 'Plantel e receptoras'], ['nada', 'Só o total']];
+const HC_TONS = {local: [0, .34, .56, .72, .84], contagem: [0, .5]};
 const HC_ORDEM_PILHA = ['FAZENDA', 'ARRENDAMENTO', 'SOCIO', 'CTE', 'CENTRAL'];
-const HACHURA = {symbol: 'rect', symbolSize: 1, dashArrayX: [1, 0], dashArrayY: [2, 3],
-  rotation: -Math.PI / 4, color: 'rgba(255,255,255,.62)'};
-const corLocal = k => HC_COR_LOCAL[k] || '#7A8C9C';
+const BASE_LEGENDA = '#3E5468';
 const partesDe = met => met === 'total' ? ['animais', 'receptoras'] : [met];
+/* mistura com branco: t = 0 é a cor cheia, t = 1 é branco */
+function tom(hex, t){
+  const n = parseInt(hex.slice(1), 16);
+  const ch = s => Math.round(((n >> s) & 255) + (255 - ((n >> s) & 255)) * t);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
 
 function locaisDoGrafico(c){
   const base = c.sel.length ? c.sel : c.locais;
   return [...HC_ORDEM_PILHA.filter(k => base.includes(k)), ...base.filter(k => !HC_ORDEM_PILHA.includes(k))];
 }
 
+/* as partes de cada barra, de baixo pra cima, conforme "Dividir por" */
+function partesHC(c){
+  const locs = locaisDoGrafico(c), modo = ST.hcSel.compor;
+  if (modo === 'local' && locs.length > 1) {
+    return locs.map(k => ({id: k, nome: nomeLocal(k), val: (a, i) => c.valor(a, i, [k], c.met)}));
+  }
+  if (modo === 'contagem' || (modo === 'local' && c.met === 'total')) {
+    return partesDe(c.met).map(pt => ({id: pt, nome: pt === 'animais' ? 'Plantel' : 'Receptoras',
+      val: (a, i) => c.valor(a, i, locs, pt)}));
+  }
+  return [{id: 'total', nome: 'Total', val: (a, i) => c.valor(a, i, locs, c.met)}];
+}
+const tonsDe = partes => partes.length < 2 ? [0] : (partes.length === 2 ? HC_TONS.contagem : HC_TONS.local);
+
 function legendaHC(c){
-  const locs = locaisDoGrafico(c);
-  const sw = (cor, hach) => `<i class="sw${hach ? ' hach' : ''}" style="--cor:${cor}"></i>`;
-  return `<div class="hc-leg">${locs.map(k => `<span>${sw(corLocal(k))}${esc(nomeLocal(k))}</span>`).join('')}${
-    c.met === 'total' ? `<span class="hc-leg-sep">${sw('#6B8296')}plantel</span><span>${sw('#6B8296', true)}receptoras</span>` : ''}</div>`;
+  const partes = partesHC(c), tons = tonsDe(partes);
+  const sw = cor => `<i class="sw" style="--cor:${cor}"></i>`;
+  const anos = c.anosVis.map(a => `<span>${sw(corAno(c.ano, a))}${a}</span>`).join('');
+  const escada = partes.length < 2 ? '' : `<span class="hc-leg-sep">${partes.map((p, j) =>
+    `<span>${sw(tom(BASE_LEGENDA, tons[j] ?? .9))}${esc(p.nome)}</span>`).join('')}</span>`;
+  return `<div class="hc-leg">${anos}${escada}</div>`;
 }
 
 function montaGraficoHC(){
@@ -2408,86 +2435,73 @@ function montaGraficoHC(){
   const {ano, met, ult} = c;
   const anos = c.anosVis.slice();                    // do mais antigo ao do topo
   const locs = locaisDoGrafico(c);
-  const partes = partesDe(met);
+  const partes = partesHC(c), tons = tonsDe(partes);
   const total = (a, i) => c.valor(a, i, locs, met);
-  // o ano na base só cabe com barra larga; em tela estreita fica no tooltip
-  const cabeAno = el.clientWidth / (12 * anos.length) > 30;
 
   const series = [];
   anos.forEach(a => {
-    let primeira = true;
-    locs.forEach(k => partes.forEach(pt => {
-      const dados = MES_CURTO.map((_, i) => c.valor(a, i, [k], pt));
-      if (dados.every(v => !v)) return;              // local sem nada nesse ano
-      series.push({
-        name: `${a}|${k}|${pt}`, type: 'bar', stack: String(a), data: dados,
-        barGap: '18%', barCategoryGap: '22%', barMaxWidth: 34,
-        itemStyle: {color: corLocal(k), borderColor: '#E6ECF1', borderWidth: 1,
-          decal: pt === 'receptoras' ? HACHURA : undefined},
-        emphasis: {disabled: true},
-        // o ano na base de cada barra: é ele que diz qual barra é qual
-        label: primeira && cabeAno ? {show: true, position: 'insideBottom', distance: 3, color: '#FFFFFF',
-          fontSize: 10, fontWeight: 700, formatter: p => total(a, p.dataIndex) == null ? '' : `'${String(a).slice(2)}`} : undefined,
-      });
-      primeira = false;
+    const cor = corAno(ano, a);
+    const doAno = partes.map((p, j) => ({p, j, dados: MES_CURTO.map((_, i) => p.val(a, i))}))
+      .filter(x => x.dados.some(v => v));
+    doAno.forEach((x, n) => series.push({
+      name: `${a}|${x.p.id}`, type: 'bar', stack: String(a), data: x.dados,
+      barGap: '14%', barCategoryGap: '30%', barMaxWidth: 30,
+      itemStyle: {color: tom(cor, tons[x.j] ?? .9), borderColor: '#E6ECF1', borderWidth: doAno.length > 1 ? 1 : 0,
+        borderRadius: n === doAno.length - 1 ? [3, 3, 0, 0] : 0},
+      emphasis: {disabled: true},
     }));
     // série vazia no topo da pilha só para escrever o total da barra
     series.push({
-      name: `${a}|total`, type: 'bar', stack: String(a), barGap: '18%', barCategoryGap: '22%',
+      name: `${a}|total`, type: 'bar', stack: String(a), barGap: '14%', barCategoryGap: '30%',
       data: MES_CURTO.map((_, i) => total(a, i) == null ? null : 0),
       itemStyle: {color: 'transparent'}, silent: true,
-      label: {show: true, position: 'top', color: a === ano ? '#0B2236' : '#4A6378', fontSize: 10.5,
-        fontWeight: a === ano ? 700 : 600, formatter: p => fmt0(total(a, p.dataIndex))},
+      label: {show: true, position: 'top', distance: 4, color: a === ano ? '#0B2236' : '#6B8296',
+        fontSize: 10.5, fontWeight: a === ano ? 700 : 500, formatter: p => fmt0(total(a, p.dataIndex))},
     });
   });
-
-  // faixa dos meses em aberto do ano do topo, presa à primeira série
   if (ult < 11 && series.length) series[0].markArea = {
-    silent: true, itemStyle: {color: 'rgba(10,48,80,.06)'},
-    label: {show: false},
+    silent: true, itemStyle: {color: 'rgba(10,48,80,.05)'}, label: {show: false},
     data: [[{xAxis: MES_CURTO[ult + 1]}, {xAxis: MES_CURTO[11]}]],
   };
+
   const ch = echarts.init(el, null, {renderer: 'canvas'});
   ch.setOption({
     backgroundColor: 'transparent', animationDuration: 400,
     textStyle: {fontFamily: '"Segoe UI", system-ui, sans-serif', color: '#14304A'},
-    grid: {left: 46, right: 12, top: 22, bottom: 42},
+    grid: {left: 42, right: 8, top: 24, bottom: 40},
     legend: {show: false},
     tooltip: {
       trigger: 'axis', backgroundColor: '#FFFFFF', borderColor: '#AFC0CE', padding: [9, 12],
       textStyle: {color: '#14304A', fontSize: 12}, confine: true,
-      axisPointer: {type: 'shadow', shadowStyle: {color: 'rgba(10,48,80,.06)'}},
+      axisPointer: {type: 'shadow', shadowStyle: {color: 'rgba(10,48,80,.05)'}},
       formatter: ps => {
         const i = ps[0].dataIndex;
+        const cab = partes.length < 2 ? '' : partes.map(p =>
+          `<th style="text-align:right;padding-left:14px;font-weight:600;color:#4A6378">${esc(p.nome)}</th>`).join('');
         const linhas = anos.slice().reverse().map(a => {
           const t = total(a, i);
           if (t == null) return '';
-          const cel = locs.map(k => {
-            const v = c.valor(a, i, [k], met);
-            if (v == null) return '<td></td>';
-            const rc = met === 'total' ? c.valor(a, i, [k], 'receptoras') : 0;
-            return `<td style="text-align:right;padding-left:12px">${fmt0(v)}${rc ? `<span style="color:#6B8296"> (${fmt0(rc)} rec.)</span>` : ''}</td>`;
-          }).join('');
-          return `<tr><td style="font-weight:${a === ano ? 700 : 600}">${a}</td>`
-            + `<td style="text-align:right;padding-left:12px;font-weight:700">${fmt0(t)}</td>${cel}</tr>`;
+          const cel = partes.length < 2 ? '' : partes.map(p =>
+            `<td style="text-align:right;padding-left:14px">${fmt0(p.val(a, i))}</td>`).join('');
+          return `<tr><td style="white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;`
+            + `border-radius:2px;background:${corAno(ano, a)};margin-right:6px"></span>`
+            + `<b style="font-weight:${a === ano ? 700 : 600}">${a}</b></td>`
+            + `<td style="text-align:right;padding-left:14px;font-weight:700">${fmt0(t)}</td>${cel}</tr>`;
         }).join('');
-        const cab = locs.map(k => `<th style="text-align:right;padding-left:12px;font-weight:600;color:#4A6378">`
-          + `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${corLocal(k)};margin-right:4px"></span>`
-          + `${esc(nomeLocal(k))}</th>`).join('');
         const st = i > ult ? ` <span style="color:#6B8296">· ${ano} em aberto</span>` : '';
         return `<b>${MES_CURTO[i]}</b>${st}<table style="margin-top:5px;border-collapse:collapse">`
-          + `<tr><th></th><th style="text-align:right;padding-left:12px;color:#4A6378;font-weight:600">Total</th>${cab}</tr>${linhas}</table>`;
+          + `<tr><th></th><th style="text-align:right;padding-left:14px;color:#4A6378;font-weight:600">Total</th>${cab}</tr>`
+          + `${linhas}</table>`;
       },
     },
     // o "em aberto" vai embaixo do mês, no eixo: em cima ele brigava com os totais
     xAxis: {type: 'category', data: MES_CURTO, axisTick: {show: false},
       axisLine: {lineStyle: {color: '#AFC0CE'}},
       axisLabel: {color: '#14304A', fontSize: 12, fontWeight: 600, lineHeight: 14, interval: 0,
-        formatter: (m, i) => i > ult ? `{ab|${m}}
-{s|em aberto}` : m,
+        formatter: (m, i) => i > ult ? `{ab|${m}}\n{s|em aberto}` : m,
         rich: {ab: {color: '#6B8296', fontSize: 12, fontWeight: 600}, s: {color: '#6B8296', fontSize: 10}}}},
-    yAxis: {type: 'value', min: 0, splitNumber: 4, axisLabel: {color: '#4A6378', fontSize: 12},
-      splitLine: {lineStyle: {color: '#CBD6DF'}}},
+    yAxis: {type: 'value', min: 0, splitNumber: 4, axisLabel: {color: '#6B8296', fontSize: 11},
+      splitLine: {lineStyle: {color: '#D5DEE6'}}},
     series,
   });
   ST.hcChart = ch;
@@ -2672,6 +2686,8 @@ function liga(){
       if (s.has(a)) s.delete(a); else s.add(a);
       pinta(); return;
     }
+    const hcc = e.target.closest('[data-hccomp]');
+    if (hcc) { ST.hcSel.compor = hcc.dataset.hccomp; pinta(); return; }
     const hcs = e.target.closest('[data-hcsel]');
     if (hcs) { ST.hcSel.met = hcs.dataset.hcsel.split(':')[1]; pinta(); return; }
     // tabelas da Visualização: seção, linha (plantel/receptoras) e mês (anos) recolhíveis
