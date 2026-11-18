@@ -43,9 +43,11 @@ function allowed(){
 const byId = id => allowed().find(r=>r.id===id) || ROUTES[0];
 
 /* ---- menu em pastas (13/11/2026, mesma organização do LuxorP&CHub) ----
-   A ORDEM do menu mora aqui: id solto é link no primeiro nível; objeto é pasta.
-   Aba nova que não entrar em lugar nenhum aparece no fim do primeiro nível — nunca
-   some do menu por esquecimento. */
+   Aqui mora só QUEM fica em qual pasta: id solto é link no primeiro nível; objeto é pasta.
+   Aba nova que não entrar em lugar nenhum aparece solta no primeiro nível — nunca some
+   do menu por esquecimento.
+   A ORDEM é do menuDoUsuario (regra do Arthur, 18/11/2026, igual ao P&C): Início; abas
+   soltas em ordem alfabética; pastas em ordem alfabética, com as abas de dentro também. */
 const MENU = [
   '',
   {pasta:'haras', titulo:'Rotinas Haras', itens:['semanal','comite','sgpg']},
@@ -70,7 +72,18 @@ function menuDoUsuario(){
     if(rotas.length) out.push({pasta:m.pasta, titulo:m.titulo, rotas});
   }
   for(const [id,r] of ok) if(!usados.has(id)) out.push({rota:r});
-  return out;
+  return ordenarMenu(out);
+}
+// rótulo do menu = `nav` (curto) quando existe, senão `title` — é o que a pessoa lê
+const rotuloMenu=r=>r.nav||r.title;
+const alfa=(a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base'});
+function ordenarMenu(out){
+  const inicio=out.filter(m=>m.rota && !m.rota.id);
+  const soltas=out.filter(m=>m.rota && m.rota.id).sort((a,b)=>alfa(rotuloMenu(a.rota),rotuloMenu(b.rota)));
+  const pastas=out.filter(m=>m.pasta)
+    .map(m=>({...m, rotas:[...m.rotas].sort((a,b)=>alfa(rotuloMenu(a),rotuloMenu(b)))}))
+    .sort((a,b)=>alfa(a.titulo,b.titulo));
+  return [...inicio, ...soltas, ...pastas];
 }
 
 function linkNav(r){
