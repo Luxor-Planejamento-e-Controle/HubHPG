@@ -2410,6 +2410,8 @@ function montaGraficoHC(){
   const locs = locaisDoGrafico(c);
   const partes = partesDe(met);
   const total = (a, i) => c.valor(a, i, locs, met);
+  // o ano na base só cabe com barra larga; em tela estreita fica no tooltip
+  const cabeAno = el.clientWidth / (12 * anos.length) > 30;
 
   const series = [];
   anos.forEach(a => {
@@ -2424,7 +2426,7 @@ function montaGraficoHC(){
           decal: pt === 'receptoras' ? HACHURA : undefined},
         emphasis: {disabled: true},
         // o ano na base de cada barra: é ele que diz qual barra é qual
-        label: primeira ? {show: true, position: 'insideBottom', distance: 3, color: '#FFFFFF',
+        label: primeira && cabeAno ? {show: true, position: 'insideBottom', distance: 3, color: '#FFFFFF',
           fontSize: 10, fontWeight: 700, formatter: p => total(a, p.dataIndex) == null ? '' : `'${String(a).slice(2)}`} : undefined,
       });
       primeira = false;
@@ -2480,9 +2482,9 @@ function montaGraficoHC(){
     // o "em aberto" vai embaixo do mês, no eixo: em cima ele brigava com os totais
     xAxis: {type: 'category', data: MES_CURTO, axisTick: {show: false},
       axisLine: {lineStyle: {color: '#AFC0CE'}},
-      axisLabel: {color: '#14304A', fontSize: 12, fontWeight: 600, lineHeight: 14,
+      axisLabel: {color: '#14304A', fontSize: 12, fontWeight: 600, lineHeight: 14, interval: 0,
         formatter: (m, i) => i > ult ? `{ab|${m}}
-{s|${ano} em aberto}` : m,
+{s|em aberto}` : m,
         rich: {ab: {color: '#6B8296', fontSize: 12, fontWeight: 600}, s: {color: '#6B8296', fontSize: 10}}}},
     yAxis: {type: 'value', min: 0, splitNumber: 4, axisLabel: {color: '#4A6378', fontSize: 12},
       splitLine: {lineStyle: {color: '#CBD6DF'}}},
