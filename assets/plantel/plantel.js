@@ -128,7 +128,10 @@ const ST = {
   pop: null,        // {qual, col, busca, foco} — menu de filtro aberto
   ctx: {},          // por aba: base sem filtro + como ler o texto de cada coluna
   hc: undefined,    // série do headcount (aba Visualização de dados): undefined = não baixada
-  hcSel: {local: 'FAZENDA', met: 'total', comp: null},   // escolhas da aba (comp null = ano anterior)
+  /* aba Visualização de dados: locais somados (vazio = todos), contagem, anos
+     desligados; linhas abertas ('tabela:LOCAL'), meses abertos e seções recolhidas */
+  hcSel: {locais: new Set(['FAZENDA']), met: 'total', anosOff: new Set()},
+  hcAbertos: new Set(), hcMesAberto: new Set(['media']), hcSecFechada: new Set(),
   hcCtx: null, hcChart: null,
 };
 
@@ -2123,18 +2126,24 @@ const FMT_PCT = '0.00%';
    mês, pela mesma conta do slide de headcount do comitê e da semanal. Nada é
    recontado aqui — a regra de quem entra no headcount mora num lugar só.
 
-   O desenho segue o "Orçado × Realizado" do painel de gastos: o ano de comparação
-   em barras, o ano do mês escolhido no topo em linha, e os meses que ainda não
-   fecharam ficam no eixo, sombreados como "em aberto". */
+   Uma linha por ano no mesmo eixo jan–dez: o ano do mês escolhido no topo e todos
+   os anteriores marcados. Os meses que ainda não fecharam ficam no eixo, como
+   "em aberto". As tabelas seguem o painel de gastos: o local abre plantel e
+   receptoras, o mês abre os anos lado a lado. */
 const HC_LOCAIS = {FAZENDA: 'Fazenda', ARRENDAMENTO: 'Arrendamento', CTE: 'CTE',
   CENTRAL: 'Central', SOCIO: 'Sócio'};
 const HC_METRICAS = [['total', 'Plantel + receptoras'], ['animais', 'Plantel'], ['receptoras', 'Receptoras']];
 const MES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-/* cores validadas com dataviz/validate_palette.js no modo escuro, sobre #0A3050 */
-const HC_COR = {comp: '#3D8BD9', ano: '#B88600'};
-const fmt1 = v => v == null ? '—' : v.toLocaleString('pt-BR', {minimumFractionDigits: 1, maximumFractionDigits: 1});
-const fmt0 = v => v == null ? '—' : Math.round(v).toLocaleString('pt-BR');
-const sinal1 = v => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + fmt1(Math.abs(v));
+/* Cor por ANO, contada a partir do ano do topo (0 = ele, 1 = o anterior...): ligar e
+   desligar anos não repinta ninguém. Validada com dataviz/validate_palette.js sobre o
+   fundo #E6ECF1 — todas acima de 3:1; o par 2 × 3 fica na faixa 6–8 de daltonismo,
+   coberto pelo rótulo do ano na ponta de cada linha. */
+const HC_CORES = ['#A87D02', '#2459A8', '#00916E', '#A8458F'];
+const corAno = (ano, a) => HC_CORES[ano - a] || '#7A8C9C';
+const fmt1 = v => v == null || isNaN(v) ? '—' : v.toLocaleString('pt-BR', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+const fmt0 = v => v == null || isNaN(v) ? '—' : Math.round(v).toLocaleString('pt-BR');
+const sinal = (v, casas) => v == null || isNaN(v) ? '—'
+  : (v > 0 ? '+' : v < 0 ? '−' : '') + (casas ? fmt1(Math.abs(v)) : fmt0(Math.abs(v)));
 const mesMin = i => MES_CURTO[i].toLowerCase();
 const nomeLocal = k => k === 'TOTAL' ? 'Total' : (HC_LOCAIS[k] || k);
 
@@ -2162,17 +2171,10 @@ function garanteECharts(){
   }));
 }
 
-/* valor de um mês; local 'TOTAL' soma os locais. null = mês sem fechamento */
-function hcValor(mes, local, met){
-  const reg = ST.hc && ST.hc.meses && ST.hc.meses[mes];
-  if (!reg) return null;
-  const locs = reg.locais || {};
-  const vs = local === 'TOTAL' ? Object.values(locs) : [locs[local] || {animais: 0, receptoras: 0}];
-  return vs.reduce((s, v) => s + (met === 'total' ? v.animais + v.receptoras : v[met]), 0);
-}
 const chaveMes = (ano, i) => `${ano}-${String(i + 1).padStart(2, '0')}`;
+const temMes = (a, i) => !!(ST.hc.meses || {})[chaveMes(a, i)];
 const mediaDe = arr => {
-  const v = arr.filter(x => x != null);
+  const v = arr.filter(x => x != null && !isNaN(x));
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 };
 /* 'jan–out', 'fev–dez', 'mar' — o trecho do ano que a média cobre */
@@ -2187,25 +2189,34 @@ function hcContexto(){
   const corte = ST.mes && ST.mes >= meses[0] ? ST.mes : meses[meses.length - 1];
   const ano = +corte.slice(0, 4);
   const anos = [...new Set(meses.map(m => +m.slice(0, 4)))].filter(a => a <= ano).sort();
-  const anteriores = anos.filter(a => a < ano);
-  const sel = ST.hcSel;
-  const comp = anteriores.includes(sel.comp) ? sel.comp : (anteriores[anteriores.length - 1] || null);
+  const anosVis = anos.filter(a => a === ano || !ST.hcSel.anosOff.has(a));
   const presentes = new Set(meses.filter(m => +m.slice(0, 4) <= ano)
     .flatMap(m => Object.keys(ST.hc.meses[m].locais || {})));
-  const locais = ['TOTAL', ...Object.keys(HC_LOCAIS).filter(k => presentes.has(k)),
+  const locais = [...Object.keys(HC_LOCAIS).filter(k => presentes.has(k)),
     ...[...presentes].filter(k => !(k in HC_LOCAIS)).sort()];
-  const local = locais.includes(sel.local) ? sel.local : 'TOTAL';
-  const met = HC_METRICAS.some(([k]) => k === sel.met) ? sel.met : 'total';
+  const sel = locais.filter(k => ST.hcSel.locais.has(k));
+  const met = HC_METRICAS.some(([k]) => k === ST.hcSel.met) ? ST.hcSel.met : 'total';
   // meses FECHADOS do ano, até o mês do topo; o resto do eixo é o ano em aberto
   const fechados = [];
-  for (let i = 0; i < 12; i++) {
-    const k = chaveMes(ano, i);
-    if (k <= corte && ST.hc.meses[k]) fechados.push(i);
-  }
+  for (let i = 0; i < 12; i++) if (chaveMes(ano, i) <= corte && temMes(ano, i)) fechados.push(i);
   const ult = fechados.length ? fechados[fechados.length - 1] : -1;
-  const serie = (a, l = local, m = met) => Array.from({length: 12}, (_, i) =>
-    (a === ano && (i > ult || !fechados.includes(i))) ? null : hcValor(chaveMes(a, i), l, m));
-  return {ano, anos, anteriores, comp, locais, local, met, fechados, ult, serie};
+  /* valor de um mês para uma lista de locais (vazia = todos); null = sem fechamento
+     ou mês do ano corrente que ainda não fechou */
+  const valor = (a, i, locs, m) => {
+    if (a === ano && !fechados.includes(i)) return null;
+    const reg = (ST.hc.meses || {})[chaveMes(a, i)];
+    if (!reg) return null;
+    const ls = reg.locais || {};
+    return (locs && locs.length ? locs : Object.keys(ls)).reduce((s, k) => {
+      const v = ls[k] || {animais: 0, receptoras: 0};
+      return s + (m === 'total' ? v.animais + v.receptoras : v[m]);
+    }, 0);
+  };
+  const serie = (a, locs, m) => Array.from({length: 12}, (_, i) => valor(a, i, locs, m));
+  // meses de `a` comparáveis com o ano do topo: os fechados que `a` também tem
+  const comparaveis = a => fechados.filter(i => temMes(a, i));
+  const doAno = a => a === ano ? fechados : Array.from({length: 12}, (_, i) => i).filter(i => temMes(a, i));
+  return {ano, anos, anosVis, locais, sel, met, fechados, ult, valor, serie, comparaveis, doAno};
 }
 
 function painelDados(){
@@ -2215,40 +2226,49 @@ function painelDados(){
   ST.hcCtx = c;
   if (!c || !c.fechados.length) return `<div class="aviso">Nenhum fechamento de ${
     c ? c.ano : ''} no headcount até o mês escolhido.</div>`;
-  const {ano, comp, local, met, fechados, ult, serie} = c;
-  const sAno = serie(ano), sComp = comp ? serie(comp) : null;
-  const per = trecho(fechados);
-  const mAno = mediaDe(sAno);
-  const idxPer = sComp ? fechados.filter(i => sComp[i] != null) : [];
-  const mCompPer = sComp ? mediaDe(idxPer.map(i => sComp[i])) : null;
-  const mAnoPer = sComp ? mediaDe(idxPer.map(i => sAno[i])) : null;     // mesmos meses dos dois lados
-  const idxComp = sComp ? sComp.map((v, i) => v == null ? null : i).filter(i => i != null) : [];
-  const mCompAno = sComp ? mediaDe(sComp) : null;
-  const vUlt = sAno[ult], vUltComp = sComp ? sComp[ult] : null;
-  const pct = (a, b) => a == null || !b ? '' : ` (${(a - b) / b > 0 ? '+' : ''}${Math.round((a - b) / b * 100)}%)`;
-
-  const seg = (grupo, itens, atual) => `<div class="seg">${itens.map(([v, rot]) =>
-    `<button type="button" data-hcsel="${grupo}:${v}" class="${String(v) === String(atual) ? 'on' : ''}">${esc(rot)}</button>`).join('')}</div>`;
-  const kpi = (rot, val, sub) => `<div class="hc-kpi"><i>${rot}</i><b>${val}</b><span>${sub}</span></div>`;
-
+  const {ano, sel, met, fechados, ult} = c;
+  const titLocais = sel.length ? sel.map(nomeLocal).join(' + ') : 'Todos os locais';
   const titMet = (HC_METRICAS.find(([k]) => k === met) || [])[1];
+
+  const chipLocal = k => `<button type="button" class="chip-sel${ST.hcSel.locais.has(k) ? ' on' : ''}"`
+    + ` data-hcloc="${k}">${esc(nomeLocal(k))}</button>`;
+  const chipAno = a => {
+    const on = a === ano || !ST.hcSel.anosOff.has(a);
+    return `<button type="button" class="chip-sel chip-ano${on ? ' on' : ''}"${a === ano ? ' disabled' : ` data-hcano="${a}"`}`
+      + ` style="--cor:${corAno(ano, a)}"><i></i>${a}</button>`;
+  };
+
+  // um cartão por ano visível: média do trecho comparável, e do ano inteiro
+  const sAno = c.serie(ano, sel, met);
+  const mAno = mediaDe(fechados.map(i => sAno[i]));
+  const cartoes = c.anosVis.slice().reverse().map(a => {
+    const cor = corAno(ano, a);
+    if (a === ano) {
+      return `<div class="hc-kpi" style="--cor:${cor}"><i>${a} · ${trecho(fechados)}</i><b>${fmt1(mAno)}</b>`
+        + `<span>${MES_CURTO[ult]}/${String(a).slice(2)}: <strong>${fmt0(sAno[ult])}</strong></span></div>`;
+    }
+    const s = c.serie(a, sel, met), idx = c.comparaveis(a), todos = c.doAno(a);
+    const mA = mediaDe(idx.map(i => s[i])), mCur = mediaDe(idx.map(i => sAno[i]));
+    const d = mA == null || mCur == null ? null : mCur - mA;
+    const pc = d == null || !mA ? '' : ` (${d > 0 ? '+' : ''}${Math.round(d / mA * 100)}%)`;
+    return `<div class="hc-kpi" style="--cor:${cor}"><i>${a} · ${trecho(idx)}</i><b>${fmt1(mA)}</b>`
+      + `<span>${ano} vs ${a}: <strong>${sinal(d, 1)}${pc}</strong></span>`
+      + `<span>${todos.length === 12 ? 'ano' : trecho(todos)}: ${fmt1(mediaDe(todos.map(i => s[i])))}</span></div>`;
+  }).join('');
+
   return `
     <div class="hc">
       <div class="hc-ctrl">
-        <span class="hc-ctrl-g"><span class="hc-ctrl-rot">Local</span>${seg('local', c.locais.map(k => [k, nomeLocal(k)]), local)}</span>
-        <span class="hc-ctrl-g"><span class="hc-ctrl-rot">Contagem</span>${seg('met', HC_METRICAS, met)}</span>
-        ${c.anteriores.length ? `<span class="hc-ctrl-g"><span class="hc-ctrl-rot">Comparar com</span>${
-          seg('comp', c.anteriores.slice().reverse().map(a => [a, a]), comp)}</span>` : ''}
+        <span class="hc-ctrl-g"><span class="hc-ctrl-rot">Local</span>
+          <button type="button" class="chip-sel${sel.length ? '' : ' on'}" data-hcloc="*">Todos</button>
+          ${c.locais.map(chipLocal).join('')}</span>
+        <span class="hc-ctrl-g"><span class="hc-ctrl-rot">Contagem</span><div class="seg">${HC_METRICAS.map(([k, rot]) =>
+          `<button type="button" data-hcsel="met:${k}" class="${k === met ? 'on' : ''}">${rot}</button>`).join('')}</div></span>
+        <span class="hc-ctrl-g"><span class="hc-ctrl-rot">Anos</span>${c.anos.slice().reverse().map(chipAno).join('')}</span>
       </div>
-      <div class="hc-kpis">
-        ${kpi(`Média ${ano} · ${per}`, fmt1(mAno), `${fechados.length} ${fechados.length === 1 ? 'mês fechado' : 'meses fechados'}`)}
-        ${comp ? kpi(`Média ${comp} · ${trecho(idxPer)}`, fmt1(mCompPer), `${ano} − ${comp}: ${sinal1(mAnoPer == null || mCompPer == null ? null : mAnoPer - mCompPer)}${pct(mAnoPer, mCompPer)}`) : ''}
-        ${comp ? kpi(`Média ${comp} · ${trecho(idxComp)}`, fmt1(mCompAno), `${idxComp.length} meses`) : ''}
-        ${kpi(`${MES_CURTO[ult]}/${String(ano).slice(2)}`, fmt0(vUlt),
-          comp ? `${mesMin(ult)}/${String(comp).slice(2)}: ${fmt0(vUltComp)} · ${sinal1(vUltComp == null ? null : vUlt - vUltComp)}` : 'último fechamento')}
-      </div>
+      <div class="hc-kpis">${cartoes}</div>
       <section class="hc-card">
-        <div class="hc-card-cab"><h3>${esc(nomeLocal(local))} · ${esc(titMet)} no fim do mês${comp ? ` — ${ano} × ${comp}` : ''}</h3></div>
+        <h3>${esc(titLocais)} · ${esc(titMet)} no fim do mês</h3>
         <div id="hcGraf" class="hc-graf"></div>
       </section>
       ${tabelaMediasHC(c)}
@@ -2256,70 +2276,105 @@ function painelDados(){
     </div>`;
 }
 
-/* Média de cada ano por local. Ano parcial diz o trecho no cabeçalho; o ano do
-   topo é comparado com o mesmo trecho do ano escolhido em "Comparar com". */
-function tabelaMediasHC(c){
-  const {ano, comp, fechados} = c;
-  const anos = c.anos;
-  const idxAno = a => a === ano ? fechados
-    : Array.from({length: 12}, (_, i) => i).filter(i => ST.hc.meses[chaveMes(a, i)]);
-  const cols = anos.map(a => ({a, idx: idxAno(a)}));
-  const cab = cols.map(({a, idx}) => `<th>${a}${idx.length < 12 ? `<small>${trecho(idx)}</small>` : ''}</th>`).join('')
-    + (comp ? `<th>${comp}<small>${trecho(fechados.filter(i => ST.hc.meses[chaveMes(comp, i)]))}</small></th>`
-      + `<th>${ano} − ${comp}</th>` : '');
-  const linha = (rot, local, met, cls, sel) => {
-    // local que não existia naquele ano (CTE antes de ago/25) sai '—', não 0,0
-    const existe = (a, i) => local === 'TOTAL' || ((ST.hc.meses[chaveMes(a, i)] || {}).locais || {})[local];
-    const med = (a, idx) => idx.some(i => existe(a, i)) ? mediaDe(idx.map(i => hcValor(chaveMes(a, i), local, met))) : null;
-    const vals = cols.map(({a, idx}) => med(a, idx));
-    const comum = comp ? fechados.filter(i => ST.hc.meses[chaveMes(comp, i)]) : [];
-    const mesmo = comp ? med(comp, comum) : null;
-    const atual = comp ? med(ano, comum) : null;
-    return `<tr class="${cls}${sel ? ' sel' : ''}"${cls === 'hc-local' || cls === 'hc-total' ? ` data-hcsel="local:${local}"` : ''}>`
-      + `<td class="l">${rot}</td>${vals.map(v => `<td>${fmt1(v)}</td>`).join('')}`
-      + (comp ? `<td>${fmt1(mesmo)}</td><td class="hc-delta">${sinal1(atual == null || mesmo == null ? null : atual - mesmo)}</td>` : '')
-      + '</tr>';
-  };
-  const temRec = local => cols.some(({a, idx}) => idx.some(i => hcValor(chaveMes(a, i), local, 'receptoras')));
-  const corpo = c.locais.filter(k => k !== 'TOTAL').map(k => [
-    linha(nomeLocal(k), k, 'total', 'hc-local', c.local === k),
-    ...(temRec(k) ? [linha('Plantel', k, 'animais', 'hc-sub'), linha('Receptoras', k, 'receptoras', 'hc-sub')] : []),
-  ].join('')).join('');
-  return `<h3 class="hc-tit">Média por local</h3>
-    <div class="rolagem clara hc-tab"><table class="t t-plantel">
-      <thead><tr><th class="l">Local</th>${cab}</tr></thead>
-      <tbody>${corpo}${linha('Total', 'TOTAL', 'total', 'hc-total', c.local === 'TOTAL')}
-        ${linha('Plantel', 'TOTAL', 'animais', 'hc-sub')}${linha('Receptoras', 'TOTAL', 'receptoras', 'hc-sub')}</tbody>
-    </table></div>`;
+/* cabeçalho de seção recolhível: título + ações à direita */
+function secaoHC(id, titulo, acoes, corpo){
+  const fechada = ST.hcSecFechada.has(id);
+  return `<section class="hc-sec${fechada ? ' fechada' : ''}">
+    <div class="hc-sec-cab"><button type="button" class="hc-sec-tit" data-hcsec="${id}" aria-expanded="${!fechada}">`
+    + `<span class="chev">${fechada ? '▸' : '▾'}</span>${titulo}</button>${fechada ? '' : `<span class="hc-sec-acoes">${acoes}</span>`}</div>
+    ${fechada ? '' : corpo}</section>`;
 }
 
-/* O local e a contagem escolhidos, mês a mês, um ano por linha. Mês em aberto do
-   ano do topo fica sombreado, como no gráfico. */
-function tabelaMesesHC(c){
-  const {ano, comp, local, met, fechados, ult, serie} = c;
-  const anos = c.anos.slice().reverse();
-  const linhas = anos.map(a => {
-    const s = serie(a);
-    return `<tr class="${a === ano ? 'hc-local' : ''}"><td class="l">${a}</td>${s.map((v, i) =>
-      `<td class="${a === ano && i > ult ? 'hc-aberto' : ''}">${v == null ? '' : fmt0(v)}</td>`).join('')}`
-      + `<td class="hc-media">${fmt1(mediaDe(s))}</td></tr>`;
-  });
-  if (comp) {
-    const sa = serie(ano), sc = serie(comp);
-    linhas.splice(1, 0, `<tr class="hc-sub"><td class="l">${ano} − ${comp}</td>${sa.map((v, i) =>
-      `<td class="${i > ult ? 'hc-aberto' : ''}">${v == null || sc[i] == null ? '' : sinal1(v - sc[i]).replace(',0', '')}</td>`).join('')}`
-      + `<td class="hc-media">${(() => {
-        const ambos = fechados.filter(i => sa[i] != null && sc[i] != null);
-        const a1 = mediaDe(ambos.map(i => sa[i])), b1 = mediaDe(ambos.map(i => sc[i]));
-        return sinal1(a1 == null || b1 == null ? null : a1 - b1);
-      })()}</td></tr>`);
+/* linhas de um local: o total e, aberto, plantel e receptoras */
+function linhasLocalHC(tab, c, k, celulas){
+  const temRec = c.anosVis.some(a => c.doAno(a).some(i => c.valor(a, i, k === 'TOTAL' ? [] : [k], 'receptoras')));
+  const chave = `${tab}:${k}`;
+  const aberto = ST.hcAbertos.has(chave);
+  const locs = k === 'TOTAL' ? [] : [k];
+  const nome = `${temRec ? `<span class="chev">${aberto ? '▾' : '▸'}</span>` : '<span class="chev"></span>'}${esc(nomeLocal(k))}`;
+  const cls = (k === 'TOTAL' ? 'hc-total' : 'hc-local') + (c.sel.includes(k) ? ' sel' : '') + (temRec ? ' abre' : '');
+  let html = `<tr class="${cls}"${temRec ? ` data-hcrow="${chave}"` : ''}><td class="l">${nome}</td>${celulas(locs, 'total')}</tr>`;
+  if (temRec && aberto) {
+    html += `<tr class="hc-sub"><td class="l">Plantel</td>${celulas(locs, 'animais')}</tr>`
+      + `<tr class="hc-sub"><td class="l">Receptoras</td>${celulas(locs, 'receptoras')}</tr>`;
   }
-  const titMet = (HC_METRICAS.find(([k]) => k === met) || [])[1];
-  return `<h3 class="hc-tit">${esc(nomeLocal(local))} · ${esc(titMet)}, mês a mês</h3>
-    <div class="rolagem clara hc-tab"><table class="t t-plantel">
-      <thead><tr><th class="l">Ano</th>${MES_CURTO.map(m => `<th>${m}</th>`).join('')}<th>Média</th></tr></thead>
-      <tbody>${linhas.join('')}</tbody>
-    </table></div>`;
+  return html;
+}
+
+/* Média por local: a média de cada ano (o do topo até o último fechamento), a do
+   mesmo trecho em cada ano anterior e a diferença — só nos meses que os dois têm. */
+function tabelaMediasHC(c){
+  const {ano, anosVis} = c;
+  const ant = anosVis.filter(a => a !== ano).reverse();
+  const cab = anosVis.map(a => {
+    const idx = c.doAno(a);
+    return `<th style="--cor:${corAno(ano, a)}" class="th-ano">${a}${idx.length < 12 ? `<small>${trecho(idx)}</small>` : ''}</th>`;
+  }).join('')
+    + ant.map(a => `<th class="ini">${a}<small>${trecho(c.comparaveis(a))}</small></th>`).join('')
+    + ant.map((a, j) => `<th class="${j ? '' : 'ini'}">${ano} vs ${a}</th>`).join('');
+  const celulas = (locs, m) => {
+    const med = (a, idx) => mediaDe(idx.map(i => c.valor(a, i, locs, m)));
+    return anosVis.map(a => `<td>${fmt1(med(a, c.doAno(a)))}</td>`).join('')
+      + ant.map(a => `<td class="ini">${fmt1(med(a, c.comparaveis(a)))}</td>`).join('')
+      + ant.map((a, j) => {
+        const idx = c.comparaveis(a), x = med(ano, idx), y = med(a, idx);
+        return `<td class="hc-delta${j ? '' : ' ini'}">${sinal(x == null || y == null ? null : x - y, 1)}</td>`;
+      }).join('');
+  };
+  const corpo = [...c.locais, 'TOTAL'].map(k => linhasLocalHC('med', c, k, celulas)).join('');
+  const todos = [...c.locais, 'TOTAL'].every(k => ST.hcAbertos.has(`med:${k}`));
+  return secaoHC('medias', 'Média por local',
+    `<button type="button" class="hc-acao" data-hcbtn="locais:med">${todos ? 'Recolher locais' : 'Abrir plantel e receptoras'}</button>`,
+    `<div class="rolagem clara hc-tab"><table class="t t-plantel">
+      <thead><tr><th class="l">Local</th>${cab}</tr></thead><tbody>${corpo}</tbody></table></div>`);
+}
+
+/* Mês a mês: fechado, o mês mostra o ano do topo; aberto, todos os anos marcados e
+   a diferença para cada anterior. A média segue a mesma ideia, no trecho comparável. */
+function tabelaMesesHC(c){
+  const {ano, anosVis, ult} = c;
+  const ant = anosVis.filter(a => a !== ano).reverse();
+  const asc = anosVis.slice().reverse();      // o ano do topo primeiro
+  const nAb = asc.length + ant.length;
+  const grupos = [...MES_CURTO.map((m, i) => ({k: String(i), rot: m, i})), {k: 'media', rot: 'Média', i: null}];
+  const aberto = g => ST.hcMesAberto.has(g.k);
+  const cab1 = grupos.map(g => {
+    const em = g.i != null && g.i > ult;
+    const cls = ['hc-mes', aberto(g) ? 'open' : '', em ? 'em-aberto' : '', g.k === 'media' ? 'ini' : ''].filter(Boolean).join(' ');
+    return `<th class="${cls}" data-hcmes="${g.k}" ${aberto(g) ? `colspan="${nAb}"` : 'rowspan="2"'}`
+      + ` title="${aberto(g) ? 'fechar' : 'abrir os anos de'} ${g.rot}">${g.rot}<span class="chev">${aberto(g) ? '▾' : '▸'}</span>`
+      + `${g.k === 'media' ? `<small>${trecho(c.fechados)}</small>` : ''}</th>`;
+  }).join('');
+  const cab2 = grupos.filter(aberto).map(() =>
+    asc.map((a, j) => `<th class="sub${j ? '' : ' ini'} th-ano" style="--cor:${corAno(ano, a)}">${String(a).slice(2)}</th>`).join('')
+    + ant.map(a => `<th class="sub">vs ${String(a).slice(2)}</th>`).join('')).join('');
+  const celulas = (locs, m) => grupos.map(g => {
+    const em = g.i != null && g.i > ult;
+    const v = a => g.k === 'media'
+      ? mediaDe((a === ano ? c.fechados : c.comparaveis(a)).map(i => c.valor(a, i, locs, m)))
+      : c.valor(a, g.i, locs, m);
+    const fmt = g.k === 'media' ? fmt1 : fmt0;
+    if (!aberto(g)) return `<td class="${[em ? 'em-aberto' : '', g.k === 'media' ? 'hc-media ini' : ''].join(' ')}">${em ? '' : fmt(v(ano))}</td>`;
+    return asc.map((a, j) => `<td class="${[j ? '' : 'ini', a === ano && em ? 'em-aberto' : '', a === ano ? 'cur' : ''].join(' ')}">${
+      a === ano && em ? '' : fmt(v(a))}</td>`).join('')
+      + ant.map(a => {
+        let x, y;
+        if (g.k === 'media') {
+          const idx = c.comparaveis(a);
+          x = mediaDe(idx.map(i => c.valor(ano, i, locs, m))); y = mediaDe(idx.map(i => c.valor(a, i, locs, m)));
+        } else { x = c.valor(ano, g.i, locs, m); y = c.valor(a, g.i, locs, m); }
+        return `<td class="hc-delta${em ? ' em-aberto' : ''}">${x == null || y == null ? '' : sinal(x - y, g.k === 'media')}</td>`;
+      }).join('');
+  }).join('');
+  const corpo = [...c.locais, 'TOTAL'].map(k => linhasLocalHC('mes', c, k, celulas)).join('');
+  const todosMeses = grupos.every(aberto);
+  const todosLocais = [...c.locais, 'TOTAL'].every(k => ST.hcAbertos.has(`mes:${k}`));
+  return secaoHC('meses', 'Mês a mês',
+    `<button type="button" class="hc-acao" data-hcbtn="meses">${todosMeses ? 'Recolher meses' : 'Abrir todos os meses'}</button>`
+    + `<button type="button" class="hc-acao" data-hcbtn="locais:mes">${todosLocais ? 'Recolher locais' : 'Abrir plantel e receptoras'}</button>`,
+    `<div class="rolagem clara hc-tab"><table class="t t-plantel hc-meses">
+      <thead><tr><th class="l" rowspan="2">Local</th>${cab1}</tr><tr>${cab2}</tr></thead>
+      <tbody>${corpo}</tbody></table></div>`);
 }
 
 function montaGraficoHC(){
@@ -2327,68 +2382,58 @@ function montaGraficoHC(){
   const el = document.getElementById('hcGraf');
   const c = ST.hcCtx;
   if (!el || !window.echarts || !c || !c.fechados.length) return;
-  const {ano, comp, local, met, ult, serie} = c;
-  const sAno = serie(ano), sComp = comp ? serie(comp) : null;
-  const mAno = mediaDe(sAno);
-  const aberto = ult < 11 ? {
-    silent: true, itemStyle: {color: 'rgba(202,151,3,.07)'},
-    label: {show: true, position: 'insideTop', color: '#93AABC', fontSize: 10, formatter: 'em aberto'},
-    data: [[{xAxis: MES_CURTO[ult + 1]}, {xAxis: MES_CURTO[11]}]],
-  } : undefined;
+  const {ano, sel, met, ult} = c;
+  const anos = c.anosVis.slice().reverse();          // o ano do topo primeiro
+  const series = Object.fromEntries(anos.map(a => [a, c.serie(a, sel, met)]));
   const split = (a, i) => {
     if (met !== 'total') return '';
-    const an = hcValor(chaveMes(a, i), local, 'animais'), rc = hcValor(chaveMes(a, i), local, 'receptoras');
-    return rc ? ` <span style="color:#93AABC">(${fmt0(an)} plantel · ${fmt0(rc)} receptoras)</span>` : '';
+    const an = c.valor(a, i, sel, 'animais'), rc = c.valor(a, i, sel, 'receptoras');
+    return rc ? ` <span style="color:#6B8296">${fmt0(an)} + ${fmt0(rc)}</span>` : '';
   };
-  const linhaTT = (a, s, i, cor) => s[i] == null ? ''
-    : `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${cor};margin-right:6px"></span>`
-      + `${a}: <b>${fmt0(s[i])}</b>${split(a, i)}<br>`;
   const ch = echarts.init(el, null, {renderer: 'canvas'});
   ch.setOption({
     backgroundColor: 'transparent', animationDuration: 500,
-    textStyle: {fontFamily: '"Segoe UI", system-ui, sans-serif', color: '#B6C8D6'},
-    grid: {left: 44, right: 22, top: 38, bottom: 28},
-    legend: {top: 2, left: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 12,
-      textStyle: {color: '#B6C8D6'}, data: [...(comp ? [String(comp)] : []), String(ano)]},
+    textStyle: {fontFamily: '"Segoe UI", system-ui, sans-serif', color: '#14304A'},
+    grid: {left: 46, right: 58, top: 36, bottom: 30},
+    legend: {top: 0, right: 0, itemWidth: 18, itemHeight: 3, icon: 'rect',
+      textStyle: {color: '#14304A', fontSize: 12, fontWeight: 600}, data: anos.map(String)},
     tooltip: {
-      trigger: 'axis', backgroundColor: '#04223B', borderColor: '#2A5F87',
-      textStyle: {color: '#EAF0F4', fontSize: 12},
-      axisPointer: {type: 'shadow', shadowStyle: {color: 'rgba(127,168,196,.08)'}},
+      trigger: 'axis', backgroundColor: '#FFFFFF', borderColor: '#AFC0CE', padding: [8, 11],
+      textStyle: {color: '#14304A', fontSize: 12},
+      axisPointer: {type: 'line', lineStyle: {color: '#93AABC', type: 'dashed'}},
       formatter: ps => {
         const i = ps[0].dataIndex;
-        const st = i > ult ? ` <span style="color:#93AABC">· ${ano} em aberto</span>` : '';
-        const d = sComp && sAno[i] != null && sComp[i] != null
-          ? `<span style="color:#93AABC">${ano} − ${comp}:</span> <b>${sinal1(sAno[i] - sComp[i]).replace(',0', '')}</b>` : '';
-        return `<b>${MES_CURTO[i]}</b>${st}<br>${linhaTT(ano, sAno, i, HC_COR.ano)}`
-          + (sComp ? linhaTT(comp, sComp, i, HC_COR.comp) : '') + d;
+        const cur = series[ano][i];
+        const st = i > ult ? ` <span style="color:#6B8296">· ${ano} em aberto</span>` : '';
+        return `<b>${MES_CURTO[i]}</b>${st}<br>` + anos.map(a => {
+          const v = series[a][i];
+          if (v == null) return '';
+          const d = a !== ano && cur != null ? ` <span style="color:#6B8296">· ${ano} ${sinal(cur - v)}</span>` : '';
+          return `<span style="display:inline-block;width:10px;height:3px;background:${corAno(ano, a)};margin:0 7px 3px 0"></span>`
+            + `${a}: <b>${fmt0(v)}</b>${split(a, i)}${d}<br>`;
+        }).join('');
       },
     },
-    xAxis: {type: 'category', data: MES_CURTO, axisTick: {show: false},
-      axisLine: {lineStyle: {color: '#2A5F87'}}, axisLabel: {color: '#93AABC'}},
-    yAxis: {type: 'value', min: 0, axisLabel: {color: '#93AABC'},
-      splitLine: {lineStyle: {color: '#1B486B'}}},
-    series: [
-      ...(sComp ? [{
-        name: String(comp), type: 'bar', data: sComp, barMaxWidth: 34,
-        itemStyle: {color: 'rgba(61,139,217,.36)', borderColor: HC_COR.comp, borderWidth: 1, borderRadius: [3, 3, 0, 0]},
-        markArea: aberto,
-      }] : []),
-      {
-        name: String(ano), type: 'line', data: sAno, z: 3, symbol: 'circle', symbolSize: 7,
-        connectNulls: false, lineStyle: {color: HC_COR.ano, width: 2.5},
-        itemStyle: {color: HC_COR.ano, borderColor: '#0A3050', borderWidth: 2},
-        label: {show: true, position: 'top', color: '#EAF0F4', fontWeight: 700,
-          formatter: p => p.dataIndex === ult ? fmt0(p.value) : ''},
-        markArea: sComp ? undefined : aberto,
-        markLine: mAno == null ? undefined : {
-          silent: true, symbol: 'none',
-          lineStyle: {color: HC_COR.ano, type: 'dashed', width: 1, opacity: .7},
-          label: {position: 'insideEndTop', color: '#B6C8D6', fontSize: 11,
-            formatter: `média ${ano}: ${fmt1(mAno)}`},
-          data: [{yAxis: mAno}],
-        },
-      },
-    ],
+    xAxis: {type: 'category', data: MES_CURTO, boundaryGap: false, axisTick: {show: false},
+      axisLine: {lineStyle: {color: '#AFC0CE'}}, axisLabel: {color: '#4A6378', fontSize: 12}},
+    yAxis: {type: 'value', scale: true, splitNumber: 4, axisLabel: {color: '#4A6378', fontSize: 12},
+      splitLine: {lineStyle: {color: '#CBD6DF'}}},
+    series: anos.map(a => {
+      const cor = corAno(ano, a), atual = a === ano;
+      return {
+        name: String(a), type: 'line', data: series[a], z: atual ? 5 : 3,
+        connectNulls: false, symbol: 'circle', symbolSize: atual ? 9 : 7,
+        lineStyle: {color: cor, width: atual ? 3 : 2},
+        itemStyle: {color: cor, borderColor: '#E6ECF1', borderWidth: 2},
+        emphasis: {focus: 'series'},
+        endLabel: {show: true, formatter: String(a), color: cor, fontWeight: 700, fontSize: 12, distance: 6},
+        markArea: atual && ult < 11 ? {
+          silent: true, itemStyle: {color: 'rgba(10,48,80,.06)'},
+          label: {show: true, position: 'insideTop', color: '#6B8296', fontSize: 11, formatter: 'em aberto'},
+          data: [[{xAxis: MES_CURTO[ult + 1]}, {xAxis: MES_CURTO[11]}]],
+        } : undefined,
+      };
+    }),
   });
   ST.hcChart = ch;
 }
@@ -2558,11 +2603,41 @@ function liga(){
       delete ST.filtros[qual][+ci];
       ST.pop = null; pintaPop(); pinta(); return;
     }
-    // escolhas da Visualização de dados: local, contagem e ano de comparação
+    // Visualização de dados: locais e anos são seleção múltipla; contagem é uma só
+    const hcl = e.target.closest('[data-hcloc]');
+    if (hcl) {
+      const k = hcl.dataset.hcloc, s = ST.hcSel.locais;
+      if (k === '*') s.clear(); else if (s.has(k)) s.delete(k); else s.add(k);
+      pinta(); return;
+    }
+    const hca = e.target.closest('[data-hcano]');
+    if (hca) {
+      const a = +hca.dataset.hcano, s = ST.hcSel.anosOff;
+      if (s.has(a)) s.delete(a); else s.add(a);
+      pinta(); return;
+    }
     const hcs = e.target.closest('[data-hcsel]');
-    if (hcs) {
-      const [g, v] = hcs.dataset.hcsel.split(':');
-      ST.hcSel[g] = g === 'comp' ? +v : v;
+    if (hcs) { ST.hcSel.met = hcs.dataset.hcsel.split(':')[1]; pinta(); return; }
+    // tabelas da Visualização: seção, linha (plantel/receptoras) e mês (anos) recolhíveis
+    const alterna = (set, k) => { if (set.has(k)) set.delete(k); else set.add(k); };
+    const hsec = e.target.closest('[data-hcsec]');
+    if (hsec) { alterna(ST.hcSecFechada, hsec.dataset.hcsec); pinta(); return; }
+    const hrow = e.target.closest('[data-hcrow]');
+    if (hrow) { alterna(ST.hcAbertos, hrow.dataset.hcrow); pinta(); return; }
+    const hmes = e.target.closest('[data-hcmes]');
+    if (hmes) { alterna(ST.hcMesAberto, hmes.dataset.hcmes); pinta(); return; }
+    const hbtn = e.target.closest('[data-hcbtn]');
+    if (hbtn && ST.hcCtx) {
+      const [o, t] = hbtn.dataset.hcbtn.split(':');
+      if (o === 'meses') {
+        const todos = [...MES_CURTO.map((_, i) => String(i)), 'media'];
+        const abrir = !todos.every(k => ST.hcMesAberto.has(k));
+        todos.forEach(k => abrir ? ST.hcMesAberto.add(k) : ST.hcMesAberto.delete(k));
+      } else {
+        const ks = [...ST.hcCtx.locais, 'TOTAL'].map(k => `${t}:${k}`);
+        const abrir = !ks.every(k => ST.hcAbertos.has(k));
+        ks.forEach(k => abrir ? ST.hcAbertos.add(k) : ST.hcAbertos.delete(k));
+      }
       pinta(); return;
     }
     const fz = e.target.closest('[data-fzerar]');
