@@ -2387,7 +2387,11 @@ function tabelaMesesHC(c){
    intensidade, igual em todos os anos. */
 const HC_CORES = ['#A87D02', '#2459A8', '#00916E', '#A8458F'];
 const corAno = (ano, a) => HC_CORES[ano - a] || '#7A8C9C';
-const HC_COMPOR = [['local', 'Local'], ['contagem', 'Plantel e receptoras'], ['nada', 'Só o total']];
+const HC_COMPOR = [['local', 'Local'], ['contagem', 'Plantel e receptoras'], ['todos', 'Todos'], ['nada', 'Só o total']];
+/* receptoras: hachuradas por cima do tom — no "Todos" o tom diz o local e a hachura diz
+   que é receptora, sem precisar de mais cores */
+const HC_HACHURA = {symbol: 'rect', symbolSize: 1, dashArrayX: [1, 0], dashArrayY: [2, 3],
+  rotation: -Math.PI / 4, color: 'rgba(255,255,255,.6)'};
 const HC_TONS = {local: [0, .34, .56, .72, .84], contagem: [0, .5]};
 const HC_ORDEM_PILHA = ['FAZENDA', 'ARRENDAMENTO', 'SOCIO', 'CTE', 'CENTRAL'];
 const BASE_LEGENDA = '#3E5468';
@@ -2404,26 +2408,44 @@ function locaisDoGrafico(c){
   return [...HC_ORDEM_PILHA.filter(k => base.includes(k)), ...base.filter(k => !HC_ORDEM_PILHA.includes(k))];
 }
 
-/* as partes de cada barra, de baixo pra cima, conforme "Dividir por" */
+/* as partes de cada barra, de baixo pra cima, conforme "Dividir por": cada uma com o seu
+   tom (t, mistura com branco) e se é hachurada (receptoras). "Todos" = cada local dividido
+   em plantel e receptoras. */
 function partesHC(c){
-  const locs = locaisDoGrafico(c), modo = ST.hcSel.compor;
-  if (modo === 'local' && locs.length > 1) {
-    return locs.map(k => ({id: k, nome: nomeLocal(k), val: (a, i) => c.valor(a, i, [k], c.met)}));
+  const locs = locaisDoGrafico(c), modo = ST.hcSel.compor, pts = partesDe(c.met);
+  const nomePt = pt => pt === 'animais' ? 'Plantel' : 'Receptoras';
+  const tomLocal = j => HC_TONS.local[j] ?? .9;
+  if (modo === 'todos' && locs.length > 1 && pts.length > 1) {
+    return locs.flatMap((k, j) => pts.map(pt => ({id: `${k}|${pt}`, nome: `${nomeLocal(k)} · ${nomePt(pt)}`,
+      local: k, t: tomLocal(j), hach: pt === 'receptoras', val: (a, i) => c.valor(a, i, [k], pt)})));
   }
-  if (modo === 'contagem' || (modo === 'local' && c.met === 'total')) {
-    return partesDe(c.met).map(pt => ({id: pt, nome: pt === 'animais' ? 'Plantel' : 'Receptoras',
+  if ((modo === 'local' || modo === 'todos') && locs.length > 1) {
+    return locs.map((k, j) => ({id: k, nome: nomeLocal(k), t: tomLocal(j), hach: false,
+      val: (a, i) => c.valor(a, i, [k], c.met)}));
+  }
+  if (pts.length > 1 && (modo === 'contagem' || modo === 'todos' || (modo === 'local' && c.met === 'total'))) {
+    return pts.map((pt, j) => ({id: pt, nome: nomePt(pt), t: HC_TONS.contagem[j], hach: pt === 'receptoras',
       val: (a, i) => c.valor(a, i, locs, pt)}));
   }
-  return [{id: 'total', nome: 'Total', val: (a, i) => c.valor(a, i, locs, c.met)}];
+  return [{id: 'total', nome: 'Total', t: 0, hach: false, val: (a, i) => c.valor(a, i, locs, c.met)}];
 }
-const tonsDe = partes => partes.length < 2 ? [0] : (partes.length === 2 ? HC_TONS.contagem : HC_TONS.local);
 
 function legendaHC(c){
-  const partes = partesHC(c), tons = tonsDe(partes);
-  const sw = cor => `<i class="sw" style="--cor:${cor}"></i>`;
+  const partes = partesHC(c);
+  const sw = (cor, hach) => `<i class="sw${hach ? ' hach' : ''}" style="--cor:${cor}"></i>`;
   const anos = c.anosVis.map(a => `<span>${sw(corAno(c.ano, a))}${a}</span>`).join('');
-  const escada = partes.length < 2 ? '' : `<span class="hc-leg-sep">${partes.map((p, j) =>
-    `<span>${sw(tom(BASE_LEGENDA, tons[j] ?? .9))}${esc(p.nome)}</span>`).join('')}</span>`;
+  let itens = [];
+  if (partes.some(p => p.local)) {
+    // "Todos": um item por local (o tom) e plantel × receptoras (liso × hachurado)
+    const vistos = [];
+    partes.forEach(p => { if (!vistos.some(v => v.local === p.local)) vistos.push(p); });
+    itens = vistos.map(p => `<span>${sw(tom(BASE_LEGENDA, p.t))}${esc(nomeLocal(p.local))}</span>`);
+    itens.push(`<span class="hc-leg-sep"><span>${sw(tom(BASE_LEGENDA, .34))}Plantel</span>`
+      + `<span>${sw(tom(BASE_LEGENDA, .34), true)}Receptoras</span></span>`);
+  } else if (partes.length > 1) {
+    itens = partes.map(p => `<span>${sw(tom(BASE_LEGENDA, p.t), p.hach)}${esc(p.nome)}</span>`);
+  }
+  const escada = itens.length ? `<span class="hc-leg-sep">${itens.join('')}</span>` : '';
   return `<div class="hc-leg">${anos}${escada}</div>`;
 }
 
@@ -2435,7 +2457,7 @@ function montaGraficoHC(){
   const {ano, met, ult} = c;
   const anos = c.anosVis.slice();                    // do mais antigo ao do topo
   const locs = locaisDoGrafico(c);
-  const partes = partesHC(c), tons = tonsDe(partes);
+  const partes = partesHC(c);
   const total = (a, i) => c.valor(a, i, locs, met);
 
   const series = [];
@@ -2446,8 +2468,8 @@ function montaGraficoHC(){
     doAno.forEach((x, n) => series.push({
       name: `${a}|${x.p.id}`, type: 'bar', stack: String(a), data: x.dados,
       barGap: '14%', barCategoryGap: '30%', barMaxWidth: 30,
-      itemStyle: {color: tom(cor, tons[x.j] ?? .9), borderColor: '#E6ECF1', borderWidth: doAno.length > 1 ? 1 : 0,
-        borderRadius: n === doAno.length - 1 ? [3, 3, 0, 0] : 0},
+      itemStyle: {color: tom(cor, x.p.t), borderColor: '#E6ECF1', borderWidth: doAno.length > 1 ? 1 : 0,
+        borderRadius: n === doAno.length - 1 ? [3, 3, 0, 0] : 0, decal: x.p.hach ? HC_HACHURA : 'none'},
       emphasis: {disabled: true},
     }));
     // série vazia no topo da pilha só para escrever o total da barra
@@ -2476,19 +2498,30 @@ function montaGraficoHC(){
       axisPointer: {type: 'shadow', shadowStyle: {color: 'rgba(10,48,80,.05)'}},
       formatter: ps => {
         const i = ps[0].dataIndex;
-        const cab = partes.length < 2 ? '' : partes.map(p =>
-          `<th style="text-align:right;padding-left:14px;font-weight:600;color:#4A6378">${esc(p.nome)}</th>`).join('');
+        // "Todos": uma coluna por local, com plantel + receptoras na célula
+        const grupos = [];
+        partes.forEach(p => {
+          const k = p.local || p.id;
+          let g = grupos.find(x => x.k === k);
+          if (!g) grupos.push(g = {k, nome: p.local ? nomeLocal(p.local) : p.nome, ps: []});
+          g.ps.push(p);
+        });
+        const th = t => `<th style="text-align:right;padding-left:14px;font-weight:600;color:#4A6378">${esc(t)}</th>`;
+        const cab = partes.length < 2 ? '' : grupos.map(g => th(g.nome)).join('');
+        const celula = (g, a) => g.ps.map((p, n) => n ? `<span style="color:#6B8296"> + ${fmt0(p.val(a, i))}</span>`
+          : fmt0(p.val(a, i))).join('');
         const linhas = anos.slice().reverse().map(a => {
           const t = total(a, i);
           if (t == null) return '';
-          const cel = partes.length < 2 ? '' : partes.map(p =>
-            `<td style="text-align:right;padding-left:14px">${fmt0(p.val(a, i))}</td>`).join('');
+          const cel = partes.length < 2 ? '' : grupos.map(g =>
+            `<td style="text-align:right;padding-left:14px;white-space:nowrap">${celula(g, a)}</td>`).join('');
           return `<tr><td style="white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;`
             + `border-radius:2px;background:${corAno(ano, a)};margin-right:6px"></span>`
             + `<b style="font-weight:${a === ano ? 700 : 600}">${a}</b></td>`
             + `<td style="text-align:right;padding-left:14px;font-weight:700">${fmt0(t)}</td>${cel}</tr>`;
         }).join('');
-        const st = i > ult ? ` <span style="color:#6B8296">· ${ano} em aberto</span>` : '';
+        const st = (i > ult ? ` <span style="color:#6B8296">· ${ano} em aberto</span>` : '')
+          + (partes.some(p => p.local) ? ` <span style="color:#6B8296">· plantel + receptoras</span>` : '');
         return `<b>${MES_CURTO[i]}</b>${st}<table style="margin-top:5px;border-collapse:collapse">`
           + `<tr><th></th><th style="text-align:right;padding-left:14px;color:#4A6378;font-weight:600">Total</th>${cab}</tr>`
           + `${linhas}</table>`;

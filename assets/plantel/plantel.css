@@ -283,6 +283,7 @@ table.t-plantel td.valor-pl.vz{font-weight:400;color:#6B8296}
 .hc-leg span{display:inline-flex;align-items:center;gap:6px}
 .hc-leg .hc-leg-sep{margin-left:10px;padding-left:14px;border-left:1px solid #AFC0CE}
 .hc-leg .sw{display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--cor)}
+.hc-leg .sw.hach{background:repeating-linear-gradient(135deg,var(--cor) 0 2px,rgba(255,255,255,.75) 2px 4px)}
 .chip-ano.on::before{content:none}
 .chip-ano i{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--cor)}
 .hc-graf{height:340px;width:100%}
