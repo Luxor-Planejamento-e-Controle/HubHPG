@@ -48,6 +48,10 @@ DATASETS = {
     # quem baixa, então 'plantel.json' casa com hub_can('plantel').
     "plantel": (ROOT / "assets/plantel/spec.json", "plantel.json",
                 "application/json"),
+    # Headcount de fim de mês por local (aba Plantel > Visualização de dados).
+    # Prefixo 'plantel' = mesma policy de leitura da aba.
+    "plantel_headcount": (ROOT / "bases/plantel_headcount.json", "plantel.headcount.json",
+                          "application/json"),
     # A auditoria cita animal e comprador — mesma regra dos outros: bucket privado.
     "auditoria": (ROOT / "dashboards/auditoria_semanal.html", "auditoria.html",
                   "text/html; charset=utf-8"),
@@ -110,6 +114,7 @@ GERADOR = {
     "semanal": "python PGSemanal.py",
     "comite":  "python tools/build_comite.py",
     "auditoria": "python tools/build_auditoria.py",
+    "plantel_headcount": "python tools/build_headcount_mensal.py",
 }
 PADRAO = ["semanal", "comite", "auditoria"]
 

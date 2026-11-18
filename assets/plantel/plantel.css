@@ -248,3 +248,46 @@ table.t-plantel td.nome-pl{font-weight:600;color:#0B2236}
 table.t-plantel td.qtde-pl{color:#6B8296}
 table.t-plantel td.valor-pl{font-weight:600;color:#0B2236}
 table.t-plantel td.valor-pl.vz{font-weight:400;color:#6B8296}
+
+/* ---- aba Visualização de dados (headcount de fim de mês) ----
+   Mesma superfície Névoa da tabela do Plantel. Plantel #2F6FA8 e receptoras #C99400
+   passaram no validate_palette.js contra #E6ECF1 (o âmbar fica abaixo de 3:1 de
+   contraste, por isso o total vai escrito e a tabela embaixo repete os números). */
+.hc{display:flex;flex-direction:column;gap:14px}
+.hc-graficos{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:14px}
+@media (max-width:1100px){.hc-graficos{grid-template-columns:minmax(0,1fr)}}
+.hc-cartao{background:#E6ECF1;border:1px solid var(--line-2);border-radius:10px;padding:14px 16px 10px;
+  box-shadow:0 2px 12px rgba(0,0,0,.22);color:#14304A;min-width:0;display:flex;flex-direction:column}
+.hc-cartao .grafico{margin:auto 0}
+.hc-cab{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px}
+.hc-cartao h3{margin:0;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#0A3050}
+.hc-destaque{display:flex;align-items:baseline;gap:9px;margin-top:6px;flex-wrap:wrap}
+.hc-destaque b{font-size:26px;font-weight:700;color:#0B2236;font-variant-numeric:tabular-nums;line-height:1}
+.hc-destaque span{font-size:12px;color:#4A6378}
+.g-leg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#3A5368;white-space:nowrap}
+.g-leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-left:6px}
+.g-leg i:first-child{margin-left:0}
+.sw-pl{background:#2F6FA8} .sw-rec{background:#C99400}
+.grafico{display:block;width:100%;height:auto;font-family:var(--font)}
+.g-grade{stroke:#CBD6DF;stroke-width:1}
+.g-eixo{font-size:11.5px;fill:#6B8296}
+.g-rot{font-size:12px;fill:#14304A;font-weight:600}
+.g-val{font-size:12px;fill:#0B2236;font-weight:700;font-variant-numeric:tabular-nums}
+.g-pl{fill:#2F6FA8} .g-rec{fill:#C99400}
+.g-media{stroke:#0B2236;stroke-width:1.5;stroke-dasharray:5 4}
+.g-media-rot{font-size:10.5px;fill:#4A6378}
+.g-media-val{font-size:12px;font-weight:700;fill:#0B2236;font-variant-numeric:tabular-nums}
+.g-hit{fill:transparent;cursor:default}
+.g-col:hover .g-pl,.g-col:hover .g-rec{filter:brightness(1.12)}
+#hctt{position:fixed;z-index:60;pointer-events:none;background:#0A3050;color:#EAF0F4;border:1px solid var(--line-2);
+  border-radius:7px;padding:6px 9px;font-size:12px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+#hctt[hidden]{display:none}
+.hc-tab{flex:0 0 auto}
+.hc-tab table.t-plantel th{cursor:default}
+.hc-tab table.t-plantel td,.hc-tab table.t-plantel th{text-align:right}
+.hc-tab table.t-plantel td.l,.hc-tab table.t-plantel th.l{text-align:left}
+.hc-tab tr.hc-local td{font-weight:600;color:#0B2236}
+.hc-tab tr.hc-sub td{color:#4A6378;font-size:12px}
+.hc-tab tr.hc-sub td.l{padding-left:22px}
+.hc-tab tr.hc-total td{font-weight:700;color:#0B2236;border-top:2px solid #AFC0CE}
+.hc-tab td.hc-media{font-weight:700;color:#0B2236;background-image:linear-gradient(rgba(10,48,80,.06),rgba(10,48,80,.06))}

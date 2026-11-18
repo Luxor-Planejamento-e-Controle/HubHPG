@@ -127,6 +127,7 @@ const ST = {
   filtros: {plantel: {}, mov: {}},
   pop: null,        // {qual, col, busca, foco} — menu de filtro aberto
   ctx: {},          // por aba: base sem filtro + como ler o texto de cada coluna
+  hc: undefined,    // série do headcount (aba Visualização de dados): undefined = não baixada
 };
 
 /* ---- sessão do hub ---- */
@@ -2114,6 +2115,168 @@ const FMT_RS = '#,##0.00';
 const FMT_PCT = '0.00%';
 
 /* aoa_to_sheet não formata nada: sem isto o Excel mostra 15970552.71 cru. */
+/* ---------- aba Visualização de dados: headcount de fim de mês ----------
+   A série vem de `plantel.headcount.json` (tools/build_headcount_mensal.py, que
+   roda no pedido do comitê): animais e receptoras por local no último dia de cada
+   mês, pela mesma conta do slide de headcount do comitê e da semanal. Nada é
+   recontado aqui — a regra de quem entra no headcount mora num lugar só.
+   O ano e o corte são os do mês escolhido no topo: média de jan até ele. */
+const HC_LOCAIS = {FAZENDA: 'Fazenda', ARRENDAMENTO: 'Arrendamento', CTE: 'CTE',
+  CENTRAL: 'Central', SOCIO: 'Sócio'};
+const MES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+const fmt1 = v => v.toLocaleString('pt-BR', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+const fmt0 = v => Math.round(v).toLocaleString('pt-BR');
+
+async function baixaHeadcount(){
+  const c = sb();
+  if (!c) return null;
+  try {
+    const { data, error } = await c.storage.from(balde()).createSignedUrl('plantel.headcount.json', 60);
+    if (error || !data || !data.signedUrl) return null;
+    const url = data.signedUrl + (data.signedUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+    const res = await fetch(url, {cache: 'no-store'});
+    return res.ok ? await res.json() : null;
+  } catch (e) { return null; }
+}
+
+function serieDoAno(){
+  const hc = ST.hc;
+  if (!hc || !ST.mes) return null;
+  const ano = ST.mes.slice(0, 4);
+  const meses = Object.keys(hc.meses || {}).filter(m => m.startsWith(ano) && m <= ST.mes).sort();
+  if (!meses.length) return {ano, meses, locais: []};
+  const presentes = new Set(meses.flatMap(m => Object.keys(hc.meses[m].locais || {})));
+  const locais = [...Object.keys(HC_LOCAIS), ...[...presentes].filter(k => !(k in HC_LOCAIS)).sort()]
+    .filter(k => presentes.has(k)).map(k => {
+      const pts = meses.map(m => {
+        const v = (hc.meses[m].locais || {})[k] || {animais: 0, receptoras: 0};
+        return {mes: m, animais: v.animais, receptoras: v.receptoras, total: v.animais + v.receptoras};
+      });
+      const media = campo => pts.reduce((s, p) => s + p[campo], 0) / pts.length;
+      return {k, nome: HC_LOCAIS[k] || k, pts,
+              media: {animais: media('animais'), receptoras: media('receptoras'), total: media('total')}};
+    });
+  return {ano, meses, locais};
+}
+
+const rotMesCurto = m => MES_CURTO[+m.slice(5, 7) - 1];
+
+/* Colunas empilhadas plantel + receptoras por mês, com a média tracejada.
+   Cores validadas (dataviz/validate_palette.js) contra o fundo #E6ECF1. */
+function graficoMeses(loc){
+  const W = 820, H = 270, ml = 36, mr = 78, mt = 14, mb = 26;
+  const iw = W - ml - mr, ih = H - mt - mb;
+  const max = Math.max(1, ...loc.pts.map(p => p.total));
+  const passo = max > 120 ? 50 : max > 60 ? 25 : 10;
+  const topo = Math.ceil(max * 1.08 / passo) * passo;
+  const y = v => mt + ih - v / topo * ih;
+  const slot = iw / loc.pts.length, bw = Math.min(34, slot * .58);
+  const grade = [];
+  for (let v = 0; v <= topo; v += passo) {
+    grade.push(`<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" class="g-grade"/>`
+      + `<text x="${ml - 6}" y="${y(v) + 3.5}" class="g-eixo" text-anchor="end">${v}</text>`);
+  }
+  const barras = loc.pts.map((p, i) => {
+    const x = ml + slot * i + (slot - bw) / 2;
+    const yA = y(p.animais), yT = y(p.total), base = y(0);
+    const gap = p.receptoras && p.animais ? 2 : 0;
+    const r = Math.min(4, (yA - yT - gap) / 2, bw / 2);
+    const topoSeg = p.receptoras
+      ? `<path class="g-rec" d="M${x},${yA - gap} V${yT + r} Q${x},${yT} ${x + r},${yT} H${x + bw - r} Q${x + bw},${yT} ${x + bw},${yT + r} V${yA - gap} Z"/>`
+      : '';
+    const ra = p.receptoras ? 0 : Math.min(4, (base - yA) / 2, bw / 2);
+    const segA = p.animais ? (ra
+      ? `<path class="g-pl" d="M${x},${base} V${yA + ra} Q${x},${yA} ${x + ra},${yA} H${x + bw - ra} Q${x + bw},${yA} ${x + bw},${yA + ra} V${base} Z"/>`
+      : `<rect class="g-pl" x="${x}" y="${yA}" width="${bw}" height="${base - yA}"/>`) : '';
+    const tt = `${rotMesCurto(p.mes)}/${p.mes.slice(2, 4)} · Plantel ${p.animais} · Receptoras ${p.receptoras} · Total ${p.total}`;
+    return `<g class="g-col">${segA}${topoSeg}`
+      + `<rect class="g-hit" x="${ml + slot * i}" y="${mt}" width="${slot}" height="${ih}" data-tt="${esc(tt)}"/>`
+      + `<text x="${x + bw / 2}" y="${H - 8}" class="g-eixo" text-anchor="middle">${rotMesCurto(p.mes)}</text></g>`;
+  }).join('');
+  const ym = y(loc.media.total);
+  const media = `<line x1="${ml}" x2="${W - mr + 4}" y1="${ym}" y2="${ym}" class="g-media"/>`
+    + `<text x="${W - mr + 8}" y="${ym - 3}" class="g-media-rot">média</text>`
+    + `<text x="${W - mr + 8}" y="${ym + 11}" class="g-media-val">${fmt1(loc.media.total)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="grafico" style="max-width:${Math.round(W * 1.15)}px" role="img"
+    aria-label="${esc(loc.nome)}: plantel e receptoras no fim de cada mês">${grade.join('')}${barras}${media}</svg>`;
+}
+
+/* Barras horizontais da média do ano por local, plantel + receptoras. */
+function graficoLocais(locais){
+  const W = 540, lh = 38, ml = 104, mr = 56, mt = 8;
+  const H = mt + lh * locais.length + 4;
+  const max = Math.max(1, ...locais.map(l => l.media.total));
+  const iw = W - ml - mr;
+  const x = v => ml + v / max * iw;
+  return `<svg viewBox="0 0 ${W} ${H}" class="grafico" style="max-width:${Math.round(W * 1.15)}px" role="img" aria-label="Média do ano por local">${
+    locais.map((l, i) => {
+      const yy = mt + i * lh + 8, bh = 18;
+      const xa = x(l.media.animais), xt = x(l.media.total);
+      const gap = l.media.receptoras > 0.05 && l.media.animais > 0.05 ? 2 : 0;
+      const temRec = l.media.receptoras > 0.05;
+      const r = 4;
+      const segA = temRec
+        ? `<rect class="g-pl" x="${ml}" y="${yy}" width="${Math.max(0, xa - ml)}" height="${bh}"/>`
+        : `<path class="g-pl" d="M${ml},${yy} H${Math.max(ml, xa - r)} Q${xa},${yy} ${xa},${yy + r} V${yy + bh - r} Q${xa},${yy + bh} ${Math.max(ml, xa - r)},${yy + bh} H${ml} Z"/>`;
+      const segR = temRec
+        ? `<path class="g-rec" d="M${xa + gap},${yy} H${xt - r} Q${xt},${yy} ${xt},${yy + r} V${yy + bh - r} Q${xt},${yy + bh} ${xt - r},${yy + bh} H${xa + gap} Z"/>`
+        : '';
+      const tt = `${l.nome} · média Plantel ${fmt1(l.media.animais)} · Receptoras ${fmt1(l.media.receptoras)} · Total ${fmt1(l.media.total)}`;
+      return `<text x="${ml - 10}" y="${yy + 13}" class="g-rot" text-anchor="end">${esc(l.nome)}</text>`
+        + segA + segR
+        + `<text x="${xt + 7}" y="${yy + 13}" class="g-val">${fmt1(l.media.total)}</text>`
+        + `<rect class="g-hit" x="0" y="${yy - 7}" width="${W}" height="${lh}" data-tt="${esc(tt)}"/>`;
+    }).join('')}</svg>`;
+}
+
+const LEGENDA_HC = `<span class="g-leg"><i class="sw-pl"></i>Plantel<i class="sw-rec"></i>Receptoras</span>`;
+
+function painelDados(){
+  if (ST.hc === undefined) return '<div class="aviso">Carregando o headcount…</div>';
+  if (!ST.hc) return '<div class="aviso">Headcount mensal ainda não publicado.</div>';
+  const s = serieDoAno();
+  if (!s || !s.meses.length) return `<div class="aviso">Nenhum fechamento de ${
+    ST.mes ? ST.mes.slice(0, 4) : ''} no headcount até o mês escolhido.</div>`;
+  const faz = s.locais.find(l => l.k === 'FAZENDA') || s.locais[0];
+  const per = s.meses.length > 1
+    ? `${rotMesCurto(s.meses[0])}–${rotMesCurto(s.meses[s.meses.length - 1])}/${s.ano.slice(2)}`
+    : `${rotMesCurto(s.meses[0])}/${s.ano.slice(2)}`;
+  const geral = s.meses.map((m, i) => s.locais.reduce((t, l) => t + l.pts[i].total, 0));
+  const linhaTab = (rot, vals, media, cls) => `<tr class="${cls || ''}"><td class="l">${rot}</td>${
+    vals.map(v => `<td>${fmt0(v)}</td>`).join('')}<td class="hc-media">${fmt1(media)}</td></tr>`;
+  const corpo = s.locais.map(l => {
+    const linhas = [linhaTab(l.nome, l.pts.map(p => p.total), l.media.total, 'hc-local')];
+    if (l.pts.some(p => p.receptoras)) {
+      linhas.push(linhaTab('Plantel', l.pts.map(p => p.animais), l.media.animais, 'hc-sub'));
+      linhas.push(linhaTab('Receptoras', l.pts.map(p => p.receptoras), l.media.receptoras, 'hc-sub'));
+    }
+    return linhas.join('');
+  }).join('');
+  return `
+    <div class="hc">
+      <div class="hc-graficos">
+        <section class="hc-cartao">
+          <div class="hc-cab">
+            <div><h3>${esc(faz.nome)} — plantel e receptoras no fim do mês</h3>
+              <div class="hc-destaque"><b>${fmt1(faz.media.total)}</b>
+                <span>animais em média · ${per} · ${fmt1(faz.media.animais)} plantel + ${fmt1(faz.media.receptoras)} receptoras</span></div></div>
+            ${LEGENDA_HC}
+          </div>
+          ${graficoMeses(faz)}
+        </section>
+        <section class="hc-cartao">
+          <div class="hc-cab"><div><h3>Média por local · ${per}</h3></div>${LEGENDA_HC}</div>
+          ${graficoLocais(s.locais)}
+        </section>
+      </div>
+      <div class="rolagem clara hc-tab"><table class="t t-plantel">
+        <thead><tr><th class="l">Local</th>${s.meses.map(m => `<th>${rotMesCurto(m)}</th>`).join('')}<th>Média</th></tr></thead>
+        <tbody>${corpo}${linhaTab('Total', geral, geral.reduce((a, b) => a + b, 0) / geral.length, 'hc-total')}</tbody>
+      </table></div>
+    </div>
+    <div id="hctt" hidden></div>`;
+}
+
 function formataCols(ws, aoa, formatos){
   for (const [col, z] of Object.entries(formatos)) {
     for (let r = 1; r < aoa.length; r++) {
@@ -2224,13 +2387,15 @@ const semArquivo = () => !souEditor ? '<div class="aviso">Nenhum arquivo importa
   plantel enviado pelo haras (ou o mapa de movimentação, que traz a atribuição Carla/Eduardo).</div>`;
 
 /* ---------- casca ---------- */
-const ABAS = [['plantel', 'Plantel'], ['mov', 'Movimentações'], ['resumo', 'Resumo contábil']];
+const ABAS = [['plantel', 'Plantel'], ['mov', 'Movimentações'], ['resumo', 'Resumo contábil'],
+  ['dados', 'Visualização de dados']];
 
 function pinta(){
   document.getElementById('abas').innerHTML = ABAS.map(([id, t]) =>
     `<button type="button" data-aba="${id}" class="${ST.aba === id ? 'on' : ''}">${t}</button>`).join('');
   const el = document.getElementById('painel');
-  el.innerHTML = ST.aba === 'plantel' ? painelPlantel() : ST.aba === 'mov' ? painelMov() : painelResumo();
+  el.innerHTML = ST.aba === 'plantel' ? painelPlantel() : ST.aba === 'mov' ? painelMov()
+    : ST.aba === 'dados' ? painelDados() : painelResumo();
   posPop();
 }
 
@@ -2248,6 +2413,11 @@ function liga(){
         document.getElementById('painel').innerHTML =
           '<div class="aviso">Carregando os meses do ano para o resumo…</div>';
         await garanteMeses(ateAqui);
+      }
+      // a série do headcount é um arquivo só, baixado na primeira visita à aba
+      if (ST.aba === 'dados' && ST.hc === undefined) {
+        pinta();
+        ST.hc = await baixaHeadcount();
       }
       pinta();
       return;
@@ -2397,6 +2567,18 @@ function liga(){
     }
     const cel = e.target.closest('td.cort');
     if (cel) { cel.classList.toggle('aberta'); return; }
+  });
+  // dica dos gráficos da Visualização de dados: o texto vem pronto no data-tt
+  document.body.addEventListener('mousemove', e => {
+    const tt = document.getElementById('hctt');
+    if (!tt) return;
+    const alvo = e.target.closest && e.target.closest('.g-hit');
+    if (!alvo) { tt.hidden = true; return; }
+    tt.textContent = alvo.dataset.tt;
+    tt.hidden = false;
+    const w = tt.offsetWidth, h = tt.offsetHeight;
+    tt.style.left = Math.min(e.clientX + 14, window.innerWidth - w - 8) + 'px';
+    tt.style.top = Math.max(8, e.clientY - h - 12) + 'px';
   });
   // a busca só encurta a lista do menu; a tabela não é redesenhada a cada tecla
   document.body.addEventListener('input', e => {

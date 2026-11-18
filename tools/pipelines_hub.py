@@ -38,13 +38,17 @@ PIPELINES = {
     # e gerar o seguinte. Nenhum remonta os outros meses — vêm do comite.json
     # publicado, como estão. Pedido sem ação (hub de antes de 30/09) é atualizar.
     # `estado_comite` guarda o base_bi que o build reconsolidou para o mês.
+    # O headcount mensal (aba Plantel > Visualização de dados) vem DEPOIS de publicar
+    # o deck: é a mesma conta do slide, e falhar nele não pode segurar o comitê.
     "comite": [
         ("monta o deck", [PY, "tools/build_comite.py", "--atualizar"]),
         ("publica no bucket", [PY, "tools/publish_hub.py", "comite", "estado_comite"]),
+        ("headcount mensal do plantel", [PY, "tools/build_headcount_mensal.py", "--publicar"]),
     ],
     "comite:novo": [
         ("gera o mês novo", [PY, "tools/build_comite.py", "--novo"]),
         ("publica no bucket", [PY, "tools/publish_hub.py", "comite", "estado_comite"]),
+        ("headcount mensal do plantel", [PY, "tools/build_headcount_mensal.py", "--publicar"]),
     ],
 }
 
