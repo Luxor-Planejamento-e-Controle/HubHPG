@@ -3371,6 +3371,21 @@ def _paricoes_do_roster(rep: Report):
         # acumulado, que o piso travou em 2 contra 1 divulgado.
         for k, v in sorted(bruto.items(), key=lambda kv: kv[1].get("semana") or ""):
             reg.setdefault(_sem_cotista(k), v)
+    # Parição registrada NESTA semana cujo produto voltou a EMBRIAO no roster: o
+    # lançamento foi desfeito antes do fechamento. Em 19/11/2026 o haras pôs a data
+    # da potra na JAVA x IMPERIO RECEP 544 e, uma hora depois, passou para a JAVA x
+    # FAVORITO RECEP 485 — a 544 não nasceu. Sem isto o registro (cumulativo) a
+    # mantinha como nascimento da semana. Semana já fechada não é tocada.
+    voltou_a_embriao = {_sem_cotista(d.get("nome"))
+                        for d in (_LINHAS_BRUTAS.get("roster_descartadas") or [])
+                        if _norm(d.get("categoria")) == "EMBRIAO"}
+    desfeitas = [k for k, v in reg.items()
+                 if v.get("semana") == rep.semana_atual and k in voltou_a_embriao]
+    for k in desfeitas:
+        print(f"  [nascimentos] parição desfeita na semana (voltou a EMBRIAO): {k}")
+        reg.pop(k)
+    if desfeitas and not (prev and rep.roster):
+        _grava_estado(PARICOES_EXTRA, reg)
     if prev and rep.roster:
         # receptoras das parições que a ESTAÇÃO já entregou — evita contar duas vezes
         na_estacao = {_norm(e.get("receptora")) for e in rep.detalhe.get("nascimentos_semana", [])}
