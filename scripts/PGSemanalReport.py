@@ -1959,7 +1959,13 @@ def _plantel_por_status(src: Path | None = None, quando: date | None = None) -> 
             _fora_linha(descartadas, r, L, "override manual (ver FORA_NA_MAO)")
             continue
         categoria = _norm(r[L["categoria"]])
-        if categoria in CATEGORIAS_FORA_DO_HEADCOUNT:
+        # Embrião com NASCIMENTO preenchido já é potro: o haras lança a data antes de
+        # trocar a categoria. Em 19/11/2026 a LOUCURA x ESTEIO RECEP 17 nasceu, seguia
+        # EMBRIAO, e a Fazenda saiu 89 contra 90 do relatório (174 x 173 no total).
+        nasc = (_dt(r[COL_MENSAL_NASCIMENTO])
+                if categoria == "EMBRIAO" and len(r) > COL_MENSAL_NASCIMENTO else None)
+        ja_nasceu = bool(nasc) and nasc <= (quando or date.today())
+        if categoria in CATEGORIAS_FORA_DO_HEADCOUNT and not ja_nasceu:
             fora["categoria"] += 1
             _fora_linha(descartadas, r, L, "embrião/receptora (conta em outra lista)")
             continue
@@ -2028,6 +2034,11 @@ COL_MENSAL_PAI = 9
 COL_MENSAL_NASCIMENTO = 10
 
 
+# {produto sem cotista: data da coluna NASCIMENTO} de TODO o roster, qualquer data —
+# separa a parição sem data da que nasceu antes da janela e só foi lançada agora
+_NASC_ROSTER: dict = {}
+
+
 def _nascimentos_do_roster(ini: date, fim: date) -> list:
     """Nascimentos da janela pela coluna NASCIMENTO do roster mensal.
 
@@ -2039,10 +2050,13 @@ def _nascimentos_do_roster(ini: date, fim: date) -> list:
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
     out, vistos = [], set()
+    _NASC_ROSTER.clear()
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < L["linha1"] or r[L["nome"]] is None:
             continue
         d = _dt(r[COL_MENSAL_NASCIMENTO]) if len(r) > COL_MENSAL_NASCIMENTO else None
+        if d:
+            _NASC_ROSTER[_sem_cotista(r[L["nome"]])] = d
         if not d or not (ini <= d <= fim):
             continue
         # Potro de dois donos vem em duas linhas, (CARLA) e (EDUARDO): é um
@@ -3461,7 +3475,30 @@ def _paricoes_do_roster(rep: Report):
         ja_publicadas = {_norm(n.get("receptora"))
                          for n in (rep.detalhe.get("nascimentos_semana") or [])}
         por_nome = {l.get("nome"): l for l in (_LINHAS_BRUTAS.get("roster") or [])}
-        sem_data = [k for k in desta if _norm(reg[k]["receptora"]) not in ja_publicadas]
+        fora_da_janela = [k for k in desta if _norm(reg[k]["receptora"]) not in ja_publicadas]
+        # Data ANTES da janela = nasceu numa semana passada e só entrou no roster
+        # agora. Não é nascimento desta semana (19/11/2026: LAMBADA x OLIMPO RECEP 465
+        # nasceu 02/11 e foi lançada no dia 19; o haras publica só as parições da
+        # semana) — vai para lista própria, com a data real. Soma no Δ, porque entra
+        # no headcount agora.
+        ini_janela = date.fromisoformat(rep.semana_inicio)
+        atrasados = [k for k in fora_da_janela
+                     if _NASC_ROSTER.get(k) and _NASC_ROSTER[k] < ini_janela]
+        if atrasados:
+            print(f"  [nascimentos] {len(atrasados)} parição(ões) de semana anterior "
+                  f"lançada(s) só agora no roster — fora de 'Nascimentos na semana':")
+            for k in atrasados:
+                print(f"    - {k} (nasceu {_NASC_ROSTER[k]:%d/%m/%Y})")
+            rep.detalhe["nascimentos_atrasados"] = [{
+                "produto": k,
+                "mae": (por_nome.get(k) or {}).get("mae"),
+                "pai": (por_nome.get(k) or {}).get("pai"),
+                "receptora": reg[k]["receptora"],
+                "socio": _socio_da_recep(reg[k]["receptora"]),
+                "data": _NASC_ROSTER[k].isoformat(),
+                "local": (por_nome.get(k) or {}).get("local"),
+            } for k in atrasados]
+        sem_data = [k for k in fora_da_janela if k not in atrasados]
         if sem_data:
             print(f"  [nascimentos] {len(sem_data)} parição(ões) sem data na coluna "
                   f"NASCIMENTO do roster — contadas assim mesmo (a linha existe, a "
@@ -3593,8 +3630,10 @@ def _conferir_delta(rep: Report):
         # GRANDE' e o badge saiu '+3 / -2' no lugar de '+02 / -01'. Contamos por
         # CAUSA CONHECIDA — nascimento entra, saida lancada sai — e o que sobra do
         # diff vira aviso, em vez de virar numero.
-        nasc = rep.producao.get("nascimentos") or 0
-        lancadas = {_norm(e.get("animal")) for e in (rep.detalhe.get("saidas_diff") or [])
+        # parição de semana passada lançada agora também entra no headcount agora
+        nasc = ((rep.producao.get("nascimentos") or 0)
+                + len(rep.detalhe.get("nascimentos_atrasados") or []))
+        lancadas ={_norm(e.get("animal")) for e in (rep.detalhe.get("saidas_diff") or [])
                     + (rep.detalhe.get("saidas_plantel") or [])}
         saiu_com_lancamento = {n for n in sairam if _norm(n) in lancadas}
         if rep.saidas.get("fonte") == "SAIDAS-ENTRADAS":
@@ -3612,7 +3651,6 @@ def _conferir_delta(rep: Report):
             # Isso NÃO faz do nascimento uma entrada física: ele continua fora de
             # `entradas_semana` (o animal não chegou de lugar nenhum), só aparece na
             # abertura do Δ, que é o que o haras publica.
-            nasc = rep.producao.get("nascimentos") or 0
             rep.headcount["delta_entradas"] = (rep.saidas.get("entradas_no_headcount") or 0) + nasc
             rep.headcount["delta_saidas"] = rep.saidas.get("saidas_no_headcount") or 0
         else:
@@ -4070,6 +4108,7 @@ def _snap_from_rep(rep: Report) -> dict:
         "detalhe": {
             "confirmados": rep.detalhe.get("confirmados_semana"),
             "nascimentos": rep.detalhe.get("nascimentos_semana"),
+            "nascimentos_atrasados": rep.detalhe.get("nascimentos_atrasados"),
             "abortos_obitos": rep.detalhe.get("abortos_obitos_semana"),
             "saidas": rep.detalhe.get("saidas_diff"),
             # saíram do plantel sem sair fisicamente (já estavam no sócio): entram no

@@ -311,7 +311,7 @@ const SECTIONS = [
      get:s=>s.acumulado_mes},
     {p:"prod.nasc", l:"Nascimentos na semana", get:s=>s.nascimentos},
     {p:"prod.abor", l:"Abortos / óbitos na semana", get:s=>s.abortos_obitos},
-  ], det:[["Embriões confirmados na semana","confirmados"],["Nascimentos na semana","nascimentos"],["Abortos / óbitos na semana","abortos_obitos"]]},
+  ], det:[["Embriões confirmados na semana","confirmados"],["Nascimentos na semana","nascimentos"],["Nascidos em semana anterior, lançados agora","nascimentos_atrasados"],["Abortos / óbitos na semana","abortos_obitos"]]},
  {n:"2", t:"RECEPTORAS", kpis:[
     {p:"rec.tot", l:"Total receptoras", get:s=>s.receptoras?.total},
     {p:"rec.pre", l:"Prenhas", get:s=>s.receptoras?.prenhas},
