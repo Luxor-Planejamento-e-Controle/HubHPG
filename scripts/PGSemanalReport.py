@@ -1729,11 +1729,10 @@ COL_MENSAL_OBS = 24
 # a lista "Contratos pendentes de assinatura" da seção 5 — inclusive de quem não
 # aparece em lista de venda nenhuma (ORIANA segue PLANTEL, o embrião da JAVA não está
 # marcado vendido, a OPALA já foi entregue). Nome do cliente fica fora: repo público.
+# Atualizada em 19/11/2026: lotes 05 (JAVA, embrião) e 15 (LEVADA) assinados.
 # (lote, animal, categoria, pendência)
 CONTRATOS_PENDENTES = [
-    ("05", "JAVA DA PAO GRANDE", "EMBRIÃO", "assinatura de 1 testemunha"),
-    ("15", "LEVADA DA PAO GRANDE", "ÉGUA", "assinatura de 1 testemunha"),
-    ("17", "OMEGA DO ATLANTICO SUL DA PAO GRANDE", "POTRA", "assinatura do Gian (testemunha)"),
+    ("17","OMEGA DO ATLANTICO SUL DA PAO GRANDE", "POTRA", "assinatura do Gian (testemunha)"),
     ("18", "ORIANA DA PAO GRANDE", "POTRA",
      "assinatura do comprador nos 2 contratos (cota Carla e cota Eduardo)"),
     ("22", "PITAYA DA PAO GRANDE", "POTRA", "assinatura do Gian (testemunha)"),
