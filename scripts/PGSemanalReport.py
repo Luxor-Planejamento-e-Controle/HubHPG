@@ -2038,15 +2038,23 @@ def _nascimentos_do_roster(ini: date, fim: date) -> list:
     wb = _load(src)
     ws = wb["PLANTEL"]
     L = PLANTEL_LAYOUT_MENSAL
-    out = []
+    out, vistos = [], set()
     for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
         if i < L["linha1"] or r[L["nome"]] is None:
             continue
         d = _dt(r[COL_MENSAL_NASCIMENTO]) if len(r) > COL_MENSAL_NASCIMENTO else None
         if not d or not (ini <= d <= fim):
             continue
-        nome = _s(r[L["nome"]])
-        m = RE_PRODUTO.search(_norm(nome))
+        # Potro de dois donos vem em duas linhas, (CARLA) e (EDUARDO): é um
+        # nascimento só. Em 19/11/2026 a LOUCURA x ESTEIO RECEP 17 contou duas vezes
+        # (5 publicados, eram 4) e ficou sem receptora, porque o marcador no fim do
+        # nome escondia o 'RECEP 17' do RE_PRODUTO.
+        chave = _chave_animal(r[L["nome"]], r[COL_MENSAL_MAE], r[COL_MENSAL_PAI])
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        nome = _sem_cotista(r[L["nome"]])
+        m = RE_PRODUTO.search(nome)
         out.append({
             "produto": nome,
             "mae": _s(r[COL_MENSAL_MAE]), "pai": _s(r[COL_MENSAL_PAI]),
