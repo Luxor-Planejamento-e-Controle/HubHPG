@@ -733,14 +733,34 @@ def _pdfs_embrioes(data: dict) -> list:
     pasta = BASE_DIR / "_cache" / "pdf"
     if not pasta.exists():
         return []
-    out = []
+    # A data do nome é a do DIA em que rodou, não o id da semana (a sexta). Em
+    # 19/11/2026 a sexta era feriado, a semanal rodou na quinta, o PDF saiu
+    # '19-11-2026' e a semana 2026-11-20 ficou sem os botões. Vale a semana cuja
+    # janela contém a data; rodada repetida na mesma semana (16/11 e 19/11) fica
+    # só com o PDF mais novo de cada tipo.
+    cal = data.get("calendario") or []
+
+    def _semana_de(d: str) -> str:
+        for w in cal:
+            if w.get("ini", "") <= d <= w.get("fim", ""):
+                return w["id"]
+        return d
+
+    escolhido = {}
     for f in sorted(pasta.glob("*.pdf")):
         m = _RE_PDF_DATA.search(f.name)
         if not m:
             print(f"  [pdf] {f.name}: nome sem data DD-MM-AAAA, não entra no dash")
             continue
         dd, mm, aaaa = m.groups()
-        semana = f"{aaaa}-{mm}-{dd}"
+        dia = f"{aaaa}-{mm}-{dd}"
+        # 'VENDIDO' e não 'SÓCIO': o acento pode vir decomposto (NFD) no Linux
+        tipo = "socio" if "VENDIDO" in f.name.upper() else "pg"
+        chave = (_semana_de(dia), tipo)
+        if chave not in escolhido or dia > escolhido[chave][0]:
+            escolhido[chave] = (dia, f)
+    out = []
+    for (semana, _), (_, f) in sorted(escolhido.items()):
         b64 = base64.b64encode(f.read_bytes()).decode()
         out.append({"nome": f.name, "semana": semana,
                     "uri": "data:application/pdf;base64," + b64,
