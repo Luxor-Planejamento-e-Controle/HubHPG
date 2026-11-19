@@ -482,13 +482,20 @@ def _latest_estacao_master() -> Path:
         raise FileNotFoundError(f"Pasta não encontrada: {ESTACAO_MONTA_BASE}")
     dirs = sorted((d for d in ESTACAO_MONTA_BASE.glob("Estação *") if d.is_dir()),
                   reverse=True)
-    cands = [f for d in dirs for f in d.glob("*ESTACAO DE MONTA.xlsx")
+    # Sufixo livre depois de 'ESTACAO DE MONTA', como no comitê: em 19/11/2026 a cópia
+    # de trabalho virou '261101_ EDITAR ESTACAO DE MONTA_2026_2027_NOV.xlsx', o glob
+    # exato não a via e a semanal leu o '261201_ EDITAR' de 17/11 — sem as duas
+    # confirmações da semana (956 e 551): 0 e acumulado 12 contra 02 e 14 do haras.
+    # Cópia EDITAR primeiro: os fechados do mês (SET, OUT) também são regravados
+    # e podem ficar com mtime mais novo sem ser onde o haras lança.
+    cands = [f for d in dirs for f in d.glob("*ESTACAO DE MONTA*.xlsx")
              if not f.name.startswith("~$")]
     if not cands:
         raise FileNotFoundError(
-            "Nenhum '*ESTACAO DE MONTA.xlsx' (estacao de monta) em: "
+            "Nenhum '*ESTACAO DE MONTA*.xlsx' (estacao de monta) em: "
             + " | ".join(str(d) for d in dirs))
-    return _registra_fonte("estacao de monta", max(cands, key=lambda f: f.stat().st_mtime))
+    editar = [f for f in cands if "EDITAR" in f.name.upper()] or cands
+    return _registra_fonte("estacao de monta", max(editar, key=lambda f: f.stat().st_mtime))
 
 
 def _latest_by_yymmdd(folder: Path, pattern: str, rotulo: str | None = None) -> Path:
@@ -822,6 +829,11 @@ def build_producao(rep: Report, ini: date, fim: date):
         # OVULAÇÃO (coluna I) é a data que sobra — e o 15D conta a partir dela.
         base_conf = te or ia or _dt(r[8])
         data_conf = (base_conf + timedelta(days=15)) if base_conf else None
+        # Estimativa no futuro com o diagnóstico já lançado: a confirmação aconteceu
+        # até o fechamento. Em 19/11/2026 as recep 956 e 551 (TE 16/11, 15D '+') davam
+        # 01/12 — saíam de "Acumulado no mês (novembro)" como se fossem de dezembro.
+        if confirmado and data_conf and data_conf > fim:
+            data_conf = fim
         cotas = _to_num(r[5])
         # split PG / sócio / vendido (defs do comitê: total produzido aberto nessas 3 fatias)
         comprador = _s(r[34])
