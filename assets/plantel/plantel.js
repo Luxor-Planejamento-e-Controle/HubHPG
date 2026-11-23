@@ -512,7 +512,9 @@ function movimentacaoDoMes(mes){
   // animal fora de escopo, que era artefato de mapa incompleto
   const noEscopo = () => true;
 
-  const log = (d.log || []).filter(x => {
+  /* `ord` é a posição da ocorrência na aba MOVIMENTAÇÕES do arquivo: é por ela
+     que a lista sai ordenada (ver o fim desta função). */
+  const log = (d.log || []).map((x, ord) => ({...x, ord})).filter(x => {
     const dt = x.data instanceof Date ? x.data : new Date(x.data);
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}` === mes;
   }).map(x => ({...x, tipo: tipoLog(x.ocorrencia)}));
@@ -702,7 +704,7 @@ function movimentacaoDoMes(mes){
                       && classeDoCancelamento([{data: e.data, ocorrencia: e.oc}], hist))
           || classePelaPalavra(oc)
           || (compra ? 'compra' : 'venda');
-        const umLog = [{data: e.data, ocorrencia: e.texto}];
+        const umLog = [{data: e.data, ocorrencia: e.texto, ord: e.ord}];
         if (cls === 'compra' && e.preco) {
           /* compra entra pelo PREÇO PAGO; a diferença contra o valor da fatia é
              reavaliação — 40.000 pagos por 12.500 de cota são compra 40.000 e
@@ -762,7 +764,17 @@ function movimentacaoDoMes(mes){
       delta: 0, delta_carla: 0, delta_ce: 0, sugestao: 'sem_efeito', log: itens, evento: null,
     });
   }
-  movs.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
+  /* Mesma ordem do arquivo importado (Arthur, 23/11/2026): primeiro pela posição
+     da ocorrência na aba MOVIMENTAÇÕES; o que não tem ocorrência no mês vem
+     depois, na ordem das linhas da aba PLANTEL. Eventos do mesmo animal seguem
+     cada um a sua ocorrência. Era maior |Δ| primeiro, que embaralhava a lista
+     em relação à planilha que o haras manda. */
+  const linhaNoArquivo = {};
+  d.linhas.forEach((l, i) => { const k = chaveCom(l, ix); if (!(k in linhaNoArquivo)) linhaNoArquivo[k] = i; });
+  const posLog = m => Math.min(Infinity, ...(m.log || []).map(x => x.ord).filter(Number.isFinite));
+  const posLinha = m => (m.chave_linha in linhaNoArquivo) ? linhaNoArquivo[m.chave_linha] : Infinity;
+  const cmp = (a, b) => a === b ? 0 : a < b ? -1 : 1;
+  movs.sort((x, y) => cmp(posLog(x), posLog(y)) || cmp(posLinha(x), posLinha(y)));
   return {movs, log, renomes};
 }
 
@@ -969,7 +981,7 @@ function eventosDoMes(itensLog, q0, q1, valor){
     const c = cotaDaOcorrencia(oc);
     if (!c) continue;
     passos.push({oc, de: c.de, para: c.para, preco: precoDeclarado(oc), data: it.data,
-                 texto: it.ocorrencia});
+                 texto: it.ocorrencia, ord: it.ord});
   }
   if (!passos.length) return null;
   // a corrente tem de começar na cota do mês anterior e terminar na do mês
@@ -1277,7 +1289,25 @@ function confirmaImport(d, arquivo, mesSugerido){
   }
   document.getElementById('impOk').onclick = async () => {
     const mes = document.getElementById('impMes').value;
+    /* Reimportar um mês é RECOMEÇAR ele (Arthur, 23/11/2026): o mês reabre e as
+       classificações antigas saem, senão a fila nova nascia com decisões tomadas
+       sobre o arquivo velho. E mês fechado nem aceitava o arquivo: a RLS do
+       snapshot só grava em mês aberto, o upsert falhava calado e a tela seguia
+       mostrando o arquivo novo só na memória. A ordem importa — reabrir antes de
+       apagar e de gravar, porque as duas coisas o banco só deixa em mês aberto. */
+    const jaTinha = !!ST.meses[mes] || ST.disponiveis.includes(mes);
+    const fechado = mesFechado(mes);
+    const nDec = Object.keys(ST.decisoes).filter(k => k.startsWith(mes + '|')).length;
+    if (fechado || (jaTinha && nDec)) {
+      const avisos = [fechado ? `${rotMes(mes)} será reaberto.` : '',
+        jaTinha && nDec ? `As ${nDec} classificação(ões) do mês (inclusive lançamentos manuais e `
+          + 'removidas) serão apagadas e as movimentações voltam para a fila.' : ''];
+      if (!confirm(`Reimportar ${rotMes(mes)}?\n\n${avisos.filter(Boolean).join('\n')}\n\nNão dá pra desfazer.`)) return;
+    }
+    if (fechado && !(await mudaStatusMes(mes, false))) return;
+    if (jaTinha && !(await reiniciaMes(mes))) return;
     ST.meses[mes] = d;
+    _comisCache = null;   // a chave do cache é a lista de meses, que não muda numa reimportação
     ST.mes = mes;
     // mês novo entra na lista do seletor sem precisar recarregar a aba
     if (!ST.disponiveis.includes(mes)) ST.disponiveis = [...ST.disponiveis, mes].sort();
@@ -1296,9 +1326,15 @@ async function salvaSnapshot(mes, d, arquivo){
     log: d.log.map(x => ({...x, data: (x.data instanceof Date ? x.data : new Date(x.data)).toISOString()})),
   };
   // 1) tabela: registro durável do fechamento
+  /* supabase-js devolve o erro em vez de lançar: sem olhar `error`, a recusa
+     da RLS passava em silêncio e o mês parecia importado */
   try {
-    await c.from('plantel_snapshot').upsert({...pacote, atribuicao: {}}, {onConflict: 'mes'});
-  } catch (err) { console.warn('[plantel] snapshot não gravado', err.message || err); }
+    const { error } = await c.from('plantel_snapshot').upsert({...pacote, atribuicao: {}}, {onConflict: 'mes'});
+    if (error) throw error;
+  } catch (err) {
+    console.warn('[plantel] snapshot não gravado', err.message || err);
+    alert('o mês não foi gravado no banco: ' + (err.message || err));
+  }
   // 2) arquivo: é o que a aba lê depois. Falhar aqui não perde dado — a leitura
   //    cai pra tabela —, mas tira a velocidade, então avisa alto.
   try {
@@ -1895,7 +1931,9 @@ function subMovimentacoes(){
   ST.ctx.mov = {base, txtDe: txtMov, ordDe: ordMov,
                 rotulos: Object.fromEntries(COLS_MOV.map(([rot], i) => [i, rot]))};
   let movs = aplicaFiltros(base, 'mov', txtMov);
-  if (ST.ordem.mov.col != null) {
+  if (ST.ordem.mov.col === 'd') {
+    movs = movs.slice().sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  } else if (ST.ordem.mov.col != null) {
     const i = ST.ordem.mov.col, dir = ST.ordem.mov.dir, pega = COLS_MOV[i][1], ehNum = COLS_MOV[i][2];
     movs = movs.slice().sort((a, b) => ehNum
       ? (num(pega(a)) - num(pega(b))) * dir
@@ -1920,7 +1958,8 @@ function subMovimentacoes(){
       ${FILTRAVEIS.map(i => `<button type="button" class="fbtn-rot${
         (ST.filtros.mov[i] || []).length ? ' on' : ''}" data-fb="mov:${i}">${FUNIL}${COLS_MOV[i][0]}</button>`).join('')}
       <span class="barra-rot">ordenar</span>
-      <button type="button" class="fbtn-rot${ST.ordem.mov.col == null ? ' on' : ''}" data-ord="mov:">maior Δ</button>
+      <button type="button" class="fbtn-rot${ST.ordem.mov.col == null ? ' on' : ''}" data-ord="mov:">arquivo</button>
+      <button type="button" class="fbtn-rot${ST.ordem.mov.col === 'd' ? ' on' : ''}" data-ord="mov:d">maior Δ</button>
       <button type="button" class="fbtn-rot${ST.ordem.mov.col === 0 ? ' on' : ''}" data-ord="mov:0">nome</button>
     </div>
     ${chipsFiltro('mov')}
@@ -1945,8 +1984,7 @@ function subConciliacao(){
      fechado está vazio. Mês aberto lista o que já foi confirmado. */
   const registradas = mv.movs
     .filter(m => (m.no_escopo || m.dono) && !removida(ST.mes, m)
-                 && (mesFechado(ST.mes) || ST.decisoes[`${ST.mes}|${m.chave}`]))
-    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+                 && (mesFechado(ST.mes) || ST.decisoes[`${ST.mes}|${m.chave}`]));
   /* a movimentação removida some do diff (a linha voltou a ser a do mês anterior),
      então a lista sai das decisões, com o que a planilha dizia de cada uma */
   const removidas = Object.entries(ST.decisoes)
@@ -2829,8 +2867,8 @@ function liga(){
     const ord = e.target.closest('[data-ord]');
     if (ord) {
       const [qual, ci] = ord.dataset.ord.split(':');
-      // índice vazio = ordem natural da apuração (maior Δ primeiro)
-      if (ci === '') { ST.ordem[qual] = {col: null, dir: 1}; pinta(); return; }
+      // índice vazio = ordem natural da apuração (a do arquivo); 'd' = maior Δ
+      if (ci === '' || ci === 'd') { ST.ordem[qual] = {col: ci || null, dir: 1}; pinta(); return; }
       const i = +ci, atual = ST.ordem[qual];
       ST.ordem[qual] = {col: i, dir: atual.col === i ? -atual.dir : 1};
       pinta(); return;
