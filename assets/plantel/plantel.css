@@ -181,6 +181,11 @@ table.t td.oque .log{display:block;white-space:normal;word-break:break-word}
    sobrar — `min-height:0` é obrigatório, senão o filho flex recusa encolher e
    volta a estourar. */
 .rolagem{flex:1 1 auto;min-height:0;overflow:auto}
+/* Tabela que divide a página com outros blocos (Conciliação: registradas,
+   removidas, log sem efeito). Ali "ficar com o que sobra" era sobrar ZERO assim
+   que os blocos de baixo passavam da tela — título e contador apareciam, a
+   tabela sumia. Ela fica com a altura toda e a página rola (#painel). */
+.rolagem.inteira{flex:0 0 auto}
 
 h3{font-size:13px;margin:20px 0 8px;font-weight:600}
 h3 .cont{display:inline-block;margin-left:6px;font-size:11px;background:var(--line);color:var(--ink);

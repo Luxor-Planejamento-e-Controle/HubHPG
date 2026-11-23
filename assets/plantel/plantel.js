@@ -2039,7 +2039,7 @@ function subConciliacao(){
       <h3>Movimentações registradas em ${rotMes(ST.mes)} <span class="cont">${registradas.length}</span>${
         trancado ? '' : `<button type="button" class="h3-acao" data-reiniciar="${ST.mes}"
           title="apaga todas as classificações deste mês">limpar classificações</button>`}</h3>
-      <div class="rolagem"><table class="t">
+      <div class="rolagem inteira"><table class="t">
         <thead><tr><th class="l">Animal</th><th class="l">Classificação</th><th>Δ patrimônio</th>
           <th class="l">Quem registrou</th></tr></thead>
         <tbody>${registradas.map(m => {
