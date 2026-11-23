@@ -1273,6 +1273,7 @@ function confirmaImport(d, arquivo, mesSugerido){
              const m = `${ano}-${String(i + 1).padStart(2, '0')}`;
              return `<option value="${m}"${m === mesSugerido ? ' selected' : ''}>${r}/${ano.slice(2)}</option>`;
            }).join('')}</select></label>
+         <label id="impZeroRot" hidden><input type="checkbox" id="impZero"> <span></span></label>
          <button type="button" id="impOk">Processar</button>`}
     <button type="button" id="impNao" class="secundario">Cancelar</button>`;
   const fecha = () => { caixa.hidden = true; caixa.innerHTML = ''; };
@@ -1287,25 +1288,39 @@ function confirmaImport(d, arquivo, mesSugerido){
     };
     return;
   }
+  /* Reimportar o mesmo mês: recomeçar do zero é OPÇÃO, desmarcada (Arthur,
+     23/11/2026). O caso de marcar é o haras corrigir o plantel no meio do
+     fechamento e reenviar — aí a fila volta inteira pra conferir o ajuste. Com a
+     rotina estável, reimportar não pode jogar fora o que já foi classificado.
+     Só aparece quando o mês escolhido já existe e tem classificação. */
+  const selMes = document.getElementById('impMes');
+  const nDecDe = m => Object.keys(ST.decisoes).filter(k => k.startsWith(m + '|')).length;
+  const jaTem = m => !!ST.meses[m] || ST.disponiveis.includes(m);
+  const atualizaZero = () => {
+    const m = selMes.value, n = nDecDe(m), rot = document.getElementById('impZeroRot');
+    rot.hidden = !(jaTem(m) && n);
+    document.getElementById('impZero').checked = false;
+    rot.querySelector('span').textContent =
+      `recomeçar ${rotMes(m)} do zero (apaga as ${n} classificações e a fila volta inteira)`;
+  };
+  selMes.onchange = atualizaZero;
+  atualizaZero();
   document.getElementById('impOk').onclick = async () => {
-    const mes = document.getElementById('impMes').value;
-    /* Reimportar um mês é RECOMEÇAR ele (Arthur, 23/11/2026): o mês reabre e as
-       classificações antigas saem, senão a fila nova nascia com decisões tomadas
-       sobre o arquivo velho. E mês fechado nem aceitava o arquivo: a RLS do
-       snapshot só grava em mês aberto, o upsert falhava calado e a tela seguia
-       mostrando o arquivo novo só na memória. A ordem importa — reabrir antes de
-       apagar e de gravar, porque as duas coisas o banco só deixa em mês aberto. */
-    const jaTinha = !!ST.meses[mes] || ST.disponiveis.includes(mes);
+    const mes = selMes.value;
+    const zerar = jaTem(mes) && nDecDe(mes) > 0 && document.getElementById('impZero').checked;
+    /* mês fechado não aceita o arquivo (a RLS do snapshot só grava em mês aberto),
+       então reimportar um fechado tem de reabrir antes — e antes de apagar, que
+       também só vale em mês aberto */
     const fechado = mesFechado(mes);
-    const nDec = Object.keys(ST.decisoes).filter(k => k.startsWith(mes + '|')).length;
-    if (fechado || (jaTinha && nDec)) {
-      const avisos = [fechado ? `${rotMes(mes)} será reaberto.` : '',
-        jaTinha && nDec ? `As ${nDec} classificação(ões) do mês (inclusive lançamentos manuais e `
+    if (fechado || zerar) {
+      const avisos = [fechado ? `${rotMes(mes)} está fechado e será reaberto.` : '',
+        zerar ? `As ${nDecDe(mes)} classificação(ões) do mês (inclusive lançamentos manuais e `
           + 'removidas) serão apagadas e as movimentações voltam para a fila.' : ''];
-      if (!confirm(`Reimportar ${rotMes(mes)}?\n\n${avisos.filter(Boolean).join('\n')}\n\nNão dá pra desfazer.`)) return;
+      if (!confirm(`Reimportar ${rotMes(mes)}?\n\n${avisos.filter(Boolean).join('\n')}`
+                   + `${zerar ? '\n\nNão dá pra desfazer.' : ''}`)) return;
     }
     if (fechado && !(await mudaStatusMes(mes, false))) return;
-    if (jaTinha && !(await reiniciaMes(mes))) return;
+    if (zerar && !(await reiniciaMes(mes))) return;
     ST.meses[mes] = d;
     _comisCache = null;   // a chave do cache é a lista de meses, que não muda numa reimportação
     ST.mes = mes;
