@@ -1321,6 +1321,11 @@ function confirmaImport(d, arquivo, mesSugerido){
     }
     if (fechado && !(await mudaStatusMes(mes, false))) return;
     if (zerar && !(await reiniciaMes(mes))) return;
+    let voltaram = 0;
+    if (!zerar && jaTem(mes)) {
+      await garantePar(mes);                         // o arquivo velho, pra comparar
+      voltaram = await revisaDecisoes(mes, d);       // já troca ST.meses[mes] por d
+    }
     ST.meses[mes] = d;
     _comisCache = null;   // a chave do cache é a lista de meses, que não muda numa reimportação
     ST.mes = mes;
@@ -1328,8 +1333,69 @@ function confirmaImport(d, arquivo, mesSugerido){
     if (!ST.disponiveis.includes(mes)) ST.disponiveis = [...ST.disponiveis, mes].sort();
     fecha();
     await salvaSnapshot(mes, d, arquivo);
+    await garantePar(mes);
     topo(); pinta();
+    if (voltaram) document.getElementById('statusImp').textContent =
+      `${voltaram} classificação(ões) voltaram para a fila: a movimentação mudou no arquivo novo`;
   };
+}
+
+/* Reimportar SEM recomeçar mantém as classificações — mas a classificação vale
+   para a movimentação que a pessoa VIU. A decisão é gravada por animal (a chave),
+   não pelo conteúdo, então o arquivo novo herdava a decisão velha mesmo quando a
+   movimentação era outra. Caso real (Arthur, 23/11/2026): PARADIGMA NADIA DA PAO
+   GRANDE, out/26, confirmada como venda quando a planilha só trocava o status
+   (Δ R$ 0); o haras zerou a cota, o arquivo novo trouxe −R$ 12.000 e a venda caiu
+   direto em registradas, sem passar pela fila.
+
+   Aqui a movimentação de cada decisão é comparada antes e depois do arquivo novo
+   (Δ, cota, valor, status, ocorrências). Mudou ou sumiu: a decisão sai e o animal
+   volta pra fila. Removida compara a linha da planilha, que é o que ela contesta —
+   se o haras corrigiu a linha, a remoção pode não valer mais. Lançamento manual
+   não vem do arquivo e fica. Troca ST.meses[mes] por `novo`. */
+async function revisaDecisoes(mes, novo){
+  const velho = ST.meses[mes];
+  const pre = mes + '|';
+  const minhas = Object.entries(ST.decisoes)
+    .filter(([k, x]) => x && k.startsWith(pre) && !ehManual(k.slice(pre.length)));
+  if (!velho || !minhas.length) { ST.meses[mes] = novo; _comisCache = null; return 0; }
+  const assina = m => JSON.stringify([m.delta, m.cota_ant, m.cota_atual, m.valor_ant, m.valor_atual,
+    norm(m.status), (m.log || []).map(x => norm(x.ocorrencia))]);
+  const assinaturas = () => new Map(((movimentacaoDoMes(mes) || {}).movs || []).map(m => [m.chave, assina(m)]));
+  const linhaDe = (dd, k) => {
+    const l = dd.linhas.find(x => chaveCom(x, dd.ix) === k);
+    return l ? JSON.stringify(['cota', 'valor', 'status', 'local', 'categoria', 'sufixo']
+      .map(f => norm(l[dd.ix[f]]))) : '';
+  };
+
+  const antes = assinaturas();
+  const sai = [];
+  for (const [k, x] of minhas) {
+    const ch = k.slice(pre.length);
+    if (x.classe === CLASSE_REMOVIDA && linhaDe(velho, ch.split('#')[0]) !== linhaDe(novo, ch.split('#')[0])) sai.push(ch);
+  }
+  const guardadas = {};
+  for (const ch of sai) { guardadas[ch] = ST.decisoes[pre + ch]; delete ST.decisoes[pre + ch]; }
+  ST.meses[mes] = novo; _comisCache = null;
+  const depois = assinaturas();
+  for (const [k, x] of minhas) {
+    const ch = k.slice(pre.length);
+    if (x.classe === CLASSE_REMOVIDA || ch in guardadas) continue;
+    if (!depois.has(ch) || depois.get(ch) !== antes.get(ch)) {
+      guardadas[ch] = ST.decisoes[k]; delete ST.decisoes[k]; sai.push(ch);
+    }
+  }
+  if (!sai.length) return 0;
+  const c = sb();
+  if (c) {
+    const { error } = await c.from('plantel_mov_classificacao').delete().eq('mes', mes).in('chave', sai);
+    if (error) {
+      Object.assign(ST.decisoes, Object.fromEntries(Object.entries(guardadas).map(([ch, x]) => [pre + ch, x])));
+      alert('o arquivo entrou, mas as classificações que mudaram não voltaram pra fila: ' + error.message);
+      return 0;
+    }
+  }
+  return sai.length;
 }
 
 async function salvaSnapshot(mes, d, arquivo){
@@ -1457,8 +1523,24 @@ async function garanteMeses(lista){
   }));
 }
 
-/* O mês e o anterior: é o par que a aba Movimentações precisa pra existir. */
-const garantePar = mes => garanteMeses([mes, mesAnterior(mes)]);
+/* O mês e o anterior: é o par que a aba Movimentações precisa pra existir — e,
+   atrás deles, o que a linha EFETIVA do anterior pedir. Movimentação removida num
+   mês troca a linha dele pela efetiva do mês de antes (paresEfetivos), e sem esse
+   mês na memória a troca não acontecia: a RELIQUIA DA TERRA BRAVA foi removida em
+   set/26 (o haras zerou o valor por engano) e, com out/26 aberto e ago/26 fora da
+   memória, set voltava a valer R$ 0 e o valor que o haras corrigiu em outubro
+   virava +R$ 7.800 de reavaliação na fila. O resumo carrega todos os meses, por
+   isso lá o número estava certo. O mês antes do anterior entra sempre porque a
+   ocorrência posterior do anterior lê o arquivo dele. */
+async function garantePar(mes){
+  const a1 = mesAnterior(mes);
+  await garanteMeses([mes, a1, mesAnterior(a1)]);
+  const primeiro = ST.disponiveis[0] || a1;
+  for (let m = a1; m > primeiro && chavesRemovidas(m).size; ) {
+    m = mesAnterior(m);
+    await garanteMeses([mesAnterior(m)]);
+  }
+}
 
 /* Quais meses existem, sem baixar nenhum. Vem da listagem do bucket (barata) e
    se completa com a tabela, que ainda tem os meses sem arquivo. */
@@ -3044,5 +3126,5 @@ function liga(){
      entra depois, sem segurar a primeira pintura. */
   await garanteMeses([ST.mes]);
   pinta();
-  garanteMeses([mesAnterior(ST.mes)]).then(pinta);
+  garantePar(ST.mes).then(pinta);
 })();
