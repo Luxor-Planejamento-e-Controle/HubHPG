@@ -421,6 +421,38 @@ function linhasDoArquivo(mes){
   return out;
 }
 
+/* Venda que o haras não zerou na planilha (Arthur, 23/11/2026: "falha
+   gravíssima"). Animal VENDIDO / VENDIDO E ENTREGUE / VENDIDO PENDENTE (DE) SAIDA
+   tem cota 0 e valor 0 — é assim em quase todas as linhas vendidas de dez/25 a
+   out/26. As exceções são erro de digitação e passavam caladas:
+   - cota zerada e VALOR cheio: set/26 trouxe MUSICA (R$ 250.000), LIDER
+     (R$ 200.000), PEDRITA ×2, PORTINARI, PROSPERO e MELISSA; dez/25 a abr/26, as
+     duas LAMBADA X DAMASCO (R$ 24.000). Não mexe no saldo (cota × valor = 0), mas
+     a planilha está errada e o haras tem de corrigir;
+   - COTA cheia: PARADIGMA NADIA DA PAO GRANDE, 1ª versão de out/26, VENDIDO
+     PENDENTE SAIDA com 50% de R$ 24.000. Essa segura R$ 12.000 no saldo e a venda
+     não aparece.
+   Lê o arquivo como veio (a linha corrigida pelo log guarda o original em
+   `_orig`): o que se aponta é o que o haras tem de arrumar. Só aponta, não
+   corrige — a correção sem ocorrência que a explique seria chute. */
+const STATUS_VENDIDO = /^VENDID/;
+const _vendSemZerar = new WeakMap();
+function vendidosSemZerar(mes){
+  const d = ST.meses[mes];
+  if (!d) return new Map();
+  if (_vendSemZerar.has(d)) return _vendSemZerar.get(d);
+  const out = new Map();
+  for (const l of d.linhas) {
+    if (!STATUS_VENDIDO.test(norm(l[d.ix.status]))) continue;
+    const cota = num(l[d.ix.cota]), valor = num(l[d.ix.valor]);
+    if (cota || valor) out.set(chaveCom(l, d.ix), {nome: l[d.ix.nome], status: l[d.ix.status], cota, valor});
+  }
+  _vendSemZerar.set(d, out);
+  return out;
+}
+const txtSemZerar = x => [x.cota ? `cota ${pct(x.cota)}` : '', x.valor ? `valor ${rs(x.valor)}` : '']
+  .filter(Boolean).join(' e ');
+
 /* As linhas que valem no mês, cada uma com o seu ix (o layout de colunas muda de
    arquivo pra arquivo, e a linha pode vir do mês anterior):
    - tocada por ocorrência POSTERIOR ao mês: a linha do arquivo anterior, como antes;
@@ -775,6 +807,17 @@ function movimentacaoDoMes(mes){
   const posLinha = m => (m.chave_linha in linhaNoArquivo) ? linhaNoArquivo[m.chave_linha] : Infinity;
   const cmp = (a, b) => a === b ? 0 : a < b ? -1 : 1;
   movs.sort((x, y) => cmp(posLog(x), posLog(y)) || cmp(posLinha(x), posLinha(y)));
+  /* Venda que o haras não zerou (ver vendidosSemZerar): a ficha avisa. Se a cota
+     ficou no plantel, o saldo segura o animal vendido e qualquer palpite (o
+     típico é 'sem_efeito': o status mudou e a cota não) esconderia isso — sai
+     sem sugestão, para alguém olhar e pedir a correção ao haras. */
+  const semZerar = vendidosSemZerar(mes);
+  for (const m of movs) {
+    const x = semZerar.get(m.chave_linha);
+    if (!x) continue;
+    m.vendido_sem_zerar = x;
+    if (num(m.cota_atual)) m.sugestao = null;
+  }
   return {movs, log, renomes};
 }
 
@@ -1335,8 +1378,14 @@ function confirmaImport(d, arquivo, mesSugerido){
     await salvaSnapshot(mes, d, arquivo);
     await garantePar(mes);
     topo(); pinta();
-    if (voltaram) document.getElementById('statusImp').textContent =
-      `${voltaram} classificação(ões) voltaram para a fila: a movimentação mudou no arquivo novo`;
+    /* venda não zerada aparece já no import: é a hora de pedir a correção ao
+       haras, antes de classificar o mês em cima do arquivo errado */
+    const nSemZerar = vendidosSemZerar(mes).size;
+    const msgs = [
+      voltaram ? `${voltaram} classificação(ões) voltaram para a fila: a movimentação mudou no arquivo novo` : '',
+      nSemZerar ? `${nSemZerar} vendido(s) sem cota/valor zerado na planilha (linhas em vermelho no Plantel)` : '',
+    ].filter(Boolean);
+    if (msgs.length) document.getElementById('statusImp').textContent = msgs.join(' · ');
   };
 }
 
@@ -1826,9 +1875,15 @@ function painelPlantel(){
       : String(a[i] == null ? '' : a[i]).localeCompare(String(b[i] == null ? '' : b[i]), 'pt-BR') * dir);
   }
   const somaEsc = escopo => linhas.reduce((s, l) => s + patr(l, escopo, ix), 0);
+  const semZerar = vendidosSemZerar(ST.mes);
+  const trDe = l => {
+    const x = semZerar.get(chaveCom(l, ix));
+    return x ? `<tr class="pl-erro" title="${esc(`${x.status} com ${txtSemZerar(x)}: o haras não zerou`)}">` : '<tr>';
+  };
   return `
     <div class="resumo-linha">
       <span>${linhas.length} de ${d.linhas.length} linhas</span>
+      ${!semZerar.size ? '' : `<span class="neg">vendidos sem zerar na planilha: <b>${semZerar.size}</b></span>`}
       <span>Carla: <b>${rs(somaEsc('hpg'))}</b></span>
       <span>Eduardo: <b>${rs(somaEsc('eduardo'))}</b></span>
       <span>Carla + Eduardo: <b>${rs(somaEsc('hpg') + somaEsc('eduardo'))}</b></span>
@@ -1838,7 +1893,7 @@ function painelPlantel(){
       <thead>
         <tr>${cols.map(([i, r]) => cabFiltro('plantel', i, r, EH_NUM(r), ST.ordem.plantel)).join('')}</tr>
       </thead>
-      <tbody>${linhas.map(l => `<tr>${cols.map(([i, r]) => {
+      <tbody>${linhas.map(l => `${trDe(l)}${cols.map(([i, r]) => {
           const txt = fmtCel(l, i, r);
           // nome e valor em destaque, QTDE e valor zerado recuam (tabela clara, plantel.css)
           const k = i === ix.nome ? ' nome-pl' : i === ix.qtde ? ' qtde-pl'
@@ -1950,6 +2005,8 @@ function fichaMov(m){
 
   const canc = (m.log || []).map(x => cancelamento(x.ocorrencia)).find(c => c && c.tipo);
   const avisos = [];
+  const grave = m.vendido_sem_zerar ? `${m.vendido_sem_zerar.status} com ${txtSemZerar(m.vendido_sem_zerar)}`
+    + ' na planilha: o haras não zerou' : '';
   if (canc) avisos.push(canc.revenda ? 'venda cancelada e revendido'
     : `${canc.tipo} cancelada (cota ${canc.sentido === 'volta' ? 'volta' : 'sai'})`);
   if (m.posterior) avisos.push(`${m.posterior.length} ocorrência(s) POSTERIOR(es) ao mês `
@@ -1993,6 +2050,7 @@ function fichaMov(m){
     </div>
     ${(m.log || []).map(l => `<p class="ficha-log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</p>`).join('')}
     ${!origem ? '' : `<p class="ficha-log sem-log">${esc(origem)}</p>`}
+    ${!grave ? '' : `<p class="ficha-aviso grave">⚠ ${esc(grave)}</p>`}
     ${avisos.map(a => `<p class="ficha-aviso">⚠ ${esc(a)}</p>`).join('')}
     <div class="ficha-perg">${souEditor ? `
       <span class="ficha-perg-rot${m.sugestao ? '' : ' sem-palpite'}">${m.sugestao
@@ -2265,6 +2323,12 @@ function subChecks(){
     if (lib.saldo_ini != null) linhas.push(['Saldo inicial = Resumo Contábil divulgado', iniC, lib.saldo_ini, 'divulgado']);
   }
   const regs = (mv ? mv.movs : []).filter(m => (m.no_escopo || m.dono) && m.delta);
+  // venda que o haras não zerou: erro da planilha, pede correção (ver vendidosSemZerar)
+  const semZerar = [...vendidosSemZerar(ST.mes).values()];
+  const linhaSemZerar = `<tr><td class="l">Vendidos com cota e valor zerados na planilha${!semZerar.length ? ''
+      : ` — não zerados (${semZerar.length}): ${semZerar.map(x => `${esc(x.nome)} (${esc(txtSemZerar(x))})`).join(', ')}`}</td>
+    <td></td><td>${semZerar.length}</td><td></td>
+    <td class="l">${semZerar.length ? '<span class="tag ruim">haras não zerou</span>' : '<span class="tag ok">confere</span>'}</td></tr>`;
   return `<div class="rolagem"><table class="t t-check">
     <thead><tr><th class="l">Check de ${rotMes(ST.mes)}</th><th>Plantel Luxor</th><th>Plantel Haras</th><th>Diferença</th><th class="l">Situação</th></tr></thead>
     <tbody>${linhas.map(([t, a, b, un]) => {
@@ -2284,6 +2348,7 @@ function subChecks(){
         <td class="${ok ? 'pos' : 'neg'}">${f(dif)}</td>
         <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
     }).join('')}
+    ${linhaSemZerar}
     <tr><td class="l">Movimentações classificadas</td>
       <td>${regs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`] || m.sugestao).length}</td>
       <td>${regs.length}</td><td></td>
