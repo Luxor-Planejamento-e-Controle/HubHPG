@@ -733,12 +733,15 @@ function movimentacaoDoMes(mes){
            em "Baixas por Morte/Doação" com sinal positivo. */
         const compra = e.dCota > 0;
         const canc = cancelamento(oc);
+        /* compra nossa cancelada é estorno da compra (negativa), como no
+           sugere(); sem esta linha o sinal a fazia virar venda */
         const cls = (canc && canc.sentido === 'volta'
                       && classeDoCancelamento([{data: e.data, ocorrencia: e.oc}], hist))
+          || (canc && canc.tipo === 'compra' && canc.sentido === 'sai' ? 'compra' : null)
           || classePelaPalavra(oc)
           || (compra ? 'compra' : 'venda');
         const umLog = [{data: e.data, ocorrencia: e.texto, ord: e.ord}];
-        if (cls === 'compra' && e.preco) {
+        if (cls === 'compra' && e.preco && compra) {   // compra cancelada (cota sai) não tem preço pago
           /* compra entra pelo PREÇO PAGO; a diferença contra o valor da fatia é
              reavaliação — 40.000 pagos por 12.500 de cota são compra 40.000 e
              reavaliação −27.500, que somam os mesmos +12.500 do patrimônio */
@@ -918,7 +921,9 @@ function anoDaVendaCancelada(historico, oc, quando){
 
 /* Cancelamento que devolve cota: estorno se a venda foi no mesmo exercício,
    recompra se foi em outro. Sem saber o ano da venda, vale recompra — é o caso
-   da venda antiga, anterior ao log nomear comprador. */
+   da venda antiga, anterior ao log nomear comprador.
+   Vale também para BAIXA TOTAL de ano anterior (animal que tinha saído inteiro e
+   volta pelo cancelamento): é recompra, não reavaliação (Arthur, 23/11/2026). */
 function classeDoCancelamento(itensLog, historico){
   const item = (itensLog || []).find(x => /CANCEL/.test(norm(x.ocorrencia)));
   if (!item) return null;
