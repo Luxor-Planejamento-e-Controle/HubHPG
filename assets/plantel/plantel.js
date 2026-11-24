@@ -794,20 +794,31 @@ function movimentacaoDoMes(mes){
      (AGO_26_v3, editada já em setembro) trazia o local novo. De agosto para setembro
      nada mudava e a saída sumia do mês em que aconteceu. Vira movimentação sem
      efeito no patrimônio, com a ocorrência como origem. */
+  /* O mesmo vale para ocorrência de VENDA, COMPRA, CANCELAMENTO, DOAÇÃO ou ÓBITO que a
+     planilha não reflete (24/11/2026): o LATINO DA PAO GRANDE tem duas linhas, e em
+     out/26 o haras lançou "VENDA CANCELADA" nas duas mas só mexeu na cota da (CARLA)
+     — a (EDUARDO) ficou em 22,5% e a ocorrência dela não aparecia em lugar nenhum da
+     fila. Entra sem sugestão e com aviso: ou a planilha está certa e é sem efeito,
+     ou o haras esqueceu a cota. */
+  const fala = x => x.tipo === 'financeira'
+    && ((cancelamento(x.ocorrencia) || {}).tipo || classePelaPalavra(x.ocorrencia) || /COMPR/.test(norm(x.ocorrencia)));
   const comMov = new Set(movs.map(m => m.chave_linha));
   const soLog = new Map();
   for (const x of log) {
-    if (x.tipo !== 'local') continue;
+    const fin = fala(x);
+    if (x.tipo !== 'local' && !fin) continue;
     const k = achaNome(norm(x.produto), idxAtual) || `LOG:${norm(x.produto)}`;
     if (comMov.has(k)) continue;
+    if (fin && !B[k]) continue;   // sem a linha não há o que comparar (fica na Conciliação)
     if (!soLog.has(k)) soLog.set(k, []);
     soLog.get(k).push(x);
   }
   for (const [k, itens] of soLog) {
     const pb = B[k], l = pb ? pb.l : null, ixl = pb ? pb.ix : ix;
     const q = l ? num(l[ixl.cota]) : 0, v = l ? num(l[ixl.valor]) : 0;
-    if (l && !q) continue;   // animal com cota 0 não é nosso: troca de local dele não é movimentação
+    if (l && !q) continue;   // animal com cota 0 não é nosso: ocorrência dele não é movimentação
     const dono = l ? donoDaLinha(l, ixl) : null;
+    const semEfeito = itens.some(fala);
     movs.push({
       chave: `${k}#log`, chave_linha: k, linha: l,
       nome: l ? l[ixl.nome] : itens[0].produto, sufixo: l ? l[ixl.sufixo] : '',
@@ -815,8 +826,10 @@ function movimentacaoDoMes(mes){
       cota_ant: q, cota_atual: q, valor_ant: v, valor_atual: v, patr_ant: q * v, patr_atual: q * v,
       entrou: false, saiu: false, renome: null, dono_ant: dono, mudou_dono: null,
       mudou_status: null, mudou_local: null, mudou_categoria: null, posterior: null,
-      no_escopo: true, so_log: true, local_atual: l ? l[ixl.local] : '',
-      delta: 0, delta_carla: 0, delta_ce: 0, sugestao: 'sem_efeito', log: itens, evento: null,
+      no_escopo: true, so_log: true,
+      local_atual: l && itens.some(x => x.tipo === 'local') ? l[ixl.local] : '',
+      log_sem_efeito: semEfeito || null,
+      delta: 0, delta_carla: 0, delta_ce: 0, sugestao: semEfeito ? null : 'sem_efeito', log: itens, evento: null,
     });
   }
   /* Mesma ordem do arquivo importado (Arthur, 23/11/2026): primeiro pela posição
@@ -2045,6 +2058,8 @@ function fichaMov(m){
   // receptoras: quantidade mudou e o valor do conjunto não — falta o valor da entrada/saída
   if (m.qtd_recep && Math.abs(m.delta) < 0.01) graves.push(`a quantidade de receptoras mudou e o valor `
     + `ficou em ${rs(m.valor_atual)}: o haras não atualizou o valor`);
+  if (m.log_sem_efeito) graves.push(`a ocorrência fala em movimentação e a planilha não mudou cota nem valor `
+    + `(${pct(m.cota_atual)} de ${rs(m.valor_atual)}): conferir se o haras esqueceu a cota`);
   if (canc) avisos.push(canc.revenda ? 'venda cancelada e revendido'
     : `${canc.tipo} cancelada (cota ${canc.sentido === 'volta' ? 'volta' : 'sai'})`);
   if (m.posterior) avisos.push(`${m.posterior.length} ocorrência(s) POSTERIOR(es) ao mês `
@@ -2056,7 +2071,9 @@ function fichaMov(m){
      01/09/2025. Sem descrição, o card não dizia POR QUE estava na fila. A
      origem é sempre a comparação das duas planilhas; dizer isso, e dizer que o
      log do mês está calado, é o que falta pra decidir. */
-  const origem = m.so_log
+  const origem = m.log_sem_efeito
+    ? `só no log de ${rotMes(ST.mes)}: cota e valor iguais aos do mês anterior`
+    : m.so_log
     ? `só no log de ${rotMes(ST.mes)}: a planilha do mês anterior já trazia a mudança`
     : !(m.log || []).length
     ? `${deltas.length ? deltas.map(([r]) => r).join(', ') : 'valor'} mudou entre as planilhas`
