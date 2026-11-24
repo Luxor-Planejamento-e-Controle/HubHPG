@@ -818,7 +818,11 @@ function movimentacaoDoMes(mes){
     const q = l ? num(l[ixl.cota]) : 0, v = l ? num(l[ixl.valor]) : 0;
     if (l && !q) continue;   // animal com cota 0 não é nosso: ocorrência dele não é movimentação
     const dono = l ? donoDaLinha(l, ixl) : null;
-    const semEfeito = itens.some(fala);
+    /* Ocorrência que só mexe na COLUNA DE SÓCIOS não muda a nossa cota: a do LATINO
+       (EDUARDO) em out/26 tira os quatro compradores da coluna, e a cota cancelada
+       voltou toda para a linha (CARLA). Entra na fila como sem efeito, sem alarme. */
+    const soSocios = itens.filter(fala).every(x => /COLUNA\s+D[EO]S?\s+SOCIO/.test(norm(x.ocorrencia)));
+    const semEfeito = itens.some(fala) && !soSocios;
     movs.push({
       chave: `${k}#log`, chave_linha: k, linha: l,
       nome: l ? l[ixl.nome] : itens[0].produto, sufixo: l ? l[ixl.sufixo] : '',
@@ -828,7 +832,7 @@ function movimentacaoDoMes(mes){
       mudou_status: null, mudou_local: null, mudou_categoria: null, posterior: null,
       no_escopo: true, so_log: true,
       local_atual: l && itens.some(x => x.tipo === 'local') ? l[ixl.local] : '',
-      log_sem_efeito: semEfeito || null,
+      log_sem_efeito: semEfeito || null, so_socios: (itens.some(fala) && soSocios) || null,
       delta: 0, delta_carla: 0, delta_ce: 0, sugestao: semEfeito ? null : 'sem_efeito', log: itens, evento: null,
     });
   }
@@ -2051,7 +2055,8 @@ function fichaMov(m){
   if (m.saiu) deltas.push(['saída', 'saiu do controle']);
   if (m.qtd_recep) deltas.push(['quantidade', `${m.qtd_recep[0] ?? '—'} → ${m.qtd_recep[1] ?? '—'} receptoras`]);
 
-  const canc = (m.log || []).map(x => cancelamento(x.ocorrencia)).find(c => c && c.tipo);
+  // só a coluna de sócios mudou: o cancelamento não devolve cota a esta linha
+  const canc = m.so_socios ? null : (m.log || []).map(x => cancelamento(x.ocorrencia)).find(c => c && c.tipo);
   const avisos = [];
   const graves = [];
   if (m.sem_zerar) graves.push(`${m.sem_zerar.status} com ${txtSemZerar(m.sem_zerar)} na planilha: o haras não zerou`);
@@ -2071,7 +2076,9 @@ function fichaMov(m){
      01/09/2025. Sem descrição, o card não dizia POR QUE estava na fila. A
      origem é sempre a comparação das duas planilhas; dizer isso, e dizer que o
      log do mês está calado, é o que falta pra decidir. */
-  const origem = m.log_sem_efeito
+  const origem = m.so_socios
+    ? `só no log de ${rotMes(ST.mes)}: a ocorrência só altera a coluna de sócios — cota e valor iguais`
+    : m.log_sem_efeito
     ? `só no log de ${rotMes(ST.mes)}: cota e valor iguais aos do mês anterior`
     : m.so_log
     ? `só no log de ${rotMes(ST.mes)}: a planilha do mês anterior já trazia a mudança`
