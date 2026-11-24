@@ -120,6 +120,7 @@ const ST = {
   disponiveis: [],  // meses que existem no bucket/tabela, sem estarem carregados
   statusMes: {},    // 'AAAA-MM' -> true quando FECHADO (ausente = corte histórico)
   decisoes: {},     // 'mes|chave' -> {classe, nota, autor}
+  cancel: {},       // 'AAAA-MM' -> cancelamentos do financeiro {arquivos} | null (não importado)
   aba: 'plantel',
   sub: 'movimentacoes',
   ordem: {plantel: {col: null, dir: 1}, mov: {col: null, dir: 1}},
@@ -1335,6 +1336,7 @@ function topo(){
     ST.pop = null;
     // o topo também: a tag aberto/fechado e o botão são do mês escolhido
     topo(); pinta();
+    if (!(ST.mes in ST.cancel)) garanteCancel(ST.mes).then(pinta);
   };
   const arq = document.getElementById('arq');
   if (arq) arq.onchange = importa;
@@ -1659,6 +1661,232 @@ async function garantePar(mes){
     m = mesAnterior(m);
     await garanteMeses([mesAnterior(m)]);
   }
+}
+
+/* ================= cancelamentos do financeiro (check) =================
+
+   Relatório mensal de títulos cancelados que a Controladoria tira do financeiro:
+   "MM- Cancelamentos Haras - <Mês> AA.xls" e "MM- Cancelamentos Eduardo - ...", em
+   RELATORIOS - OPERAÇÃO HARAS E FAZENDA PG\<ano>\Planilhas Auxiliares para
+   fechamento HPG\Base - DRE Haras\4 - Cancelamentos (Arthur, 24/11/2026).
+
+   Cada parcela traz a Dt. EMISSÃO — a data da venda original — e a Dt. BAIXA — o
+   cancelamento. É o que decide estorno × compra (ver classeDoCancelamento) sem
+   depender de o haras escrever o comprador no log: o LATINO DA PAO GRANDE (CARLA)
+   de out/26 saiu como estorno porque o log listava quatro nomes que o motor não
+   lia, e o financeiro mostra as quatro vendas emitidas em 16/02/2023 — compra.
+
+   O arquivo é .xls (BIFF), que o xlsx.mini da página não lê; o leitor completo
+   (assets/vendor/xlsx.full.min.js, mesma 0.20.3) só é baixado ao importar. O que
+   se grava é o resumo por contrato, em `plantel.<AAAA-MM>.cancelamentos.json` —
+   o prefixo `plantel.<mês>` faz valer a mesma policy do bucket (hub_can('plantel'),
+   mês fechado não recebe escrita). Reimportar o mesmo arquivo substitui o dele. */
+const arqCancel = m => `plantel.${m}.cancelamentos.json`;
+let _xlsCompleto = null;
+function garanteXlsCompleto(){
+  if (_xlsCompleto) return _xlsCompleto;
+  _xlsCompleto = new Promise((ok, erro) => {
+    const s = document.createElement('script');
+    s.src = 'assets/vendor/xlsx.full.min.js?v=0.20.3';
+    s.onload = () => ok();
+    s.onerror = () => { _xlsCompleto = null; erro(new Error('não carregou o leitor de .xls')); };
+    document.head.appendChild(s);
+  });
+  return _xlsCompleto;
+}
+
+// data local (a planilha grava meia-noite de Brasília): ISO puro, sem fuso
+const dataISO = v => {
+  const d = v instanceof Date ? v : new Date(v);
+  return isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const isoBR = s => s ? s.split('-').reverse().join('/') : '';
+
+/* Dois layouts: até jul/26 o relatório é AGRUPADO ("Nome da pessoa : X" e
+   "Observação : ..." em linhas próprias, com o total entre parênteses no fim, e as
+   parcelas embaixo); de ago/26 em diante é tabela plana, uma parcela por linha
+   com pessoa e observação nas colunas. As parcelas viram CONTRATOS: mesma pessoa,
+   mesma emissão, mesma observação. */
+function lerCancelamentos(buf){
+  const wb = XLSX.read(buf, {cellDates: true});
+  const a = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, raw: true, defval: null});
+  const iCab = a.findIndex(r => (r || []).some(c => /^DT\. EMISS/.test(norm(c))));
+  if (iCab < 0) throw new Error('não achei o cabeçalho (Dt. emissão) — é o relatório de cancelamentos?');
+  const cab = a[iCab].map(norm);
+  const col = re => cab.findIndex(c => re.test(c));
+  const iPes = col(/^NOME DA PESSOA/), iEmi = col(/^DT\. EMISS/), iBx = col(/^DT\. BAIXA/),
+        iVl = col(/^VL\. LIQ/), iNat = col(/^NATUREZA/), iObs = col(/^OBSERVA/);
+  const limpa = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  const semTotal = s => s.replace(/\s*\(\s*-?[\d.,]+\s*\)\s*$/, '');
+  let pessoa = '', obs = '';
+  const contratos = new Map();
+  for (const r of a.slice(iCab + 1)) {
+    if (!r) continue;
+    for (const c of r) {
+      const s = limpa(c);
+      const p = /^Nome da pessoa\s*:\s*(.*)$/i.exec(s);
+      if (p) { pessoa = semTotal(p[1]); obs = ''; }
+      const o = /^Observa\S*\s*:\s*(.*)$/i.exec(s);
+      if (o) obs = semTotal(o[1]);
+    }
+    const emi = r[iEmi], bx = r[iBx];
+    if (!(emi instanceof Date) || !(bx instanceof Date)) continue;
+    const k = {
+      pessoa: iPes >= 0 && r[iPes] ? limpa(r[iPes]) : pessoa,
+      emissao: dataISO(emi),
+      obs: iObs >= 0 && r[iObs] != null ? limpa(r[iObs]) : obs,
+      natureza: iNat >= 0 ? limpa(r[iNat]) : '',
+    };
+    const chaveK = [k.pessoa, k.emissao, k.obs, k.natureza].join('|');
+    const atual = contratos.get(chaveK) || {...k, baixa: '', parcelas: 0, valor: 0};
+    atual.parcelas += 1;
+    atual.valor = +(atual.valor + num(r[iVl])).toFixed(2);
+    if (dataISO(bx) > atual.baixa) atual.baixa = dataISO(bx);
+    contratos.set(chaveK, atual);
+  }
+  return [...contratos.values()];
+}
+
+// o mês do arquivo é o mês em que a maioria das parcelas foi baixada
+function mesDosCancelamentos(contratos){
+  const n = {};
+  for (const k of contratos) n[k.baixa.slice(0, 7)] = (n[k.baixa.slice(0, 7)] || 0) + k.parcelas;
+  return Object.entries(n).sort((x, y) => y[1] - x[1])[0][0];
+}
+
+async function baixaCancel(mes){
+  const c = sb();
+  if (!c) return null;
+  try {
+    const { data, error } = await c.storage.from(balde()).createSignedUrl(arqCancel(mes), 60);
+    if (error || !data || !data.signedUrl) return null;
+    const url = data.signedUrl + (data.signedUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+    const res = await fetch(url, {cache: 'no-store'});
+    return res.ok ? await res.json() : null;
+  } catch (e) { return null; }
+}
+async function garanteCancel(mes){
+  if (!mes || mes in ST.cancel) return;
+  ST.cancel[mes] = await baixaCancel(mes);
+}
+
+async function importaCancel(e){
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  if (!files.length) return;
+  const st = document.getElementById('statusImp');
+  try {
+    st.textContent = 'carregando o leitor de .xls…';
+    await garanteXlsCompleto();
+    const porMes = {};
+    for (const f of files) {
+      st.textContent = 'lendo ' + f.name + '…';
+      const contratos = lerCancelamentos(await f.arrayBuffer());
+      if (!contratos.length) throw new Error(f.name + ': nenhum título cancelado no arquivo');
+      const mes = mesDosCancelamentos(contratos);
+      (porMes[mes] = porMes[mes] || []).push({nome: f.name, contratos});
+    }
+    const c = sb();
+    for (const [mes, lista] of Object.entries(porMes)) {
+      if (mesFechado(mes)) throw new Error(`${rotMes(mes)} está fechado — reabra o mês para importar`);
+      await garanteCancel(mes);
+      const atual = ST.cancel[mes] || {arquivos: {}};
+      for (const x of lista) {
+        atual.arquivos[x.nome] = {importado_em: new Date().toISOString(), por: eu(), contratos: x.contratos};
+      }
+      if (c) {
+        const corpo = new Blob([JSON.stringify(atual)], {type: 'application/json'});
+        const { error } = await c.storage.from(balde())
+          .upload(arqCancel(mes), corpo, {upsert: true, contentType: 'application/json'});
+        if (error) throw error;
+      }
+      ST.cancel[mes] = atual;
+    }
+    st.textContent = 'cancelamentos importados: ' + Object.entries(porMes)
+      .map(([m, l]) => `${rotMes(m)} (${l.length} arquivo${l.length > 1 ? 's' : ''})`).join(' · ');
+    pinta();
+  } catch (err) {
+    st.textContent = '';
+    alert('cancelamentos não importados: ' + (err.message || err));
+  }
+}
+
+/* Contrato -> animal. O nome sai da OBSERVAÇÃO ("0,63% LATINO DA PAO GRANDE - XIII
+   LEILAO ..."), casado com os nomes do plantel do mês sem o marcador (CARLA)/
+   (EDUARDO) — o mais longo que couber. Embrião a coletar, cobertura, rateio,
+   óvulo e sêmen não são linha do plantel e ficam fora (o "EMBRIAO A COLETAR HORAH
+   DA PAO GRANDE" casaria com a égua). O lado sai do arquivo/natureza: o relatório
+   do Eduardo e a natureza "(EDUARDO)" são da linha dele; o resto, da Carla. */
+const baseNome = nome => norm(nome).replace(/\s*\([A-Z ]+\)\s*$/, '');
+const RX_CANCEL_FORA = /EMBRIAO|COBERTURA|RATEIO|OVULO|SEMEN|DESPESA/;
+const _cancelAgrup = new WeakMap();
+function cancelPorAnimal(mes){
+  const dados = ST.cancel[mes], d = ST.meses[mes];
+  if (!dados || !d) return null;
+  const cache = _cancelAgrup.get(dados);
+  if (cache && cache.d === d) return cache.out;
+  const nomes = [...new Set(linhasEfetivasIx(mes).map(p => baseNome(p.l[p.ix.nome])))]
+    .filter(n => n.length >= 5 && !ehLinhaReceptoras(n))
+    .sort((x, y) => y.length - x.length)
+    .map(n => ({n, rx: new RegExp(`(^|[^A-Z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Z0-9]|$)`)}));
+  const grupos = new Map();
+  for (const [arq, x] of Object.entries(dados.arquivos || {})) {
+    for (const k of x.contratos || []) {
+      const o = norm(k.obs), nat = norm(k.natureza);
+      if (RX_CANCEL_FORA.test(o) || RX_CANCEL_FORA.test(nat)) continue;
+      const achado = nomes.find(z => z.rx.test(o));
+      if (!achado) continue;
+      const lado = /EDUARDO/.test(norm(arq)) || /\(EDUARDO\)/.test(nat) ? 'eduardo' : 'hpg';
+      const anoVenda = +k.emissao.slice(0, 4), anoBaixa = +k.baixa.slice(0, 4);
+      const g = [achado.n, lado, anoVenda].join('|');
+      const atual = grupos.get(g) || {animal: achado.n, lado, anoVenda, anoBaixa, emissao: k.emissao,
+                                     baixa: k.baixa, pessoas: [], valor: 0, parcelas: 0};
+      if (!atual.pessoas.includes(k.pessoa)) atual.pessoas.push(k.pessoa);
+      atual.valor = +(atual.valor + k.valor).toFixed(2);
+      atual.parcelas += k.parcelas;
+      if (k.emissao < atual.emissao) atual.emissao = k.emissao;
+      if (k.baixa > atual.baixa) { atual.baixa = k.baixa; atual.anoBaixa = anoBaixa; }
+      grupos.set(g, atual);
+    }
+  }
+  const out = [...grupos.values()];
+  _cancelAgrup.set(dados, {d, out});
+  return out;
+}
+
+/* O cruzamento. Para cada venda cancelada: venda do MESMO ano do cancelamento é
+   estorno (venda), de ano anterior é compra. A movimentação do animal que
+   devolveu cota (Δ > 0) tem de estar nessa classe — decisão gravada ou, sem ela,
+   a sugestão. Sem movimentação: se o animal está com cota 0 o cancelamento é só
+   do recebível (ação judicial de animal já baixado — NAVE ago/26, LACO set/26);
+   senão o haras não devolveu a cota. E o inverso: cancelamento que o plantel
+   mostra e o financeiro não tem. */
+function checaCancelamentos(mes, mv){
+  const grupos = cancelPorAnimal(mes);
+  if (!grupos) return null;
+  mv = mv || movimentacaoDoMes(mes);
+  const movs = mv ? mv.movs : [];
+  const classe = m => (ST.decisoes[`${mes}|${m.chave}`] || {}).classe || m.sugestao || null;
+  const pares = linhasEfetivasIx(mes);
+  const linhas = grupos.map(g => {
+    const doAnimal = movs.filter(m => baseNome(m.nome) === g.animal);
+    const doLado = doAnimal.filter(m => m.dono === g.lado);
+    const alvo = (doLado.length ? doLado : doAnimal).filter(m => m.delta > 0);
+    const esperado = g.anoVenda === g.anoBaixa ? 'venda' : 'compra';
+    if (alvo.length) {
+      const cls = alvo.map(classe);
+      return {...g, esperado, movs: alvo, hub: [...new Set(cls.map(c => c || 'sem classe'))].join(', '),
+              sit: cls.every(c => c === esperado) ? 'confere' : 'diverge'};
+    }
+    const linhasAnimal = pares.filter(p => baseNome(p.l[p.ix.nome]) === g.animal);
+    const ladoL = linhasAnimal.filter(p => donoDaLinha(p.l, p.ix) === g.lado);
+    const cota = (ladoL.length ? ladoL : linhasAnimal).reduce((s, p) => s + num(p.l[p.ix.cota]), 0);
+    return {...g, esperado, movs: [], hub: '—', sit: cota ? 'sem_mov' : 'cota0'};
+  });
+  const cobertos = new Set(linhas.flatMap(l => l.movs.map(m => m.chave)));
+  const soPlantel = movs.filter(m => m.delta > 0 && !cobertos.has(m.chave)
+    && (m.log || []).some(x => { const c = cancelamento(x.ocorrencia); return c && c.sentido === 'volta'; }));
+  return {linhas, soPlantel, arquivos: Object.keys((ST.cancel[mes] || {}).arquivos || {})};
 }
 
 /* Quais meses existem, sem baixar nenhum. Vem da listagem do bucket (barata) e
@@ -2060,7 +2288,7 @@ const ordMov = (m, i) => COLS_MOV[i][2] ? num(COLS_MOV[i][1](m)) : String(COLS_M
    pergunta, são um teste de pontaria — e qualquer um deles gravava no clique,
    sem chance de rever. Agora é seleção + OK: a sugestão vem escolhida, trocar
    é mexer no `<select>`, e só o OK grava. */
-function fichaMov(m){
+function fichaMov(m, fin){
   const deltas = [];
   if (m.mudou_status) deltas.push(['status', `${esc(m.mudou_status[0])} → ${esc(m.mudou_status[1])}`]);
   if (m.cota_ant !== m.cota_atual) deltas.push(['cota', `${pct(m.cota_ant)} → ${pct(m.cota_atual)}`]);
@@ -2110,7 +2338,7 @@ function fichaMov(m){
      gravar o primeiro da lista por inércia seria pior que não gravar */
   const opcoes = `<option value=""${m.sugestao ? '' : ' selected'}>— escolha —</option>`
     + CLASSES_MOV.map(c => `<option value="${c}"${c === m.sugestao ? ' selected' : ''}>${c}${
-        c === m.sugestao ? ' (sugerido)' : ''}</option>`).join('');
+        c === m.sugestao ? (m.sug_fin ? ' (financeiro)' : ' (sugerido)') : ''}</option>`).join('');
   return `<div class="ficha">
     <div class="ficha-topo">
       <div class="ficha-nome" title="${esc(m.nome)}">${esc(m.nome)}</div>
@@ -2132,6 +2360,8 @@ function fichaMov(m){
     ${(m.log || []).map(l => `<p class="ficha-log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</p>`).join('')}
     ${!origem ? '' : `<p class="ficha-log sem-log">${esc(origem)}</p>`}
     ${graves.map(g => `<p class="ficha-aviso grave">⚠ ${esc(g)}</p>`).join('')}
+    ${!fin ? '' : `<p class="ficha-aviso">financeiro: venda de ${isoBR(fin.emissao)} (${esc(fin.pessoas.join(', '))})
+      cancelada em ${isoBR(fin.baixa)} → ${fin.esperado}${m.sug_fin ? ' — o log sozinho sugeria outra coisa' : ''}</p>`}
     ${avisos.map(a => `<p class="ficha-aviso">⚠ ${esc(a)}</p>`).join('')}
     <div class="ficha-perg">${souEditor ? `
       <span class="ficha-perg-rot${m.sugestao ? '' : ' sem-palpite'}">${m.sugestao
@@ -2164,6 +2394,9 @@ function subMovimentacoes(){
       souEditor ? ' Para mexer, use <b>Reabrir mês</b> no topo.' : ''}</div>`;
   }
   const base = todas.filter(m => !ST.decisoes[`${ST.mes}|${m.chave}`]);
+  const cc = checaCancelamentos(ST.mes, mv);
+  const finDe = new Map();
+  if (cc) for (const l of cc.linhas) for (const m of l.movs) finDe.set(m.chave, l);
   ST.ctx.mov = {base, txtDe: txtMov, ordDe: ordMov,
                 rotulos: Object.fromEntries(COLS_MOV.map(([rot], i) => [i, rot]))};
   let movs = aplicaFiltros(base, 'mov', txtMov);
@@ -2199,7 +2432,12 @@ function subMovimentacoes(){
       <button type="button" class="fbtn-rot${ST.ordem.mov.col === 0 ? ' on' : ''}" data-ord="mov:0">nome</button>
     </div>
     ${chipsFiltro('mov')}
-    <div class="rolagem fichas">${movs.map(m => fichaMov(m)).join('')}</div>`;
+    <div class="rolagem fichas">${movs.map(m => {
+      /* venda cancelada que o financeiro data: a classe dele vem escolhida no
+         lugar do palpite do log (ver checaCancelamentos) */
+      const f = finDe.get(m.chave);
+      return fichaMov(f && f.esperado !== m.sugestao ? {...m, sugestao: f.esperado, sug_fin: true} : m, f);
+    }).join('')}</div>`;
 }
 
 function subConciliacao(){
@@ -2410,7 +2648,37 @@ function subChecks(){
       : ` — não zerados (${semZerar.length}): ${semZerar.map(x => `${esc(x.nome)} (${esc(txtSemZerar(x))})`).join(', ')}`}</td>
     <td></td><td>${semZerar.length}</td><td></td>
     <td class="l">${semZerar.length ? '<span class="tag ruim">haras não zerou</span>' : '<span class="tag ok">confere</span>'}</td></tr>`;
-  return `<div class="rolagem"><table class="t t-check">
+  // cancelamentos do financeiro × plantel (ver checaCancelamentos)
+  const cc = checaCancelamentos(ST.mes, mv);
+  const ruins = cc ? cc.linhas.filter(l => l.sit === 'diverge' || l.sit === 'sem_mov').length + cc.soPlantel.length : 0;
+  const linhaCancel = `<tr><td class="l">Cancelamentos do financeiro × plantel</td>
+    <td>${cc ? cc.linhas.filter(l => l.sit === 'confere').length : ''}</td><td>${cc ? cc.linhas.length : ''}</td><td></td>
+    <td class="l">${ST.cancel[ST.mes] === undefined ? '<span class="tag">carregando</span>'
+      : !cc ? '<span class="tag">sem arquivo</span>'
+      : ruins ? '<span class="tag ruim">diverge</span>' : '<span class="tag ok">confere</span>'}</td></tr>`;
+  const SIT = {confere: '<span class="tag ok">confere</span>', diverge: '<span class="tag ruim">diverge</span>',
+               sem_mov: '<span class="tag ruim">sem movimentação no plantel</span>',
+               cota0: '<span class="tag">cota 0 — só o recebível</span>'};
+  const podeImportar = souEditor && !mesFechado(ST.mes);
+  const blocoCancel = `
+    <h3>Cancelamentos do financeiro${cc ? ` <span class="cont">${cc.linhas.length + cc.soPlantel.length}</span>` : ''}
+      ${!podeImportar ? '' : `<label class="h3-acao">importar .xls (Haras e Eduardo)
+        <input type="file" id="arqCanc" accept=".xls,.xlsx" multiple hidden></label>`}</h3>
+    ${!cc ? '' : `${cc.arquivos.map(a => `<span class="tag">${esc(a)}</span>`).join(' ')}
+    <div class="rolagem inteira"><table class="t t-check">
+      <thead><tr><th class="l">Animal</th><th class="l">Lado</th><th class="l">Venda (emissão)</th>
+        <th class="l">Cancelamento</th><th class="l">Comprador(es)</th><th class="l">Financeiro</th>
+        <th class="l">Hub</th><th class="l">Situação</th></tr></thead>
+      <tbody>${cc.linhas.map(l => `<tr><td class="l">${esc(l.animal)}</td><td class="l">${ATRIB[l.lado] || l.lado}</td>
+          <td class="l">${isoBR(l.emissao)}</td><td class="l">${isoBR(l.baixa)}</td>
+          <td class="l cort" title="${esc(l.pessoas.join(', '))}">${esc(l.pessoas.join(', '))}</td>
+          <td class="l">${l.esperado}</td><td class="l">${esc(l.hub)}</td><td class="l">${SIT[l.sit]}</td></tr>`).join('')}
+        ${cc.soPlantel.map(m => `<tr><td class="l">${esc(baseNome(m.nome))}</td><td class="l">${ATRIB[m.dono] || ''}</td>
+          <td class="l">—</td><td class="l">—</td><td class="l">—</td><td class="l">—</td>
+          <td class="l">${esc((ST.decisoes[`${ST.mes}|${m.chave}`] || {}).classe || m.sugestao || 'sem classe')}</td>
+          <td class="l"><span class="tag ruim">sem título no financeiro</span></td></tr>`).join('')}
+      </tbody></table></div>`}`;
+  return `<div class="rolagem inteira"><table class="t t-check">
     <thead><tr><th class="l">Check de ${rotMes(ST.mes)}</th><th>Plantel Luxor</th><th>Plantel Haras</th><th>Diferença</th><th class="l">Situação</th></tr></thead>
     <tbody>${linhas.map(([t, a, b, un]) => {
       const dif = +(a - b).toFixed(4);
@@ -2430,13 +2698,15 @@ function subChecks(){
         <td class="l">${ok ? '<span class="tag ok">confere</span>' : '<span class="tag ruim">diverge</span>'}</td></tr>`;
     }).join('')}
     ${linhaSemZerar}
+    ${linhaCancel}
     <tr><td class="l">Movimentações classificadas</td>
       <td>${regs.filter(m => ST.decisoes[`${ST.mes}|${m.chave}`] || m.sugestao).length}</td>
       <td>${regs.length}</td><td></td>
       <td class="l">${mesFechado(ST.mes) ? '<span class="tag">mês fechado</span>'
         : regs.every(m => ST.decisoes[`${ST.mes}|${m.chave}`] || m.sugestao) && regs.length
         ? '<span class="tag ok">mês completo</span>' : '<span class="tag ruim">falta classificar</span>'}</td></tr>
-    </tbody></table></div>`;
+    </tbody></table></div>
+    ${blocoCancel}`;
 }
 
 function painelResumo(){
@@ -3241,6 +3511,7 @@ function liga(){
     }
   });
   document.body.addEventListener('change', async e => {
+    if (e.target.id === 'arqCanc') { await importaCancel(e); return; }
     if (e.target.dataset.fv != null && ST.pop) {
       marcaValor(ST.pop.qual, ST.pop.col, e.target.dataset.fv, e.target.checked);
       ST.pop.foco = false;
@@ -3272,5 +3543,5 @@ function liga(){
      entra depois, sem segurar a primeira pintura. */
   await garanteMeses([ST.mes]);
   pinta();
-  garantePar(ST.mes).then(pinta);
+  garantePar(ST.mes).then(pinta).then(() => garanteCancel(ST.mes)).then(pinta);
 })();
