@@ -938,21 +938,40 @@ function contraparteCancelamento(oc){
   return null;
 }
 
+/* "VENDAS CANCELADAS PARA CAIO HENRIQUE, JOAO GUILHERME, MATHEUS LICURGO E RUI
+   EFERSON." — LATINO DA PAO GRANDE (CARLA), out/26. Nenhuma das regras de
+   RX_CONTRAPARTE lia "CANCELADAS PARA <lista>": sem nome, valia a última venda do
+   log (HEITOR JACINTO, mar/26, mesmo ano) e o cancelamento saía como estorno de
+   venda. As vendas canceladas não estão no log — são antigas —, então é compra. */
+const RX_CANCEL_PARA_LISTA = /CANCELAD\w*\s+PARA\s+([A-Z][A-Z\s,]+?)(?:\.|\s+-|$)/;
+function contrapartesCancelamento(oc){
+  const m = RX_CANCEL_PARA_LISTA.exec(oc);
+  if (m) return m[1].split(/\s*,\s*|\s+E\s+/).map(s => s.trim()).filter(s => s.length >= 3);
+  const um = contraparteCancelamento(oc);
+  return um ? [um] : [];
+}
+
 function anoDaVendaCancelada(historico, oc, quando){
-  const nome = contraparteCancelamento(norm(oc || ''));
-  if (!nome) return anoDaVendaOriginal(historico, quando);
-  // nome inteiro primeiro, depois só o primeiro nome (o log abrevia)
-  for (const alvo of [nome, nome.split(/\s+/)[0]]) {
-    let achado = null;
-    for (const x of (historico || [])) {
-      const s = norm(x.ocorrencia);
-      if (!RX_VENDA_LOG.test(s) || /CANCEL/.test(s) || !s.includes(alvo)) continue;
-      const d = x.data instanceof Date ? x.data : new Date(x.data);
-      if (!achado || d > achado) achado = d;
+  const nomes = contrapartesCancelamento(norm(oc || ''));
+  if (!nomes.length) return anoDaVendaOriginal(historico, quando);
+  /* Cada contraparte nomeada procura a venda DELA (nome inteiro, depois só o
+     primeiro nome — o log abrevia). Vale a mais recente que achar; nenhuma
+     achada quer dizer venda antiga. */
+  let ano = null;
+  for (const nome of nomes) {
+    for (const alvo of [nome, nome.split(/\s+/)[0]]) {
+      const rx = new RegExp(`\\b${alvo.replace(/[^A-Z\s]/g, '')}\\b`);
+      let achado = null;
+      for (const x of (historico || [])) {
+        const s = norm(x.ocorrencia);
+        if (!RX_VENDA_LOG.test(s) || /CANCEL/.test(s) || !rx.test(s)) continue;
+        const d = x.data instanceof Date ? x.data : new Date(x.data);
+        if (!achado || d > achado) achado = d;
+      }
+      if (achado) { ano = Math.max(ano || 0, achado.getFullYear()); break; }
     }
-    if (achado) return achado.getFullYear();
   }
-  return null;   // contraparte nomeada e sem venda dela no log: a venda é antiga
+  return ano;   // null: contraparte nomeada e sem venda dela no log — a venda é antiga
 }
 
 /* Cancelamento que devolve cota: estorno se a venda foi no mesmo exercício,
