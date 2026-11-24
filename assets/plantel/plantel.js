@@ -655,7 +655,24 @@ function movimentacaoDoMes(mes){
     const caA = a ? norm(a[ixa.categoria]) : '', caB = b ? norm(b[ixb.categoria]) : '';
     const nasceu = a && b && caA !== caB && /EMBRI/.test(caA);
     const trocouDono = !!(a && b && donoDaLinha(a, ixa) !== donoDaLinha(b, ixb));
-    if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && !nasceu && !trocouDono && a && b) continue;
+    /* Receptoras: a QUANTIDADE está no nome e o valor é do conjunto. Em out/26 (V6)
+       o nome foi de RECEPTORAS 120 para 123, o log diz "COMPRA DE 3 RECEPTORAS" e o
+       valor ficou em R$ 248.910,21 — sem Δ, a linha era pulada e a compra sumia.
+       Mudou a quantidade ou tem ocorrência no mês: entra na fila. */
+    const ehRecep = k === 'PSEUDO:RECEPTORAS';
+    const qtdRecep = (l, ixl) => {
+      const r = l && /^RECEPTORAS\s+(\d+)/.exec(norm(l[ixl.nome]));
+      return r ? Number(r[1]) : null;
+    };
+    const nRecep = ehRecep ? [qtdRecep(a, ixa), qtdRecep(b, ixb)] : null;
+    const mexeuRecep = !!(ehRecep && (nRecep[0] !== nRecep[1] || (logPorNome[k] || []).length));
+    /* Cota 0 nos dois meses: o animal não é nosso em nenhum dos dois e nada do que
+       mude nele mexe no patrimônio. A MELISSA DA PAO GRANDE (vendida em set/26) veio
+       no V6 de out/26 com o valor zerado — o haras corrigindo a planilha — e virava
+       "reavaliação" de R$ 0 que não existiu. */
+    if (!q0 && !q1 && !ehRecep) continue;
+    if (Math.abs(p1 - p0) < 0.01 && !ren && !mudouStatus && !mudouLocal && !nasceu && !trocouDono
+        && !mexeuRecep && a && b) continue;
 
     const linha = b || a, ixL = b ? ixb : ixa;
     const dono = donoDaLinha(linha, ixL);
@@ -688,6 +705,7 @@ function movimentacaoDoMes(mes){
       mudou_status: mudouStatus ? [a[ixa.status], b[ixb.status]] : null,
       mudou_local: mudouLocal ? [a[ixa.local], b[ixb.local]] : null,
       mudou_categoria: nasceu ? [a[ixa.categoria], b[ixb.categoria]] : null,
+      qtd_recep: ehRecep && nRecep[0] !== nRecep[1] ? nRecep : null,
       posterior, no_escopo: noEscopo(linha),
     };
     /* proporção do delta que cabe a cada escopo, para repartir evento a evento
@@ -788,6 +806,7 @@ function movimentacaoDoMes(mes){
   for (const [k, itens] of soLog) {
     const pb = B[k], l = pb ? pb.l : null, ixl = pb ? pb.ix : ix;
     const q = l ? num(l[ixl.cota]) : 0, v = l ? num(l[ixl.valor]) : 0;
+    if (l && !q) continue;   // animal com cota 0 não é nosso: troca de local dele não é movimentação
     const dono = l ? donoDaLinha(l, ixl) : null;
     movs.push({
       chave: `${k}#log`, chave_linha: k, linha: l,
@@ -1135,7 +1154,11 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
        baixa por venda (Arthur, 17/09/2026). Saiu sem o log dizer o quê, não
        chuta: vira pergunta na ficha. */
     if (p1 > p0) return 'compra';
-    return /DEVOLU|VEND/.test(oc) ? 'venda' : null;
+    /* Δ zero: a quantidade mudou e o valor não (ou só há ocorrência). Não há o que
+       classificar sem o valor — a ficha avisa e quem fecha decide. "VENDEDOR" não é
+       venda: out/26 era "COMPRA DE 3 RECEPTORAS ... DO VENDEDOR VALDEMIR". */
+    if (!mexeu) return null;
+    return /DEVOLU|\bVEND(A|ID|EU)/.test(oc) ? 'venda' : null;
   }
   if (ren && !mexeu) return 'renome';
   if (entrou) return /EMBRI/.test(cat) ? 'embriao' : /NASCEU/.test(oc) ? 'embriao' : 'compra';
@@ -1177,7 +1200,7 @@ function sugere({q0, q1, v0, v1, p0, p1, ren, entrou, saiu, status, categoria, i
      aqui antes, que era "qualquer sobra vira reavaliação" — aquilo inventava
      causa; isto reconhece uma. As receptoras não passam por aqui: têm regra
      própria acima, senão o valor do agregado mudando viraria reavaliação. */
-  if (q1 === q0 && v1 !== v0) return 'reavaliacao';
+  if (q1 === q0 && q1 && v1 !== v0) return 'reavaliacao';   // cota 0: valor mudando não mexe em nada
   if (mexeu) return null;
   return 'sem_efeito';
 }
@@ -1405,7 +1428,7 @@ function confirmaImport(d, arquivo, mesSugerido){
    direto em registradas, sem passar pela fila.
 
    Aqui a movimentação de cada decisão é comparada antes e depois do arquivo novo
-   (Δ, cota, valor, status, ocorrências). Mudou ou sumiu: a decisão sai e o animal
+   (Δ, cota, valor, status). Mudou ou sumiu: a decisão sai e o animal
    volta pra fila. Removida compara a linha da planilha, que é o que ela contesta —
    se o haras corrigiu a linha, a remoção pode não valer mais. Lançamento manual
    não vem do arquivo e fica. Troca ST.meses[mes] por `novo`. */
@@ -1415,8 +1438,12 @@ async function revisaDecisoes(mes, novo){
   const minhas = Object.entries(ST.decisoes)
     .filter(([k, x]) => x && k.startsWith(pre) && !ehManual(k.slice(pre.length)));
   if (!velho || !minhas.length) { ST.meses[mes] = novo; _comisCache = null; return 0; }
+  /* O LOG fica fora: mudar só o texto das ocorrências não muda a movimentação.
+     No V6 de out/26 o haras reescreveu o log do ORFEU MH2 (saíram as duas vendas
+     de 30/10, entrou uma troca de local) com Δ, cota e valor iguais — a venda já
+     registrada voltava pra fila como se fosse nova. */
   const assina = m => JSON.stringify([m.delta, m.cota_ant, m.cota_atual, m.valor_ant, m.valor_atual,
-    norm(m.status), (m.log || []).map(x => norm(x.ocorrencia))]);
+    norm(m.status)]);
   const assinaturas = () => new Map(((movimentacaoDoMes(mes) || {}).movs || []).map(m => [m.chave, assina(m)]));
   const linhaDe = (dd, k) => {
     const l = dd.linhas.find(x => chaveCom(x, dd.ix) === k);
@@ -2009,11 +2036,15 @@ function fichaMov(m){
   if (m.renome) deltas.push(['nome', `${esc(m.renome.de)} → ${esc(m.renome.para)}`]);
   if (m.entrou) deltas.push(['entrada', 'entrou no plantel']);
   if (m.saiu) deltas.push(['saída', 'saiu do controle']);
+  if (m.qtd_recep) deltas.push(['quantidade', `${m.qtd_recep[0] ?? '—'} → ${m.qtd_recep[1] ?? '—'} receptoras`]);
 
   const canc = (m.log || []).map(x => cancelamento(x.ocorrencia)).find(c => c && c.tipo);
   const avisos = [];
-  const grave = m.sem_zerar ? `${m.sem_zerar.status} com ${txtSemZerar(m.sem_zerar)}`
-    + ' na planilha: o haras não zerou' : '';
+  const graves = [];
+  if (m.sem_zerar) graves.push(`${m.sem_zerar.status} com ${txtSemZerar(m.sem_zerar)} na planilha: o haras não zerou`);
+  // receptoras: quantidade mudou e o valor do conjunto não — falta o valor da entrada/saída
+  if (m.qtd_recep && Math.abs(m.delta) < 0.01) graves.push(`a quantidade de receptoras mudou e o valor `
+    + `ficou em ${rs(m.valor_atual)}: o haras não atualizou o valor`);
   if (canc) avisos.push(canc.revenda ? 'venda cancelada e revendido'
     : `${canc.tipo} cancelada (cota ${canc.sentido === 'volta' ? 'volta' : 'sai'})`);
   if (m.posterior) avisos.push(`${m.posterior.length} ocorrência(s) POSTERIOR(es) ao mês `
@@ -2057,7 +2088,7 @@ function fichaMov(m){
     </div>
     ${(m.log || []).map(l => `<p class="ficha-log">${dataBR(l.data)} · ${esc(l.ocorrencia)}</p>`).join('')}
     ${!origem ? '' : `<p class="ficha-log sem-log">${esc(origem)}</p>`}
-    ${!grave ? '' : `<p class="ficha-aviso grave">⚠ ${esc(grave)}</p>`}
+    ${graves.map(g => `<p class="ficha-aviso grave">⚠ ${esc(g)}</p>`).join('')}
     ${avisos.map(a => `<p class="ficha-aviso">⚠ ${esc(a)}</p>`).join('')}
     <div class="ficha-perg">${souEditor ? `
       <span class="ficha-perg-rot${m.sugestao ? '' : ' sem-palpite'}">${m.sugestao
