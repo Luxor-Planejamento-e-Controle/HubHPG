@@ -272,6 +272,11 @@ function effVal(p){ if(hasOv(p))return getOv(p); const k=kByP(p); return k?rawVa
 function snap(){ return SNAPS[semana]||{}; }
 function curWeek(){ return CAL.find(w=>w.id===semana)||null; }
 function br(iso){ if(!iso)return""; const p=iso.split("-"); return p[2]+"/"+p[1]+"/"+p[0].slice(2); }
+// Rótulo da semana = segunda a sexta da semana do fechamento (23/11–27/11/2026).
+// A janela de DADOS (w.ini) continua começando no sábado seguinte ao fechamento
+// anterior: o fim de semana entra na semana seguinte — só o rótulo mudou.
+function seg(iso){ const d=new Date(iso+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7)); return d.toISOString().slice(0,10); }
+function rotSemana(w,sep){ return br(seg(w.fim))+sep+br(w.fim); }
 function g(getter){ try{ return getter(snap()); }catch(e){ return null; } }
 function deltaTxt(s){
   // formato +entradas / −saídas. Vem do diff da população (automático); override
@@ -460,7 +465,7 @@ function findK(p){ for(const s of SECTIONS)for(const k of s.kpis)if(k.p===p)retu
 
 function render(){
   const sel=document.getElementById("semana");
-  sel.innerHTML=CAL.slice().reverse().map(w=>`<option value="${w.id}" ${w.id===semana?"selected":""}>${br(w.ini)}–${br(w.fim)}</option>`).join("");
+  sel.innerHTML=CAL.slice().reverse().map(w=>`<option value="${w.id}" ${w.id===semana?"selected":""}>${rotSemana(w,"–")}</option>`).join("");
   document.getElementById("sections").innerHTML = SECTIONS.map(sec=>{
     // KPI com skip() só aparece nas semanas em que faz sentido (ex.: a safra que
     // começa, que não existia nas semanas congeladas antes da transição)
@@ -584,7 +589,7 @@ async function capturar(){
   const per=document.createElement("div");
   per.className="cap-per";
   per.innerHTML=`<span class="rot">Semana de referência</span>`+
-    (w? `${br(w.ini)} a ${br(w.fim)}` : (semana||""));
+    (w? rotSemana(w," a ") : (semana||""));
   clone.querySelector(".toolbar")?.replaceWith(per);
   clone.querySelectorAll(".det-b").forEach(d=>{           // tabela inteira, sem scroll
     d.style.maxHeight="none"; d.style.overflow="visible";

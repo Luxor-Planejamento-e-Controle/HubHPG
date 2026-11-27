@@ -495,6 +495,15 @@ def _latest_estacao_master() -> Path:
             "Nenhum '*ESTACAO DE MONTA*.xlsx' (estacao de monta) em: "
             + " | ".join(str(d) for d in dirs))
     editar = [f for f in cands if "EDITAR" in f.name.upper()] or cands
+    # Cópia de mês FUTURO fica fora: em 27/11/2026 o '261201_ EDITAR' (dezembro, sem
+    # as linhas 956/551 de 16/11) foi salvo em 25/11, ganhou do '261101_..._NOV' no
+    # mtime e o acumulado no mês caiu de 3 para 1. O prefixo AAMMDD diz o mês da cópia;
+    # vale a de mês até o do fechamento. Sem prefixo legível, continua candidata.
+    ref = date.fromisoformat(_SEMANA_EM_CURSO) if _SEMANA_EM_CURSO else date.today()
+    def _mes_ok(f):
+        m = re.match(r"(\d{2})(\d{2})\d{2}", f.name)
+        return not m or (2000 + int(m[1]), int(m[2])) <= (ref.year, ref.month)
+    editar = [f for f in editar if _mes_ok(f)] or editar
     return _registra_fonte("estacao de monta", max(editar, key=lambda f: f.stat().st_mtime))
 
 
@@ -1730,14 +1739,10 @@ COL_MENSAL_OBS = 24
 # aparece em lista de venda nenhuma (ORIANA segue PLANTEL, o embrião da JAVA não está
 # marcado vendido, a OPALA já foi entregue). Nome do cliente fica fora: repo público.
 # Atualizada em 19/11/2026: lotes 05 (JAVA, embrião) e 15 (LEVADA) assinados.
+# Zerada em 27/11/2026 a pedido do Arthur (saíram 17 OMEGA, 18 ORIANA, 22 PITAYA e
+# 24 OPALA). Lista vazia = a tabela some do painel e a OBS das linhas também.
 # (lote, animal, categoria, pendência)
-CONTRATOS_PENDENTES = [
-    ("17","OMEGA DO ATLANTICO SUL DA PAO GRANDE", "POTRA", "assinatura do Gian (testemunha)"),
-    ("18", "ORIANA DA PAO GRANDE", "POTRA",
-     "assinatura do comprador nos 2 contratos (cota Carla e cota Eduardo)"),
-    ("22", "PITAYA DA PAO GRANDE", "POTRA", "assinatura do Gian (testemunha)"),
-    ("24", "OPALA DA PAO GRANDE", "POTRO", "assinatura do Gian (testemunha)"),
-]
+CONTRATOS_PENDENTES = []
 # OBS na linha do animal. Embrião fica fora: o nome dele é o da doadora, e a JAVA
 # doadora ganharia a pendência do embrião.
 CONTRATO_NAO_ASSINADO = {nome: pend for _, nome, cat, pend in CONTRATOS_PENDENTES
