@@ -2739,6 +2739,19 @@ def _roster_congelado(semana: str) -> list:
     return []
 
 
+# Receptora comprada ainda sem número: a MOVIMENTAÇÕES escreve 'RECEPTORA S/N 1' e a
+# planilha de receptoras 'RECEP 01' (compra de 26/11/2026, três delas). Sem uma chave
+# só, a entrada não achava a receptora, caía como fora da contagem e o Δ saiu +0/-3
+# com as três já somadas no headcount.
+RE_RECEP_SEM_NUMERO = re.compile(r"^(?:RECEP(?:TORA)?|S\s*/?\s*N)\s*0*(\d+)$")
+
+
+def _chave_recep_mov(k: str) -> str:
+    """'RECEP 01' e 'S/N 1' -> 'S/N 1'; receptora numerada passa como veio."""
+    m = RE_RECEP_SEM_NUMERO.match(k)
+    return f"S/N {m[1]}" if m else k
+
+
 def _mapa_receptoras_anterior(semana: str) -> dict:
     """Mapa {receptora: local} da ultima semana congelada antes desta."""
     hist = _load_hist()
@@ -2848,7 +2861,7 @@ def _refina_afeta_headcount(rep: Report):
         for i, r in enumerate(wb2["ANIMAIS"].iter_rows(values_only=True), start=1):
             if i < 4 or r[1] is None:
                 continue
-            rec_local.setdefault(_norm(r[1]), _norm(r[3]))
+            rec_local.setdefault(_chave_recep_mov(_norm(r[1])), _norm(r[3]))
         wb2.close()
     except FileNotFoundError:
         pass
@@ -2856,7 +2869,7 @@ def _refina_afeta_headcount(rep: Report):
     def _fora_da_contagem(nome: str) -> bool:
         n = _norm(_sem_cotista(nome))
         if n.startswith("RECEPTORA"):
-            loc = rec_local.get(n.replace("RECEPTORA ", ""), "")
+            loc = rec_local.get(_chave_recep_mov(n.replace("RECEPTORA ", "")), "")
             return loc not in RECEPTORAS_LOCAIS_ATIVOS
         loc, st = local_de.get(n), status_de.get(n)
         if loc is None:                      # sumiu do controle: saiu
@@ -2871,7 +2884,8 @@ def _refina_afeta_headcount(rep: Report):
     # só FPG <-> ARRENDAMENTO. Contando como entrada, a abertura saía +1/-6 numa
     # semana que é +0/-6.
     roster_ant = set()
-    rec_ant = _mapa_receptoras_anterior(rep.semana_atual)
+    rec_ant = {_chave_recep_mov(_norm(k)): v
+               for k, v in _mapa_receptoras_anterior(rep.semana_atual).items()}
     hist = _load_hist()
     for wid in sorted(hist):
         if wid < rep.semana_atual and hist[wid].get("roster"):
@@ -2880,7 +2894,7 @@ def _refina_afeta_headcount(rep: Report):
     def _era_contado(nome: str) -> bool:
         n = _norm(_sem_cotista(nome))
         if n.startswith("RECEPTORA"):
-            return rec_ant.get(n.replace("RECEPTORA ", ""), "") in RECEPTORAS_LOCAIS_ATIVOS
+            return rec_ant.get(_chave_recep_mov(n.replace("RECEPTORA ", "")), "") in RECEPTORAS_LOCAIS_ATIVOS
         return n in roster_ant
 
     saidas = (rep.detalhe.get("saidas_diff") or []) + (rep.detalhe.get("saidas_plantel") or [])
@@ -3732,6 +3746,14 @@ def _conferir_delta(rep: Report):
                .get("TOTAL GERAL") or {}).get("receptoras")
     rec_cur = ((rep.headcount.get("detalhe") or {}).get("TOTAL GERAL") or {}).get("receptoras")
     var_rec = (rec_cur - rec_ant) if None not in (rec_ant, rec_cur) else 0
+    # Receptora que JÁ está na abertura (afeta_headcount) não entra de novo pela
+    # variação: as 3 compradas em 26/11/2026 davam '+3/-3 +3 receptora(s)'.
+    def _recep_na_abertura(lst):
+        return sum(1 for x in lst or [] if x.get("afeta_headcount")
+                   and _norm(x.get("animal")).startswith("RECEPTORA"))
+    var_rec -= (_recep_na_abertura(rep.detalhe.get("entradas_diff"))
+                - _recep_na_abertura((rep.detalhe.get("saidas_diff") or [])
+                                     + (rep.detalhe.get("saidas_plantel") or [])))
     if ent + nascidos - sai + var_rec != delta:
         extra = f" + {nascidos} nascimento(s)" if nascidos else ""
         extra += f" {var_rec:+d} receptora(s)" if var_rec else ""
